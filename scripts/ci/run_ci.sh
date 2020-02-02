@@ -26,6 +26,8 @@ if [ ! -d "${BSIM_OUT_PATH}" ]; then
         unset BSIM_OUT_PATH
 fi
 export BSIM_COMPONENTS_PATH="${BSIM_OUT_PATH}/components/"
+export EDTT_PATH="${EDTT_PATH:-../tools/edtt}"
+
 bsim_bt_test_results_file="./bsim_bt_out/bsim_results.xml"
 west_commands_results_file="./pytest_out/west_commands.xml"
 
@@ -124,7 +126,7 @@ function on_complete() {
 function run_bsim_bt_tests() {
 	WORK_DIR=${ZEPHYR_BASE}/bsim_bt_out tests/bluetooth/bsim_bt/compile.sh
 	RESULTS_FILE=${ZEPHYR_BASE}/${bsim_bt_test_results_file} \
-	SEARCH_PATH=tests/bluetooth/bsim_bt/bsim_test_app/tests_scripts \
+	SEARCH_PATH=tests/bluetooth/bsim_bt/ \
 	tests/bluetooth/bsim_bt/run_parallel.sh
 }
 

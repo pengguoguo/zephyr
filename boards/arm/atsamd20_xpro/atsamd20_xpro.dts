@@ -48,9 +48,10 @@
 	status = "okay";
 	compatible = "atmel,sam0-spi";
 	dipo = <0>;
-	dopo = <2>;
+	dopo = <1>;
 	#address-cells = <1>;
 	#size-cells = <0>;
+	cs-gpios = <&porta 5 0>;
 };
 
 &sercom3 {

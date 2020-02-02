@@ -1,6 +1,6 @@
 # Bluetooth LE stack configuration options
 
-# Copyright (c) 2016-2017 Nordic Semiconductor ASA
+# Copyright (c) 2016-2020 Nordic Semiconductor ASA
 # Copyright (c) 2015-2016 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
@@ -320,6 +320,16 @@ config BT_SIGNING
 	  This option enables data signing which is used for transferring
 	  authenticated data in an unencrypted connection.
 
+config BT_SMP_APP_PAIRING_ACCEPT
+	bool "Accept or reject pairing initiative"
+	help
+	  When receiving pairing request or pairing response query the
+	  application whether to accept to proceed with pairing or not. This is
+	  for pairing over SMP and does not affect SSP, which will continue
+	  pairing without querying the application.
+	  The application can return an error code, which is translated into
+	  a SMP return value if the pairing is not allowed.
+
 config BT_SMP_SC_PAIR_ONLY
 	bool "Disable legacy pairing"
 	help
@@ -540,6 +550,13 @@ config BT_TINYCRYPT_ECC
 	  Connections so that Hosts can make use of those. The option defaults
 	  to enabled for a combined build with Zephyr's own controller, since it
 	  does not have any special ECC support itself (at least not currently).
+
+config BT_HOST_CCM
+	bool "Enable host side AES-CCM module"
+	help
+	  Enables the software based AES-CCM engine in the host. Will use the
+	  controller's AES encryption functions if available, or BT_HOST_CRYPTO
+	  otherwise.
 
 if BT_DEBUG
 config BT_DEBUG_SETTINGS

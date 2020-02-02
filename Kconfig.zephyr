@@ -45,6 +45,7 @@ source "subsys/Kconfig"
 
 source "ext/Kconfig"
 
+osource "$(TOOLCHAIN_KCONFIG_DIR)/Kconfig"
 
 menu "Build and Link Features"
 
@@ -353,6 +354,12 @@ config APPLICATION_DEFINED_SYSCALL
 	help
 	  Scan additional folders inside application source folder
 	  for application defined syscalls.
+
+config MAKEFILE_EXPORTS
+	bool "Generate build metadata files named Makefile.exports"
+	help
+	  Generates a file with build information that can be read by
+	  third party Makefile-based build systems.
 
 endmenu
 endmenu
