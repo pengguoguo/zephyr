@@ -5,10 +5,11 @@
 Zephyr 2.2.0 (Working Draft)
 ############################
 
-We are pleased to announce the release of Zephyr kernel version 2.2.0.
+We are pleased to announce the release of Zephyr RTOS version 2.2.0.
 
 Major enhancements with this release include:
 
+* We added initial support for 64-bit ARMv8-A architecture (Experimental).
 * CANopen protocol support through 3rd party CANopenNode stack
 
 The following sections provide detailed lists of changes by component.
@@ -30,6 +31,57 @@ Deprecated in this release
 
 Stable API changes in this release
 ==================================
+
+* GPIO
+
+  * GPIO API has been reworked to support flags known from Linux DTS GPIO
+    bindings. They will typically be defined in the board DTS file
+
+    - GPIO_ACTIVE_LOW, GPIO_ACTIVE_HIGH used to set pin active level
+    - GPIO_OPEN_DRAIN, GPIO_OPEN_SOURCE used to configure pin as open drain or
+      open source
+    - GPIO_PULL_UP, GPIO_PULL_DOWN used to configure pin bias
+
+  * Reading / writing of pin logical level is supported by gpio_pin_get,
+    gpio_pin_set functions.
+  * Reading / writing of pin physical level is supported by gpio_pin_get_raw,
+    gpio_pin_set_raw functions.
+  * New set of port functions that operate simultaneously on multiple pins
+    that belong to the same controller.
+  * Interrupts should be configured by a dedicated
+    gpio_pin_interrupt_configure() function. Configuring interrupts via
+    gpio_pin_configure() is still supported but this feature will be removed
+    in future releases.
+  * New set of flags allows to set arbitrary interrupt configuration (if
+    supported by the driver) based on pin physical or logical levels.
+  * New set of flags to configure pin as input, output or in/out as well as set
+    output initial state.
+  * Majority of the old GPIO API has been deprecated. While the care was taken
+    to preserve backward compatibility due to the scope of the work it was not
+    possible to fully achieve this goal. We recommend to switch to the new GPIO
+    API as soon as possible.
+  * Areas where the deprecated API may behave differently to the original old
+    implementation are:
+
+    - Configuration of pin interrupts, especially involving GPIO_INT_ACTIVE_LOW
+      and GPIO_POL_INV flags.
+    - Behavior of gpio_pin_configure() when invoked without interrupt related
+      flags. In the new implementation of this deprecated functionality the
+      interrupts remain unmodified. In the original implementation some of the
+      GPIO drivers would disable the interrupts.
+
+  * Several drivers that rely on the functionality provided by the GPIO API
+    were reworked to honor pin active level. Any external users of these
+    drivers will have to update their DTS board files.
+
+    - bluetooth/hci/spi.c
+    - display/display_ili9340.c
+    - display/ssd1306.c
+    - ieee802154/ieee802154_mcr20a.c
+    - ieee802154/ieee802154_rf2xx.c
+    - lora/sx1276.c
+    - wifi/eswifi/eswifi_core.c
+    - majority of the sensor drivers
 
 * PWM
 
@@ -61,6 +113,11 @@ Stable API changes in this release
     Usage of 8-bit write block size emulation is only recommended for
     compatibility with older storage contents.
 
+* Clock control
+
+  * The callback prototype (clock_control_cb_t) has now additional argument
+    (clock_control_subsys_t) indicating which clock subsystem got started.
+
 Removed APIs in this release
 ============================
 
@@ -88,15 +145,28 @@ Architectures
 
 * ARM:
 
-  * Removed support for CC2650
+  * Added initial support for ARMv8-A 64-bit architecture (Experimental)
+  * Added support for Direct Dynamic Interrupts in ARM Cortex-M
+  * Fixed several critical bugs in ARM Cortex-R architecture port
+  * Fixed several critical bugs in Stack Limit checking for ARMv8-M
+  * Added QEMU emulation support for ARM Cortex-A53
+  * Enhanced QEMU emulation support for ARM Cortex-R architecture
+  * Enhanced test coverage for ARM-specific kernel features
+  * Added support for GIC SGI and PPI interrupt types
+  * Refactored GIC driver to support multiple GIC versions
 
 * POSIX:
 
-  * <TBD>
+  * N/A
 
 * RISC-V:
 
-  * <TBD>
+  * Added GPIO driver for LiteX VexRiscv
+  * Fixed Ethernet networking for LiteX VexRiscv
+  * Added Programmable Interrupt Controller support for SweRV
+  * Fixed invalid channel bug for RV32M1 interrupt controller
+  * Added PWM support for RV32M1
+  * Optimized reads of MTIME/MTIMECMP on 64-bit RISC-V
 
 * x86:
 
@@ -109,19 +179,59 @@ Boards & SoC Support
 
 .. rst-class:: rst-columns
 
-   * <TBD>
+   * Atmel SAM4E
+   * Atmel SAMV71
+   * Broadcom BCM58400
+   * NXP i.MX RT1011
+   * Silicon Labs EFM32GG11B
+   * Silicon Labs EFM32JG12B
+   * ST STM32F098xx
+   * ST STM32F100XX
+   * ST STM32F767ZI
+   * ST STM32L152RET6
+   * ST STM32L452XC
+   * ST STM32G031
+
 
 * Added support for these ARM boards:
 
   .. rst-class:: rst-columns
 
-     * <TBD>
+   * Atmel SAM 4E Xplained Pro
+   * Atmel SAM E54 Xplained Pro
+   * Atmel SAM V71 Xplained Ultra
+   * Broadcom BCM958401M2
+   * Cortex-A53 Emulation (QEMU)
+   * Google Kukui EC
+   * NXP i.MX RT1010 Evaluation Kit
+   * Silicon Labs EFM32 Giant Gecko GG11
+   * Silicon Labs EFM32 Jade Gecko
+   * ST Nucleo F767ZI
+   * ST Nucleo G474RE
+   * ST Nucleo L152RE
+   * ST Nucleo L452RE
+   * ST STM32G0316-DISCO Discovery kit
+   * ST STM32VLDISCOVERY
+
+* Removed support for these ARM boards:
+
+  .. rst-class:: rst-columns
+
+     * TI CC2650
+
 
 * Added support for these following shields:
 
   .. rst-class:: rst-columns
 
-     * <TBD>
+     * ST7789V Display generic shield
+     * TI LMP90100 Sensor Analog Frontend (AFE) Evaluation Board (EVB)
+
+* Removed support for these following shields:
+
+  .. rst-class:: rst-columns
+
+     * Link board CAN
 
 Drivers and Sensors
 *******************
@@ -136,7 +246,8 @@ Drivers and Sensors
 
 * CAN
 
-  * <TBD>
+  * Support for CAN_2 on STM32, but no simultaneous use of CAN_1 and CAN_2.
+  * Support for STM32F3 and STM32F4 series
 
 * Clock Control
 
@@ -162,7 +273,8 @@ Drivers and Sensors
 
 * EEPROM
 
-  * <TBD>
+  * Added EEPROM driver for STM32L0 and STM32L1 SoC series
+  * Added EEPROM simulator (replacing native_posix EEPROM driver)
 
 * Entropy
 
@@ -170,7 +282,7 @@ Drivers and Sensors
 
 * Ethernet
 
-  * <TBD>
+  * Support for SiLabs Giant Gecko GG11 Ethernet driver
 
 * Flash
 
@@ -194,7 +306,7 @@ Drivers and Sensors
 
 * IEEE 802.15.4
 
-  * <TBD>
+  * Add support for IEEE 802.15.4 rf2xxx driver
 
 * Interrupt Controller
 
@@ -212,9 +324,14 @@ Drivers and Sensors
 
   * <TBD>
 
+* LoRa
+
+  * Added APIs and drivers needed to support LoRa technology by reusing the
+    LoRaMac-node library.
+
 * Modem
 
-  * <TBD>
+  * Add support for generic GSM modem
 
 * Pinmux
 
@@ -263,7 +380,49 @@ Drivers and Sensors
 Networking
 **********
 
-* <TBD>
+* Add support to configure OpenThread Sleepy End Device (SED)
+* Add 64-bit support to net_buf APIs
+* Add support for IEEE 802.15.4 rf2xxx driver
+* Add TLS secure renegotiation support
+* Add support for Timestamp and Record Route IPv4 options.
+  They are only used for ICMPv4 Echo-Request packets.
+* Add sample cloud application that shows how to connect to Azure cloud
+* Add optional timestamp resource to some of the LWM2M IPSO objects
+* Add support to poll() which can now return immediately when POLLOUT is set
+* Add support to PPP for enabling connection setup to Windows
+* Add signed certificate support to echo-server sample application
+* Add support for handling multiple simultaneous mDNS requests
+* Add support for SiLabs Giant Gecko GG11 Ethernet driver
+* Add support for generic GSM modem which uses PPP to connect to data network
+* Add UTC offset and timezone support to LWM2M
+* Add RX time statistics support to packet socket
+* Update ACK handling in IEEE 802.154 nrf5 driver and OpenThread
+* Update MQTT PINGREQ count handling
+* Update wpan_serial sample to support more boards
+* Update Ethernet e1000 driver debugging prints
+* Update OpenThread to use settings subsystem
+* Update IPv6 to use interface prefix in routing
+* Update socket offloading support to support multiple registered interfaces
+* Fix checks when waiting network interface to come up in configuration
+* Fix zperf sample issue when running out of network buffers
+* Fix PPP IPv4 Control Protocol (IPCP) handling
+* Fix native_posix Ethernet driver to read data faster
+* Fix PPP option handling
+* Fix MQTT to close connection faster
+* Fix 6lo memory corruption during uncompression
+* Fix echo-server sample application accept handling
+* Fix Websocket to receive data in small chunks
+* Fix Virtual LAN (VLAN) support to add link local address to network interface
+* Various fixes to new TCP stack implementation
+* Remove NATS sample application
+
+CAN Bus
+*******
+
+* CANopen protocol support through 3rd party CANopenNode stack.
+* Added native ISO-TP subsystem.
+* Introduced CAN-PRIMARY alias.
+* SocketCAN for MCUX flexcan.
 
 Bluetooth
 *********
@@ -294,9 +453,10 @@ Build and Infrastructure
 Libraries / Subsystems
 ***********************
 
-* Random
+* LoRa
 
-  * <TBD>
+  * LoRa support was added through official LoRaMac-node reference
+    implementation.
 
 HALs
 ****

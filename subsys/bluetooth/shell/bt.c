@@ -1633,6 +1633,7 @@ static int cmd_wl_clear(const struct shell *shell, size_t argc, char *argv[])
 	return 0;
 }
 
+#if defined(CONFIG_BT_CENTRAL)
 static int cmd_wl_connect(const struct shell *shell, size_t argc, char *argv[])
 {
 	int err;
@@ -1656,6 +1657,7 @@ static int cmd_wl_connect(const struct shell *shell, size_t argc, char *argv[])
 
 	return 0;
 }
+#endif /* CONFIG_BT_CENTRAL */
 #endif /* defined(CONFIG_BT_WHITELIST) */
 
 #if defined(CONFIG_BT_FIXED_PASSKEY)
@@ -1713,7 +1715,7 @@ static int cmd_auth_passkey(const struct shell *shell,
 #define HELP_ADDR_LE "<address: XX:XX:XX:XX:XX:XX> <type: (public|random)>"
 
 SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
-	SHELL_CMD_ARG(init, NULL, HELP_ADDR_LE, cmd_init, 1, 0),
+	SHELL_CMD_ARG(init, NULL, HELP_NONE, cmd_init, 1, 0),
 #if defined(CONFIG_BT_HCI)
 	SHELL_CMD_ARG(hci-cmd, NULL, "<ogf> <ocf> [data]", cmd_hci_cmd, 3, 1),
 #endif
@@ -1782,7 +1784,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(bt_cmds,
 	SHELL_CMD_ARG(wl-add, NULL, HELP_ADDR_LE, cmd_wl_add, 3, 0),
 	SHELL_CMD_ARG(wl-rem, NULL, HELP_ADDR_LE, cmd_wl_rem, 3, 0),
 	SHELL_CMD_ARG(wl-clear, NULL, HELP_NONE, cmd_wl_clear, 1, 0),
+#if defined(CONFIG_BT_CENTRAL)
 	SHELL_CMD_ARG(wl-connect, NULL, "<on, off>", cmd_wl_connect, 2, 0),
+#endif /* CONFIG_BT_CENTRAL */
 #endif /* defined(CONFIG_BT_WHITELIST) */
 #if defined(CONFIG_BT_FIXED_PASSKEY)
 	SHELL_CMD_ARG(fixed-passkey, NULL, "[passkey]", cmd_fixed_passkey,

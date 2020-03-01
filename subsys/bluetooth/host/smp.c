@@ -1761,6 +1761,9 @@ static void smp_reset(struct bt_smp *smp)
 	}
 }
 
+/* Note: This function not only does set the status but also calls smp_reset
+ * at the end which clears any flags previously set.
+ */
 static void smp_pairing_complete(struct bt_smp *smp, u8_t status)
 {
 	BT_DBG("status 0x%x", status);
@@ -1816,9 +1819,12 @@ static void smp_timeout(struct k_work *work)
 
 	BT_ERR("SMP Timeout");
 
-	atomic_set_bit(smp->flags, SMP_FLAG_TIMEOUT);
-
 	smp_pairing_complete(smp, BT_SMP_ERR_UNSPECIFIED);
+
+	/* smp_pairing_complete clears flags so setting timeout flag must come
+	 * after it.
+	 */
+	atomic_set_bit(smp->flags, SMP_FLAG_TIMEOUT);
 }
 
 static void smp_send(struct bt_smp *smp, struct net_buf *buf,
@@ -2357,6 +2363,19 @@ static u8_t legacy_pairing_random(struct bt_smp *smp)
 		}
 
 		atomic_set_bit(smp->flags, SMP_FLAG_ENC_PENDING);
+
+		if (IS_ENABLED(CONFIG_BT_SMP_USB_HCI_CTLR_WORKAROUND)) {
+			if (smp->remote_dist & BT_SMP_DIST_ENC_KEY) {
+				atomic_set_bit(&smp->allowed_cmds,
+					       BT_SMP_CMD_ENCRYPT_INFO);
+			} else if (smp->remote_dist & BT_SMP_DIST_ID_KEY) {
+				atomic_set_bit(&smp->allowed_cmds,
+					       BT_SMP_CMD_IDENT_INFO);
+			} else if (smp->remote_dist & BT_SMP_DIST_SIGN) {
+				atomic_set_bit(&smp->allowed_cmds,
+					       BT_SMP_CMD_SIGNING_INFO);
+			}
+		}
 
 		return 0;
 	}
@@ -4084,6 +4103,17 @@ static u8_t smp_dhkey_check(struct bt_smp *smp, struct net_buf *buf)
 		}
 
 		atomic_set_bit(smp->flags, SMP_FLAG_ENC_PENDING);
+
+		if (IS_ENABLED(CONFIG_BT_SMP_USB_HCI_CTLR_WORKAROUND)) {
+			if (smp->remote_dist & BT_SMP_DIST_ID_KEY) {
+				atomic_set_bit(&smp->allowed_cmds,
+					       BT_SMP_CMD_IDENT_INFO);
+			} else if (smp->remote_dist & BT_SMP_DIST_SIGN) {
+				atomic_set_bit(&smp->allowed_cmds,
+					       BT_SMP_CMD_SIGNING_INFO);
+			}
+		}
+
 		return 0;
 	}
 
@@ -4324,6 +4354,14 @@ static void bt_smp_encrypt_change(struct bt_l2cap_chan *chan,
 	if (IS_ENABLED(CONFIG_BT_CENTRAL) &&
 	    conn->role == BT_HCI_ROLE_MASTER && smp->remote_dist) {
 		return;
+	}
+
+	if (IS_ENABLED(CONFIG_BT_TESTING)) {
+		/* Avoid the HCI-USB race condition where HCI data and
+		 * HCI events can be re-ordered, and pairing information appears
+		 * to be sent unencrypted.
+		 */
+		k_sleep(K_MSEC(100));
 	}
 
 	if (bt_smp_distribute_keys(smp)) {
@@ -5402,6 +5440,11 @@ int bt_smp_init(void)
 	if (IS_ENABLED(CONFIG_BT_SMP_SC_PAIR_ONLY) && !sc_supported) {
 		BT_ERR("SC Pair Only Mode selected but LE SC not supported");
 		return -ENOENT;
+	}
+
+	if (IS_ENABLED(CONFIG_BT_SMP_USB_HCI_CTLR_WORKAROUND)) {
+		BT_WARN("BT_SMP_USB_HCI_CTLR_WORKAROUND is enabled, which "
+			"exposes a security vulnerability!");
 	}
 
 	BT_DBG("LE SC %s", sc_supported ? "enabled" : "disabled");
