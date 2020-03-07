@@ -11,13 +11,22 @@ Major enhancements with this release include:
 
 * We added initial support for 64-bit ARMv8-A architecture (Experimental).
 * CANopen protocol support through 3rd party CANopenNode stack
+* LoRa support was added through integration of the Semtech LoRaWAN endpoint
+  stack and addition of a new SX1276 LoRa modem driver.
 
 The following sections provide detailed lists of changes by component.
 
 Security Vulnerability Related
 ******************************
 
-No security vulnerabilities received.
+The following security vulnerabilities (CVEs) were addressed in this release:
+
+  * Fix CVE-2020-10019
+  * Fix CVE-2020-10020
+  * Fix CVE-2020-10021
+
+More detailed information can be found in:
+https://docs.zephyrproject.org/latest/security/vulnerabilities.html
 
 API Changes
 ***********
@@ -134,7 +143,33 @@ Removed APIs in this release
 Kernel
 ******
 
-* <TBD>
+* Addressed some race conditions observed on SMP-enabled systems
+* Propagate a distinct error code if a workqueue item is submitted that
+  has already been completed
+* Disable preemption when handing fatal errors
+* Fix an issue with the sytsem call stack frame if the system call is
+  preempted and then later tries to Z_OOPS()
+* add k_thread_stack_space_get() system call for analyzing thread stack
+  space. Older methods which had problems in some cases or on some
+  architectures like STACK_ANALYZE() are now deprecated.
+* Many kernel object APIs now optionally return runtime error values
+  instead of relying on assertions. Whether these return values, fail
+  assertions, or do no checking at all is controlled by the new
+  Kconfig options ASSERT_ON_ERRORS, NO_RUNTIME_CHECKS, RUNTIME_ERROR_CHECKS.
+* Cleanups to the arch_cpu_start() API
+* Spinlock validation now dumps the address of the incorrectly used spinlock
+* Various improvements to the assertion mechanism
+* k_poll() may be passed 0 events, in which case it just puts the caller to
+  sleep
+* Add k_thread_foreach_unlocked() API
+* Add an assertion if k_sleep() is called from an ISR
+* Numerous 64-bit fixes, mostly related to data type sizes
+* k_mutex_unlock() is now correctly a rescheduling point
+* Calling k_thread_suspend() on the current thread now correctly invokes
+  the scheduler
+* Calling k_thread_suspend() on any thread cancels any pending timeouts for
+  that thread
+* Fix edge case in meta-IRQ preemption of co-operative threads
 
 Architectures
 *************
@@ -161,16 +196,23 @@ Architectures
 
 * RISC-V:
 
-  * Added GPIO driver for LiteX VexRiscv
-  * Fixed Ethernet networking for LiteX VexRiscv
-  * Added Programmable Interrupt Controller support for SweRV
-  * Fixed invalid channel bug for RV32M1 interrupt controller
-  * Added PWM support for RV32M1
-  * Optimized reads of MTIME/MTIMECMP on 64-bit RISC-V
+  * N/A
 
 * x86:
 
-  * <TBD>
+  * Fix an issue with Kconfig values larger than INT_MAX
+  * Fix an issue where callee-saved registers could be unnecessarily
+    saved on the stack when handling exceptions on x86_64
+  * Fix a potential race with saving RFLAGS on context switch on x86_64
+  * Enable 64-bit mode and X2APIC for the 'acrn' target
+  * Add a poison value of 0xB9 to RIP if a thread is dispatched on multiple
+    cores
+  * Implement CONFIG_USERSPACE on x86_64
+  * Fix an issue where reserved memory could be overwritten when loading the
+    Zephyr image on qemu_x86_64
+  * x86_64 will now exit QEMU when encountering a fatal error, much like
+    32-bit already does
+  * Cleanups and improvements to exception debug messages
 
 Boards & SoC Support
 ********************
@@ -191,7 +233,13 @@ Boards & SoC Support
    * ST STM32L152RET6
    * ST STM32L452XC
    * ST STM32G031
+   * Intel Apollolake Audio DSP
 
+* Added support for these Xtensa boards:
+
+  .. rst-class:: rst-columns
+
+   * Up Squared board Audio DSP
 
 * Added support for these ARM boards:
 
@@ -238,38 +286,62 @@ Drivers and Sensors
 
 * ADC
 
-  * <TBD>
+  * Added LMP90xxx driver with GPIO
+
+* Audio
+
+  * N/A
 
 * Bluetooth
 
-  * <TBD>
+  * Update SPI driver to new GPIO API
+  * Minor fixes to H:5 (Three-wire UART) driver
 
 * CAN
 
   * Support for CAN_2 on STM32, but no simultaneous use of CAN_1 and CAN_2.
   * Support for STM32F3 and STM32F4 series
+  * Added SocketCAN support to mcux flexcan driver
+  * Fixed bit timing conversion in stm32 driver
+  * Introduced can-primary device tree alias
 
 * Clock Control
 
-  * <TBD>
+  * Modified driver for nRF platform to use single device with multiple
+    subsystems, one for each clock source.
 
 * Console
 
-  * <TBD>
+  * N/A
 
 * Counter
 
   * The counter_read() API function is deprecated in favor of
     counter_get_value(). The new API function adds a return value for
     indicating whether the counter was read successfully.
+  * Added missing syscalls
+
+* Crypto
+
+  * Added AES GCM, ECB, and CBC support to crypto_mtls_shim
+  * Added stm32 CRYP driver
+
+* Debug
+
+  * N/A
 
 * Display
 
-  * <TBD>
+  * Added generic display driver sample
+  * Added support for BGR565 pixel format
+  * Added support for LVGL v6.1
+  * Introduced KSCAN based ft5336 touch panel driver
+  * Added support for LVGL touch input device
 
 * DMA
 
-  * <TBD>
+  * dw: renaming cavs drivers into DesignWare
+  * stm32: improvements over channels support
 
 * EEPROM
 
@@ -278,31 +350,50 @@ Drivers and Sensors
 
 * Entropy
 
-  * <TBD>
+  * Added support for sam0
+  * Added LiteX PRBS module driver
+
+* ESPI
+
+  * N/A
 
 * Ethernet
 
   * Support for SiLabs Giant Gecko GG11 Ethernet driver
+  * Fixed Ethernet networking for LiteX VexRiscv
 
 * Flash
 
-  * <TBD>
+  * Added Nordic JEDEC QSPI NOR flash driver
+  * Unified native_posix flash driver with drivers/flash/flash_simulator
+  * fixed: erase native_posix flash in initialization
+  * extend MCUX flash drive to support LPC55xxx devices
+  * stm32: Replace register accesses for Flash driver to use STM32Cube
+  * Nios2: qspi unaligned read support
+  * sam0: Add support for SAME54
+  * Added the flash driver of the stm32f1x family
 
 * GPIO
 
-  * <TBD>
+  * Updated all drivers to the new API
+  * Added LiteX GPIO driver
 
 * Hardware Info
 
-  * <TBD>
+  * N/A
 
 * I2C
 
-  * <TBD>
+  * Enabled interrupts by default in stm32 driver
+  * Added I2C shell with scan command
+  * Added LiteX I2C controller driver
+  * Added STM32G0X support to stm32 driver
+  * Added support for bus idle timeout property to mcux lpspi driver
+  * Added support for SAME54 to sam0 driver
 
 * I2S
 
-  * <TBD>
+  * N/A
 
 * IEEE 802.15.4
 
@@ -310,19 +401,26 @@ Drivers and Sensors
 
 * Interrupt Controller
 
-  * <TBD>
+  * Added support for multiple GIC versions
+  * Renamed s1000 driver to cavs
+  * Added SweRV Programmable Interrupt Controller driver
+  * Fixed invalid channel bug for RV32M1 interrupt controller
 
 * IPM
 
-  * <TBD>
+  * N/A
 
 * Keyboard Scan
 
-  * <TBD>
+  * Added ft5336 touch panel driver
 
 * LED
 
-  * <TBD>
+  * N/A
+
+* LED Strip
+
+  * Fixed up ws2812 driver
 
 * LoRa
 
@@ -333,49 +431,82 @@ Drivers and Sensors
 
   * Add support for generic GSM modem
 
+* Neural Net
+
+  * N/A
+
+* PCIe
+
+  * N/A
+
 * Pinmux
 
-  * <TBD>
+  * Removed CC2650 driver
 
 * PS/2
 
-  * <TBD>
+  * N/A
+
+ * PTP Clock
+
+   * N/A
 
 * PWM
 
-  * <TBD>
+  * Added RV32M1 timer/PWM driver
+  * Added LiteX PWM peripheral driver
+  * Added support for intverted PWM signals
 
 * Sensor
 
-  * <TBD>
+  * Fixed DRDY interrupt in lis3mdl driver
+  * Added nxp kinetis temperature sensor driver
+  * Reworked ccs811 driver
+  * Fixed tmp007 driver to use i2c_burst_read
+  * Introduced sensor shell module
+  * Added ms5607 driver
 
 * Serial
 
-  * <TBD>
+  * nRF UARTE driver support TX only mode with receiver permanently disabled.
+  * Enabled shared interrupts support in uart_pl011 driver
+  * Implemented configure API in ns16550 driver
+  * Removed cc2650 driver
+  * Added async API system calls
 
 * SPI
 
-  * <TBD>
+  * Added support for samv71 to sam driver
+  * Added support for same54 support to sam0 driver
+  * Added PM busy state support in DW driver
+  * Added Gecko SPI driver
+  * Added mcux flexcomm driver
 
 * Timer
 
-  * <TBD>
+  * Optimized reads of MTIME/MTIMECMP on 64-bit RISC-V
+  * Added per-core ARM architected timer driver
+  * Added support for same54 to sam0 rtc timer driver
 
 * USB
 
-  * <TBD>
+  * Add support for SAMV71 SoC
+  * Add support for SAME54 SoC
+  * Extend USB device support to all NXP IMX RT boards
 
 * Video
 
-  * <TBD>
+  * N/A
 
 * Watchdog
 
-  * <TBD>
+  * Added SiLabs Gecko watchdog driver
+  * Added system calls
+  * Fixed callback call on stm32 wwdg enable
 
 * WiFi
 
-  * <TBD>
+  * Reworked offloading mechanism in eswifi and simplelink drivers
 
 Networking
 **********
@@ -429,15 +560,63 @@ Bluetooth
 
 * Host:
 
-  * <TBD>
+  * GAP: Add dynamic LE scan listener API
+  * GAP: Pre-allocate connection objects for connectable advertising and
+    whitelist initiator.
+  * GAP: Fixes for multi-identity support
+  * GAP: RPA timeout handling fixes
+  * GAP: Add remote version information
+  * GATT: Add return value to cfg_write callback
+  * L2CAP: move channel processing to the system workqueue
+  * L2CAP: multiple fixes for credit-based flowcontrol
+  * SMP: Add pairing_accept callback
+  * SMP: Fix Security Manager timeout handling
+
+* Mesh:
+
+  * Add support for Mesh Configuration Database
+  * Multiple fixes to Friendship feature
+  * Add support for sending segmented control messages
+  * Add support for sending reliable model publication messages
 
 * BLE split software Controller:
 
-  * <TBD>
+  * Multiple fixes, including all those required to pass qualification
+  * Implemented software-deferred privacy for platforms without built-in
+    address resolution support
+  * Added dynamic TX power control, including a set of vendor-specific commands
+    to read and write the TX power
+  * Added a Kconfig option, BT_CTLR_PARAM_CHECK, to enable addtional parameter
+    checking
+  * Added basic support for SMI (Stable Modulation Index)
+  * Ticker: Implemented dynamic rescheduling
+  * Nordic: switched to using a single clock device for clock control
+  * openisa: Added encryption and decryption support
 
 * BLE legacy software Controller:
 
-  * <TBD>
+  * Multiple fixes
+  * Added dynamic TX power control support
+
+USB Device Stack
+****************
+
+* Stack:
+
+  * API: Add support for user device status callback
+  * Rework switching to alternate interface
+  * Make USB Descriptor power options configurable
+  * Derive USB device Serial Number String from HWINFO (required by USB MSC)
+  * Move USB transfer functions to appropriate file as preparation for
+    the rework
+  * Windows OS compatibility: Set USB version to 2.1 when using BOS descriptor
+  * Convert VBUS control to new GPIO API
+
+* Classes:
+
+  * CDC ACM: Memory and performance improvements, avoid ZLP during IN transactions
+  * DFU: Limit upload length during DFU_UPLOAD to the request buffer size
+  * Loopback: Re-trigger usb_write after interface configuration event
 
 Build and Infrastructure
 ************************
@@ -458,6 +637,14 @@ Libraries / Subsystems
   * LoRa support was added through official LoRaMac-node reference
     implementation.
 
+* Logging
+
+  * Improvements in immediate mode: less interrupts locking, better RTT usage,
+    logging from thread context.
+  * Improved notification about missing log_strdup.
+
+* mbedTLS updated to 2.16.4
+
 HALs
 ****
 
@@ -467,12 +654,14 @@ HALs
 Documentation
 *************
 
-* <TBD>
+* settings: include missing API subgoups into the documentation
+* Documentation for new boards and samples.
+* Improvements and clarity of API documentation.
 
 Tests and Samples
 *****************
 
-* <TBD>
+* Added sample for show settings subsystem API usage
 
 Issue Related Items
 *******************
