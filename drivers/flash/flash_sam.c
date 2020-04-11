@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT soc_nv_flash
+
 #include <device.h>
 #include <drivers/flash.h>
 #include <init.h>
@@ -30,7 +32,7 @@ LOG_MODULE_REGISTER(flash_sam0);
  * We only use block mode erases. The datasheet gives a maximum erase time
  * of 200ms for a 8KiB block.
  */
-#define SAM_FLASH_TIMEOUT (K_MSEC(220))
+#define SAM_FLASH_TIMEOUT_MS 220
 
 struct flash_sam_dev_cfg {
 	Efc *regs;
@@ -85,7 +87,7 @@ static int flash_sam_wait_ready(struct device *dev)
 {
 	Efc *const efc = DEV_CFG(dev)->regs;
 
-	u64_t timeout_time = k_uptime_get() + SAM_FLASH_TIMEOUT;
+	u64_t timeout_time = k_uptime_get() + SAM_FLASH_TIMEOUT_MS;
 	u32_t fsr;
 
 	do {
@@ -166,10 +168,10 @@ static int flash_sam_write(struct device *dev, off_t offset,
 	 * Check that the offset and length are multiples of the write
 	 * block size.
 	 */
-	if ((offset % DT_INST_0_SOC_NV_FLASH_WRITE_BLOCK_SIZE) != 0) {
+	if ((offset % DT_INST_PROP(0, write_block_size)) != 0) {
 		return -EINVAL;
 	}
-	if ((len % DT_INST_0_SOC_NV_FLASH_WRITE_BLOCK_SIZE) != 0) {
+	if ((len % DT_INST_PROP(0, write_block_size)) != 0) {
 		return -EINVAL;
 	}
 
@@ -253,17 +255,17 @@ static int flash_sam_erase(struct device *dev, off_t offset, size_t len)
 	 * Check that the offset and length are multiples of the write
 	 * erase block size.
 	 */
-	if ((offset % DT_INST_0_SOC_NV_FLASH_ERASE_BLOCK_SIZE) != 0) {
+	if ((offset % DT_INST_PROP(0, erase_block_size)) != 0) {
 		return -EINVAL;
 	}
-	if ((len % DT_INST_0_SOC_NV_FLASH_ERASE_BLOCK_SIZE) != 0) {
+	if ((len % DT_INST_PROP(0, erase_block_size)) != 0) {
 		return -EINVAL;
 	}
 
 	flash_sam_sem_take(dev);
 
 	/* Loop through the pages to erase */
-	for (i = offset; i < offset + len; i += DT_INST_0_SOC_NV_FLASH_ERASE_BLOCK_SIZE) {
+	for (i = offset; i < offset + len; i += DT_INST_PROP(0, erase_block_size)) {
 		rc = flash_sam_erase_block(dev, i);
 		if (rc < 0) {
 			goto done;
@@ -311,8 +313,8 @@ done:
  * Here a page refers to the granularity at which the flash can be erased.
  */
 static const struct flash_pages_layout flash_sam_pages_layout = {
-	.pages_count = (CONFIG_FLASH_SIZE * 1024) / DT_INST_0_SOC_NV_FLASH_ERASE_BLOCK_SIZE,
-	.pages_size = DT_INST_0_SOC_NV_FLASH_ERASE_BLOCK_SIZE,
+	.pages_count = (CONFIG_FLASH_SIZE * 1024) / DT_INST_PROP(0, erase_block_size),
+	.pages_size = DT_INST_PROP(0, erase_block_size),
 };
 
 void flash_sam_page_layout(struct device *dev,
@@ -341,16 +343,16 @@ static const struct flash_driver_api flash_sam_api = {
 #ifdef CONFIG_FLASH_PAGE_LAYOUT
 	.page_layout = flash_sam_page_layout,
 #endif
-	.write_block_size = DT_INST_0_SOC_NV_FLASH_WRITE_BLOCK_SIZE,
+	.write_block_size = DT_INST_PROP(0, write_block_size),
 };
 
 static const struct flash_sam_dev_cfg flash_sam_cfg = {
-	.regs = (Efc *)DT_FLASH_DEV_BASE_ADDRESS,
+	.regs = (Efc *)DT_REG_ADDR(DT_INST(0, atmel_sam_flash_controller)),
 };
 
 static struct flash_sam_dev_data flash_sam_data;
 
-DEVICE_AND_API_INIT(flash_sam, DT_FLASH_DEV_NAME,
+DEVICE_AND_API_INIT(flash_sam, DT_INST_LABEL(0),
 		    flash_sam_init, &flash_sam_data, &flash_sam_cfg,
 		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &flash_sam_api);
