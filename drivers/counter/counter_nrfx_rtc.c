@@ -97,6 +97,12 @@ static u32_t read(struct device *dev)
 	return nrf_rtc_counter_get(get_nrfx_config(dev)->rtc);
 }
 
+static int get_value(struct device *dev, u32_t *ticks)
+{
+	*ticks = read(dev);
+	return 0;
+}
+
 /* Return true if value equals 2^n - 1 */
 static inline bool is_bit_mask(u32_t val)
 {
@@ -637,7 +643,7 @@ static void irq_handler(struct device *dev)
 static const struct counter_driver_api counter_nrfx_driver_api = {
 	.start = start,
 	.stop = stop,
-	.read = read,
+	.get_value = get_value,
 	.set_alarm = set_channel_alarm,
 	.cancel_alarm = cancel_alarm,
 	.set_top_value = set_top_value,
@@ -648,10 +654,10 @@ static const struct counter_driver_api counter_nrfx_driver_api = {
 	.set_guard_period = set_guard_period,
 };
 
-#define COUNTER_NRF_RTC_DEVICE(idx)					       \
-	BUILD_ASSERT_MSG((DT_NORDIC_NRF_RTC_RTC_##idx##_PRESCALER - 1) <=      \
-			RTC_PRESCALER_PRESCALER_Msk,			       \
-			"RTC prescaler out of range");			       \
+#define COUNTER_NRF_RTC_DEVICE(idx)					\
+	BUILD_ASSERT((DT_NORDIC_NRF_RTC_RTC_##idx##_PRESCALER - 1) <=	\
+		     RTC_PRESCALER_PRESCALER_Msk,			\
+		     "RTC prescaler out of range");			\
 	DEVICE_DECLARE(rtc_##idx);					       \
 	static int counter_##idx##_init(struct device *dev)		       \
 	{								       \

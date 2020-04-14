@@ -7,7 +7,10 @@ Overview
 ********
 
 This sample application displays "Hello World" in the center of the screen
-and a counter at the bottom which increments every second.
+and a counter at the bottom which increments every second. If an input driver
+is supported, such as the touch panel controller on mimxrt10{50,60,64}_evk
+boards, "Hello World" is enclosed in a button that changes to the toggled state
+when touched.
 
 Requirements
 ************
@@ -15,7 +18,7 @@ Requirements
 Display shield and a board which provides a configuration
 for Arduino connectors, for example:
 
-- :ref:`adafruit_2_8_tft_touch_v2` and :ref:`nrf52840_pca10056`
+- :ref:`adafruit_2_8_tft_touch_v2` and :ref:`nrf52840dk_nrf52840`
 - :ref:`ssd1306_128_shield` and :ref:`frdm_k64f`
 
 or a simulated display environment in a native Posix application:
@@ -36,11 +39,11 @@ or
 Building and Running
 ********************
 
-Example building for :ref:`nrf52840_pca10056`:
+Example building for :ref:`nrf52840dk_nrf52840`:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/gui/lvgl
-   :board: nrf52840_pca10056
+   :board: nrf52840dk_nrf52840
    :shield: adafruit_2_8_tft_touch_v2
    :goals: build flash
 

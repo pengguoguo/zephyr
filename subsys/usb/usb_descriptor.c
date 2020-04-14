@@ -60,7 +60,11 @@ USBD_DEVICE_DESCR_DEFINE(primary) struct common_descriptor common_desc = {
 	.device_descriptor = {
 		.bLength = sizeof(struct usb_device_descriptor),
 		.bDescriptorType = USB_DEVICE_DESC,
+#ifdef CONFIG_USB_DEVICE_BOS
+		.bcdUSB = sys_cpu_to_le16(USB_2_1),
+#else
 		.bcdUSB = sys_cpu_to_le16(USB_2_0),
+#endif
 #ifdef CONFIG_USB_COMPOSITE_DEVICE
 		.bDeviceClass = MISC_CLASS,
 		.bDeviceSubClass = 0x02,
@@ -237,7 +241,8 @@ static int usb_validate_ep_cfg_data(struct usb_ep_descriptor * const ep_descr,
 		for (u8_t idx = 1; idx < 16; idx++) {
 			struct usb_dc_ep_cfg_data ep_cfg;
 
-			ep_cfg.ep_type = ep_descr->bmAttributes;
+			ep_cfg.ep_type = (ep_descr->bmAttributes &
+					  USB_EP_TRANSFER_TYPE_MASK);
 			ep_cfg.ep_mps = ep_descr->wMaxPacketSize;
 			ep_cfg.ep_addr = ep_descr->bEndpointAddress;
 			if (ep_cfg.ep_addr & USB_EP_DIR_IN) {
@@ -308,8 +313,8 @@ __weak u8_t *usb_update_sn_string_descriptor(void)
 	if (hwinfo_get_device_id(hwid, sizeof(hwid)) > 0) {
 		LOG_HEXDUMP_DBG(hwid, sizeof(hwid), "Serial Number");
 		for (int i = 0; i < sizeof(hwid); i++) {
-			sn[i * 2] = hex[hwid[(sizeof(hwid) - 1) - i] >> 4];
-			sn[i * 2 + 1] = hex[hwid[(sizeof(hwid) - 1) - i] & 0xF];
+			sn[i * 2] = hex[hwid[i] >> 4];
+			sn[i * 2 + 1] = hex[hwid[i] & 0xF];
 		}
 	}
 

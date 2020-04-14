@@ -542,12 +542,14 @@ int callbacks_configure(struct device *gpio, u32_t pin, int flags,
 		LOG_ERR("Could not find PORT");
 		return -ENXIO;
 	}
+
 	gpio_pin_configure(gpio, pin,
-			   GPIO_DIR_IN | GPIO_INT | GPIO_INT_DEBOUNCE |
-			   GPIO_INT_EDGE | flags);
+			   GPIO_INPUT | GPIO_INT_DEBOUNCE | flags);
+
 	gpio_init_callback(callback, handler, BIT(pin));
 	gpio_add_callback(gpio, callback);
-	gpio_pin_enable_callback(gpio, pin);
+	gpio_pin_interrupt_configure(gpio, pin, GPIO_INT_EDGE_TO_ACTIVE);
+
 	return 0;
 }
 
@@ -658,7 +660,7 @@ void main(void)
 	LOG_INF("DTR on CDC ACM 1 set");
 
 	/* Wait 1 sec for the host to do all settings */
-	k_busy_wait(K_SECONDS(1) * USEC_PER_MSEC);
+	k_busy_wait(USEC_PER_SEC);
 
 	uart_irq_callback_set(cdc0_dev, cdc_mouse_int_handler);
 	uart_irq_callback_set(cdc1_dev, cdc_kbd_int_handler);

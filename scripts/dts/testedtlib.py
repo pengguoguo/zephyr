@@ -63,10 +63,10 @@ warning: "#cells:" in test-bindings/deprecated.yaml is deprecated and will be re
     #
 
     verify_streq(edt.get_node("/reg-zero-address-cells/node").regs,
-                 "[<Register, addr: 0x0, size: 0x1>, <Register, addr: 0x0, size: 0x2>]")
+                 "[<Register, size: 0x1>, <Register, size: 0x2>]")
 
     verify_streq(edt.get_node("/reg-zero-size-cells/node").regs,
-                 "[<Register, addr: 0x1, size: 0x0>, <Register, addr: 0x2, size: 0x0>]")
+                 "[<Register, addr: 0x1>, <Register, addr: 0x2>]")
 
     verify_streq(edt.get_node("/reg-ranges/parent/node").regs,
                  "[<Register, addr: 0x5, size: 0x1>, <Register, addr: 0xe0000000f, size: 0x1>, <Register, addr: 0xc0000000e, size: 0x1>, <Register, addr: 0xc0000000d, size: 0x1>, <Register, addr: 0xa0000000b, size: 0x1>, <Register, addr: 0x0, size: 0x1>]")
@@ -163,6 +163,15 @@ warning: "#cells:" in test-bindings/deprecated.yaml is deprecated and will be re
 
     verify_streq(edt.get_node("/deprecated/sub-node").props,
                  "OrderedDict([('foos', <Property, name: foos, type: phandle-array, value: [<ControllerAndData, controller: <Node /deprecated in 'test.dts', binding test-bindings/deprecated.yaml>, data: OrderedDict([('foo', 1), ('bar', 2)])>]>)])")
+
+    #
+    # Test EDT.compat2enabled
+    #
+
+    verify_streq(edt.compat2enabled["compat2enabled"], "[<Node /compat2enabled/foo-1 in 'test.dts', no binding>, <Node /compat2enabled/foo-2 in 'test.dts', no binding>]")
+
+    if "compat2enabled-disabled" in edt.compat2enabled:
+        fail("'compat2enabled-disabled' should not appear in edt.compat2enabled")
 
     #
     # Test Node.props (derived from DT and 'properties:' in the binding)

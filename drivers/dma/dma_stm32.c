@@ -5,57 +5,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT st_stm32_dma
+
 /**
  * @brief Common part of DMA drivers for stm32.
  * @note  Functions named with stm32_dma_* are SoCs related functions
  *        implemented in dma_stm32_v*.c
  */
 
+#include <soc.h>
+#include <init.h>
+#include <drivers/dma.h>
+#include <drivers/clock_control.h>
+#include <drivers/clock_control/stm32_clock_control.h>
+
 #include "dma_stm32.h"
 
-#define LOG_LEVEL CONFIG_DMA_LOG_LEVEL
 #include <logging/log.h>
-LOG_MODULE_REGISTER(dma_stm32);
+LOG_MODULE_REGISTER(dma_stm32, CONFIG_DMA_LOG_LEVEL);
 
-#include <clock_control/stm32_clock_control.h>
-
-static u32_t table_m_size[] = {
-	LL_DMA_MDATAALIGN_BYTE,
-	LL_DMA_MDATAALIGN_HALFWORD,
-	LL_DMA_MDATAALIGN_WORD,
-};
-
-static u32_t table_p_size[] = {
-	LL_DMA_PDATAALIGN_BYTE,
-	LL_DMA_PDATAALIGN_HALFWORD,
-	LL_DMA_PDATAALIGN_WORD,
-};
-
-struct dma_stm32_stream {
-	u32_t direction;
-	bool source_periph;
-	bool busy;
-	u32_t src_size;
-	u32_t dst_size;
-	void *callback_arg;
-	void (*dma_callback)(void *arg, u32_t id,
-			     int error_code);
-};
-
-struct dma_stm32_data {
-	int max_streams;
-	struct dma_stm32_stream *streams;
-};
-
-struct dma_stm32_config {
-	struct stm32_pclken pclken;
-	void (*config_irq)(struct device *dev);
-	bool support_m2m;
-	u32_t base;
-};
-
-/* Maximum data sent in single transfer (Bytes) */
-#define DMA_STM32_MAX_DATA_ITEMS		0xffff
+#include <drivers/clock_control/stm32_clock_control.h>
 
 static void dma_stm32_dump_stream_irq(struct device *dev, u32_t id)
 {
@@ -117,7 +86,7 @@ static void dma_stm32_irq_handler(void *arg)
 	}
 }
 
-static u32_t dma_stm32_width_config(struct dma_config *config,
+static int dma_stm32_width_config(struct dma_config *config,
 				    bool source_periph,
 				    DMA_TypeDef *dma,
 				    LL_DMA_InitTypeDef *DMA_InitStruct,
@@ -257,12 +226,14 @@ static int dma_stm32_configure(struct device *dev, u32_t id,
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_DMA_STM32_V1
 	if ((stream->direction == MEMORY_TO_MEMORY) &&
 		(!dev_config->support_m2m)) {
 		LOG_ERR("Memcopy not supported for device %s",
 			dev->config->name);
 		return -ENOTSUP;
 	}
+#endif /* CONFIG_DMA_STM32_V1 */
 
 	if (config->source_data_size != 4U &&
 	    config->source_data_size != 2U &&
@@ -310,7 +281,7 @@ static int dma_stm32_configure(struct device *dev, u32_t id,
 					config->head_block->dest_address;
 	}
 
-	u16_t memory_addr_adj, periph_addr_adj;
+	u16_t memory_addr_adj = 0, periph_addr_adj = 0;
 
 	ret = dma_stm32_get_priority(config->channel_priority,
 				     &DMA_InitStruct.Priority);
@@ -420,6 +391,7 @@ int dma_stm32_disable_stream(DMA_TypeDef *dma, u32_t id)
 
 	for (;;) {
 		if (!stm32_dma_disable_stream(dma, id)) {
+			return 0;
 		}
 		/* After trying for 5 seconds, give up */
 		if (count++ > (5 * 1000)) {
@@ -554,11 +526,11 @@ static const struct dma_driver_api dma_funcs = {
 static void dma_stm32_config_irq_##index(struct device *dev);		\
 									\
 const struct dma_stm32_config dma_stm32_config_##index = {		\
-	.pclken = { .bus = DT_INST_##index##_ST_STM32_DMA_CLOCK_BUS,	\
-		    .enr = DT_INST_##index##_ST_STM32_DMA_CLOCK_BITS },	\
+	.pclken = { .bus = DT_INST_CLOCKS_CELL(index, bus),	\
+		    .enr = DT_INST_CLOCKS_CELL(index, bits) },	\
 	.config_irq = dma_stm32_config_irq_##index,			\
-	.base = DT_INST_##index##_ST_STM32_DMA_BASE_ADDRESS,		\
-	.support_m2m = DT_INST_##index##_ST_STM32_DMA_ST_MEM2MEM,	\
+	.base = DT_INST_REG_ADDR(index),		\
+	.support_m2m = DT_INST_PROP(index, st_mem2mem),	\
 };									\
 									\
 static struct dma_stm32_data dma_stm32_data_##index = {			\
@@ -566,7 +538,7 @@ static struct dma_stm32_data dma_stm32_data_##index = {			\
 	.streams = NULL,						\
 };									\
 									\
-DEVICE_AND_API_INIT(dma_##index, DT_INST_##index##_ST_STM32_DMA_LABEL,	\
+DEVICE_AND_API_INIT(dma_##index, DT_INST_LABEL(index),	\
 		    &dma_stm32_init,					\
 		    &dma_stm32_data_##index, &dma_stm32_config_##index,	\
 		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
@@ -580,16 +552,16 @@ static void dma_stm32_irq_##chan(void *arg)				\
 
 #define IRQ_INIT(dma, chan)                                             \
 do {									\
-	if (!irq_is_enabled(DT_INST_##dma##_ST_STM32_DMA_IRQ_##chan)) {	\
-		irq_connect_dynamic(DT_INST_##dma##_ST_STM32_DMA_IRQ_##chan,\
-			DT_INST_##dma##_ST_STM32_DMA_IRQ_##chan##_PRIORITY,\
+	if (!irq_is_enabled(DT_INST_IRQ_BY_IDX(dma, chan, irq))) {	\
+		irq_connect_dynamic(DT_INST_IRQ_BY_IDX(dma, chan, irq), \
+			DT_INST_IRQ_BY_IDX(dma, chan, priority),        \
 			dma_stm32_irq_handler, dev, 0);			\
-		irq_enable(DT_INST_##dma##_ST_STM32_DMA_IRQ_##chan);	\
+		irq_enable(DT_INST_IRQ_BY_IDX(dma, chan, irq));	        \
 	}								\
 	data->max_streams++;						\
 } while (0)
 
-#ifdef DT_INST_0_ST_STM32_DMA
+#if DT_HAS_DRV_INST(0)
 DMA_INIT(0);
 
 static void dma_stm32_config_irq_0(struct device *dev)
@@ -601,38 +573,41 @@ static void dma_stm32_config_irq_0(struct device *dev)
 	IRQ_INIT(0, 2);
 	IRQ_INIT(0, 3);
 	IRQ_INIT(0, 4);
-#ifdef DT_INST_0_ST_STM32_DMA_IRQ_5
+#if DT_INST_IRQ_HAS_IDX(0, 5)
 	IRQ_INIT(0, 5);
+#if DT_INST_IRQ_HAS_IDX(0, 6)
 	IRQ_INIT(0, 6);
-#ifdef DT_INST_0_ST_STM32_DMA_IRQ_7
+#if DT_INST_IRQ_HAS_IDX(0, 7)
 	IRQ_INIT(0, 7);
-#endif
-#endif
-/* Either 5 or 7 or 8 channels for DMA1 across all stm32 series. */
+#endif /* DT_INST_IRQ_HAS_IDX(0, 5) */
+#endif /* DT_INST_IRQ_HAS_IDX(0, 6) */
+#endif /* DT_INST_IRQ_HAS_IDX(0, 7) */
+/* Either 5 or 6 or 7 or 8 channels for DMA across all stm32 series. */
 }
-#endif
+#endif /* DT_HAS_DRV_INST(0) */
 
-#ifdef DT_INST_1_ST_STM32_DMA
+
+#if DT_HAS_DRV_INST(1)
 DMA_INIT(1);
 
 static void dma_stm32_config_irq_1(struct device *dev)
 {
 	struct dma_stm32_data *data = dev->driver_data;
 
-#ifdef DT_INST_1_ST_STM32_DMA_IRQ_0
 	IRQ_INIT(1, 0);
 	IRQ_INIT(1, 1);
 	IRQ_INIT(1, 2);
 	IRQ_INIT(1, 3);
 	IRQ_INIT(1, 4);
-#ifdef DT_INST_1_ST_STM32_DMA_IRQ_5
+#if DT_INST_IRQ_HAS_IDX(1, 5)
 	IRQ_INIT(1, 5);
+#if DT_INST_IRQ_HAS_IDX(1, 6)
 	IRQ_INIT(1, 6);
-#ifdef DT_INST_1_ST_STM32_DMA_IRQ_7
+#if DT_INST_IRQ_HAS_IDX(1, 7)
 	IRQ_INIT(1, 7);
-#endif
-#endif
-#endif
-/* Either 0 or 5 or 7 or 8 channels for DMA1 across all stm32 series. */
+#endif /* DT_INST_IRQ_HAS_IDX(1, 5) */
+#endif /* DT_INST_IRQ_HAS_IDX(1, 6) */
+#endif /* DT_INST_IRQ_HAS_IDX(1, 7) */
+/* Either 5 or 6 or 7 or 8 channels for DMA across all stm32 series. */
 }
-#endif
+#endif /* DT_HAS_DRV_INST(1) */

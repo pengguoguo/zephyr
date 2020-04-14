@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <ztest.h>
-#include <clock_control.h>
+#include <drivers/clock_control.h>
 #include <logging/log.h>
 LOG_MODULE_REGISTER(test);
 
-#ifdef DT_INST_0_NORDIC_NRF_CLOCK_LABEL
+#if DT_HAS_NODE(DT_INST(0, nordic_nrf_clock))
 #include <drivers/clock_control/nrf_clock_control.h>
 #endif
 
@@ -24,9 +24,9 @@ struct device_data {
 };
 
 static const struct device_data devices[] = {
-#ifdef DT_INST_0_NORDIC_NRF_CLOCK_LABEL
+#if DT_HAS_NODE(DT_INST(0, nordic_nrf_clock))
 	{
-		.name = DT_INST_0_NORDIC_NRF_CLOCK_LABEL,
+		.name = DT_LABEL(DT_INST(0, nordic_nrf_clock)),
 		.subsys_data =  (const struct device_subsys_data[]){
 			{
 				.subsys = CLOCK_CONTROL_NRF_SUBSYS_HF,
@@ -206,7 +206,9 @@ static bool async_capable(const char *dev_name, clock_control_subsys_t subsys)
 /*
  * Test checks that callbacks are called after clock is started.
  */
-static void clock_on_callback(struct device *dev, void *user_data)
+static void clock_on_callback(struct device *dev,
+				clock_control_subsys_t subsys,
+				void *user_data)
 {
 	bool *executed = (bool *)user_data;
 

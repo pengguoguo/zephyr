@@ -98,6 +98,12 @@ static u32_t read(struct device *dev)
 	return nrf_timer_cc_get(timer, COUNTER_READ_CC);
 }
 
+static int get_value(struct device *dev, u32_t *ticks)
+{
+	*ticks = read(dev);
+	return 0;
+}
+
 /* Return true if value equals 2^n - 1 */
 static inline bool is_bit_mask(u32_t val)
 {
@@ -365,7 +371,7 @@ static void irq_handler(struct device *dev)
 static const struct counter_driver_api counter_nrfx_driver_api = {
 	.start = start,
 	.stop = stop,
-	.read = read,
+	.get_value = get_value,
 	.set_alarm = set_alarm,
 	.cancel_alarm = cancel_alarm,
 	.set_top_value = set_top_value,
@@ -376,10 +382,10 @@ static const struct counter_driver_api counter_nrfx_driver_api = {
 	.set_guard_period = set_guard_period,
 };
 
-#define COUNTER_NRFX_TIMER_DEVICE(idx)					       \
-	BUILD_ASSERT_MSG(DT_NORDIC_NRF_TIMER_TIMER_##idx##_PRESCALER <=	       \
-			TIMER_PRESCALER_PRESCALER_Msk,			       \
-			"TIMER prescaler out of range");		       \
+#define COUNTER_NRFX_TIMER_DEVICE(idx)					\
+	BUILD_ASSERT(DT_NORDIC_NRF_TIMER_TIMER_##idx##_PRESCALER <=	\
+		     TIMER_PRESCALER_PRESCALER_Msk,			\
+		     "TIMER prescaler out of range");			\
 	DEVICE_DECLARE(timer_##idx);					       \
 	static int counter_##idx##_init(struct device *dev)		       \
 	{								       \

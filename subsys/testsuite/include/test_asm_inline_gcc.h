@@ -31,7 +31,13 @@ static inline void timestamp_serialize(void)
 	__ISB();
 }
 #elif defined(CONFIG_CPU_CORTEX_R)
-#include <arch/arm/aarch32/cortex_r/cpu.h>
+#include <arch/arm/aarch32/cortex_a_r/cpu.h>
+static inline void timestamp_serialize(void)
+{
+	__ISB();
+}
+#elif defined(CONFIG_CPU_CORTEX_A)
+#include <arch/arm/aarch64/cpu.h>
 static inline void timestamp_serialize(void)
 {
 	__ISB();

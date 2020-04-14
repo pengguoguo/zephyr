@@ -33,6 +33,7 @@ static void canopen_sync_thread(void *p1, void *p2, void *p3)
 		if (CO && CO->CANmodule[0] && CO->CANmodule[0]->CANnormal) {
 			CO_LOCK_OD();
 			sync = CO_process_SYNC(CO, elapsed);
+			CO_process_RPDO(CO, sync);
 			CO_process_TPDO(CO, sync, elapsed);
 			CO_UNLOCK_OD();
 		}
@@ -46,4 +47,4 @@ static void canopen_sync_thread(void *p1, void *p2, void *p3)
 
 K_THREAD_DEFINE(canopen_sync, CONFIG_CANOPEN_SYNC_THREAD_STACK_SIZE,
 		canopen_sync_thread, NULL, NULL, NULL,
-		CONFIG_CANOPEN_SYNC_THREAD_PRIORITY, 0, K_MSEC(1));
+		CONFIG_CANOPEN_SYNC_THREAD_PRIORITY, 0, 1);

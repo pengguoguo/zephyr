@@ -8,23 +8,17 @@ if BOARD_B_L072Z_LRWAN1
 config BOARD
 	default "b_l072z_lrwan1"
 
-if SERIAL
 config UART_1
 	default y
+	depends on SERIAL
 
-endif # SERIAL
-
-if UART_CONSOLE
 config UART_2
 	default y
+	depends on UART_CONSOLE
 
-endif # UART_CONSOLE
-
-if I2C
 config I2C_1
 	default y
-
-endif # I2C
+	depends on I2C
 
 if SPI
 config SPI_1
@@ -33,5 +27,10 @@ config SPI_1
 config SPI_2
 	default y
 endif # SPI
+
+choice COUNTER_RTC_STM32_CLOCK_SRC
+	default COUNTER_RTC_STM32_CLOCK_LSE
+	depends on COUNTER
+endchoice # COUNTER_RTC_STM32_CLOCK_SRC
 
 endif # BOARD_B_L072Z_LRWAN1

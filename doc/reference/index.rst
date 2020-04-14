@@ -6,8 +6,14 @@ API Reference
 .. toctree::
    :maxdepth: 1
 
+   overview.rst
+   terminology.rst
+   audio/index.rst
+   misc/notify.rst
    bluetooth/index.rst
    kconfig/index.rst
+   crypto/index.rst
+   devicetree/index.rst
    drivers/index.rst
    display/index.rst
    file_system/index.rst
@@ -18,8 +24,9 @@ API Reference
    peripherals/index.rst
    power_management/index.rst
    random/index.rst
+   resource_management/index.rst
    shell/index.rst
    storage/index.rst
    usb/index.rst
    usermode/index.rst
-   runtime_conf/index.rst
+   settings/index.rst

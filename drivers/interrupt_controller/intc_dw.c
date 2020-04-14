@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT snps_designware_intc
+
 /* This implementation supports only the regular irqs
  * No support for priority filtering
  * No support for vectored interrupts
@@ -31,12 +33,11 @@ static ALWAYS_INLINE void dw_ictl_dispatch_child_isrs(u32_t intr_status,
 	}
 }
 
-static int dw_ictl_initialize(struct device *port)
+static int dw_ictl_initialize(struct device *dev)
 {
-	struct dw_ictl_runtime *dw = port->driver_data;
-
+	const struct dw_ictl_config *config = dev->config->config_info;
 	volatile struct dw_ictl_registers * const regs =
-			(struct dw_ictl_registers *)dw->base_addr;
+			(struct dw_ictl_registers *)config->base_addr;
 
 	/* disable all interrupts */
 	regs->irq_inten_l = 0U;
@@ -47,29 +48,25 @@ static int dw_ictl_initialize(struct device *port)
 
 static void dw_ictl_isr(void *arg)
 {
-	struct device *port = (struct device *)arg;
-	struct dw_ictl_runtime * const dw = port->driver_data;
-
-	const struct dw_ictl_config *config = port->config->config_info;
-
+	struct device *dev = (struct device *)arg;
+	const struct dw_ictl_config *config = dev->config->config_info;
 	volatile struct dw_ictl_registers * const regs =
-			(struct dw_ictl_registers *)dw->base_addr;
+			(struct dw_ictl_registers *)config->base_addr;
 
 	dw_ictl_dispatch_child_isrs(regs->irq_maskstatus_l,
-					config->isr_table_offset);
+				    config->isr_table_offset);
 
 	if (config->numirqs > 32) {
 		dw_ictl_dispatch_child_isrs(regs->irq_maskstatus_h,
-						config->isr_table_offset + 32);
+					    config->isr_table_offset + 32);
 	}
 }
 
 static inline void dw_ictl_intr_enable(struct device *dev, unsigned int irq)
 {
-	struct dw_ictl_runtime *context = dev->driver_data;
-
+	const struct dw_ictl_config *config = dev->config->config_info;
 	volatile struct dw_ictl_registers * const regs =
-		(struct dw_ictl_registers *)context->base_addr;
+		(struct dw_ictl_registers *)config->base_addr;
 
 	if (irq < 32) {
 		regs->irq_inten_l |= (1 << irq);
@@ -80,10 +77,9 @@ static inline void dw_ictl_intr_enable(struct device *dev, unsigned int irq)
 
 static inline void dw_ictl_intr_disable(struct device *dev, unsigned int irq)
 {
-	struct dw_ictl_runtime *context = dev->driver_data;
-
+	const struct dw_ictl_config *config = dev->config->config_info;
 	volatile struct dw_ictl_registers * const regs =
-		(struct dw_ictl_registers *)context->base_addr;
+		(struct dw_ictl_registers *)config->base_addr;
 
 	if (irq < 32) {
 		regs->irq_inten_l &= ~(1 << irq);
@@ -94,12 +90,9 @@ static inline void dw_ictl_intr_disable(struct device *dev, unsigned int irq)
 
 static inline unsigned int dw_ictl_intr_get_state(struct device *dev)
 {
-	struct dw_ictl_runtime *context = dev->driver_data;
-
 	const struct dw_ictl_config *config = dev->config->config_info;
-
 	volatile struct dw_ictl_registers * const regs =
-		(struct dw_ictl_registers *)context->base_addr;
+		(struct dw_ictl_registers *)config->base_addr;
 
 	if (regs->irq_inten_l) {
 		return 1;
@@ -115,12 +108,9 @@ static inline unsigned int dw_ictl_intr_get_state(struct device *dev)
 
 static int dw_ictl_intr_get_line_state(struct device *dev, unsigned int irq)
 {
-	struct dw_ictl_runtime *context = dev->driver_data;
-
 	const struct dw_ictl_config *config = dev->config->config_info;
-
 	volatile struct dw_ictl_registers * const regs =
-		(struct dw_ictl_registers *)context->base_addr;
+		(struct dw_ictl_registers *)config->base_addr;
 
 	if (config->numirqs > 32) {
 		if ((regs->irq_inten_h & BIT(irq - 32)) != 0) {
@@ -135,17 +125,13 @@ static int dw_ictl_intr_get_line_state(struct device *dev, unsigned int irq)
 	return 0;
 }
 
-static void dw_ictl_config_irq(struct device *port);
+static void dw_ictl_config_irq(struct device *dev);
 
 static const struct dw_ictl_config dw_config = {
-	.irq_num = DT_DW_ICTL_IRQ,
-	.numirqs = DW_ICTL_NUM_IRQS,
+	.base_addr = DT_INST_REG_ADDR(0),
+	.numirqs = DT_INST_PROP(0, num_irqs),
 	.isr_table_offset = CONFIG_DW_ISR_TBL_OFFSET,
 	.config_func = dw_ictl_config_irq,
-};
-
-static struct dw_ictl_runtime dw_runtime = {
-	.base_addr = DT_DW_ICTL_BASE_ADDR,
 };
 
 static const struct irq_next_level_api dw_ictl_apis = {
@@ -155,12 +141,15 @@ static const struct irq_next_level_api dw_ictl_apis = {
 	.intr_get_line_state = dw_ictl_intr_get_line_state,
 };
 
-DEVICE_AND_API_INIT(dw_ictl, CONFIG_DW_ICTL_NAME, dw_ictl_initialize,
-		    &dw_runtime, &dw_config,
-		    POST_KERNEL, CONFIG_DW_ICTL_INIT_PRIORITY, &dw_ictl_apis);
+DEVICE_AND_API_INIT(dw_ictl, DT_INST_LABEL(0),
+		    dw_ictl_initialize, NULL, &dw_config,
+		    PRE_KERNEL_1, CONFIG_DW_ICTL_INIT_PRIORITY, &dw_ictl_apis);
 
 static void dw_ictl_config_irq(struct device *port)
 {
-	IRQ_CONNECT(DT_DW_ICTL_IRQ, DT_DW_ICTL_IRQ_PRI, dw_ictl_isr,
-		    DEVICE_GET(dw_ictl), DT_DW_ICTL_IRQ_FLAGS);
+	IRQ_CONNECT(DT_INST_IRQN(0),
+		    DT_INST_IRQ(0, priority),
+		    dw_ictl_isr,
+		    DEVICE_GET(dw_ictl),
+		    DT_INST_IRQ(0, sense));
 }

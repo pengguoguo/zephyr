@@ -1071,13 +1071,6 @@ static int instance_init(const struct shell *shell, const void *p_config,
 	__ASSERT_NO_MSG((shell->shell_flag == SHELL_FLAG_CRLF_DEFAULT) ||
 			(shell->shell_flag == SHELL_FLAG_OLF_CRLF));
 
-	int err = shell->iface->api->init(shell->iface, p_config,
-					  transport_evt_handler,
-					  (void *) shell);
-	if (err != 0) {
-		return err;
-	}
-
 	memset(shell->ctx, 0, sizeof(*shell->ctx));
 	shell->ctx->prompt = shell->default_prompt;
 
@@ -1107,7 +1100,9 @@ static int instance_init(const struct shell *shell, const void *p_config,
 	shell->ctx->vt100_ctx.cons.name_len = shell_strlen(shell->ctx->prompt);
 	flag_use_colors_set(shell, IS_ENABLED(CONFIG_SHELL_VT100_COLORS));
 
-	return 0;
+	return shell->iface->api->init(shell->iface, p_config,
+				       transport_evt_handler,
+				       (void *) shell);
 }
 
 static int instance_uninit(const struct shell *shell)
@@ -1191,13 +1186,13 @@ void shell_thread(void *shell_handle, void *arg_log_backend,
 		err = k_poll(shell->ctx->events, SHELL_SIGNAL_TXDONE,
 			     K_FOREVER);
 
-		k_mutex_lock(&shell->ctx->wr_mtx, K_FOREVER);
-
 		if (err != 0) {
 			shell_internal_fprintf(shell, SHELL_ERROR,
 					       "Shell thread error: %d", err);
 			return;
 		}
+
+		k_mutex_lock(&shell->ctx->wr_mtx, K_FOREVER);
 
 		if (shell->iface->api->update) {
 			shell->iface->api->update(shell->iface);

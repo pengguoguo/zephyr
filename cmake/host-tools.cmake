@@ -12,7 +12,7 @@ if(${WEST} STREQUAL WEST-NOTFOUND)
 else()
   # If west is found, make sure its version matches the minimum
   # required one.
-  set(MIN_WEST_VERSION 0.6.0)
+  set(MIN_WEST_VERSION 0.7.1)
   execute_process(
     COMMAND
     ${PYTHON_EXECUTABLE}
@@ -38,16 +38,15 @@ else()
   # even after output is one line.
   message(STATUS "Found west: ${WEST} (found suitable version \"${west_version}\", minimum required is \"${MIN_WEST_VERSION}\")")
 
-  if (${west_version} VERSION_GREATER_EQUAL "0.7.0")
     execute_process(
       COMMAND ${WEST}  topdir
       OUTPUT_VARIABLE  WEST_TOPDIR
       OUTPUT_STRIP_TRAILING_WHITESPACE
+      WORKING_DIRECTORY ${ZEPHYR_BASE}
       )
-  endif()
 endif()
 
-# Search for the must-have program dtc on PATH and in
+# dtc is an optional dependency. Search for it on PATH and in
 # TOOLCHAIN_HOME. Usually DTC will be provided by an SDK, but for
 # SDK-less projects like gnuarmemb, it is up to the user to install
 # dtc.
@@ -55,10 +54,8 @@ find_program(
   DTC
   dtc
   )
-if(${DTC} STREQUAL DTC-NOTFOUND)
-  message(FATAL_ERROR "Unable to find dtc")
-endif()
 
+if(DTC)
 # Parse the 'dtc --version' and make sure it is at least MIN_DTC_VERSION
 set(MIN_DTC_VERSION 1.4.6)
 execute_process(
@@ -75,14 +72,13 @@ if(${CMAKE_MATCH_1} VERSION_LESS ${MIN_DTC_VERSION})
     for how to use the SDK's dtc alongside a custom toolchain."
   )
 endif()
+endif(DTC)
 
+# gperf is an optional dependency
 find_program(
   GPERF
   gperf
   )
-if(${GPERF} STREQUAL GPERF-NOTFOUND)
-  message(FATAL_ERROR "Unable to find gperf")
-endif()
 
 # openocd is an optional dependency
 find_program(

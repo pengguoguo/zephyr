@@ -39,6 +39,7 @@
 #include "ll.h"
 #include "ll_feat.h"
 #include "ll_filter.h"
+#include "ll_settings.h"
 
 /* Global singletons */
 
@@ -124,7 +125,7 @@ int ll_init(struct k_sem *sem_rx)
 
 	sem_recv = sem_rx;
 
-	clk = device_get_binding(DT_INST_0_NORDIC_NRF_CLOCK_LABEL);
+	clk = device_get_binding(DT_LABEL(DT_INST(0, nordic_nrf_clock)));
 	if (!clk) {
 		return -ENODEV;
 	}

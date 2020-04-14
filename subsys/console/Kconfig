@@ -3,6 +3,7 @@
 
 menuconfig CONSOLE_SUBSYS
 	bool "Console subsystem/support routines [EXPERIMENTAL]"
+	select LEGACY_TIMEOUT_API
 	help
 	  Console subsystem and helper functions
 
@@ -11,7 +12,7 @@ if CONSOLE_SUBSYS
 choice
 	prompt "Console 'get' function selection"
 	optional
-	depends on UART_CONSOLE
+	depends on UART_CONSOLE && SERIAL_SUPPORT_INTERRUPT
 
 config CONSOLE_GETCHAR
 	bool "Character by character input and output"

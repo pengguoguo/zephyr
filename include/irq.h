@@ -253,6 +253,134 @@ void z_smp_global_unlock(unsigned int key);
 #endif
 
 /**
+ * @brief Return IRQ level
+ * @def irq_get_level()
+ *
+ * This routine returns the interrupt level number of the provided interrupt.
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 1 if IRQ level 1, 2 if IRQ level 2, 3 if IRQ level 3
+ */
+static inline unsigned int irq_get_level(unsigned int irq)
+{
+#if defined(CONFIG_3RD_LEVEL_INTERRUPTS)
+	return ((irq >> 16) & 0xFF) != 0 ? 3 :
+		(((irq >> 8) & 0xFF) == 0 ? 1 : 2);
+#elif defined(CONFIG_2ND_LEVEL_INTERRUPTS)
+	return ((irq >> 8) & 0xFF) == 0 ? 1 : 2;
+#else
+	ARG_UNUSED(irq);
+
+	return 1;
+#endif
+}
+
+#ifdef CONFIG_2ND_LEVEL_INTERRUPTS
+/**
+ * @brief Return the 2nd level interrupt number
+ * @def irq_from_level_2()
+ *
+ * This routine returns the second level irq number of the zephyr irq
+ * number passed in
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 2nd level IRQ number
+ */
+static inline unsigned int irq_from_level_2(unsigned int irq)
+{
+#ifdef CONFIG_3RD_LEVEL_INTERRUPTS
+	return ((irq >> 8) & 0xFF) - 1;
+#else
+	return (irq >> 8) - 1;
+#endif
+}
+
+/**
+ * @brief Converts irq from level 1 to level 2 format
+ * @def irq_to_level_2()
+ *
+ * This routine converts the input into the level 2 irq number format
+ *
+ * @note Values >= 0xFF are invalid
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 2nd level IRQ number
+ */
+static inline unsigned int irq_to_level_2(unsigned int irq)
+{
+	return (irq + 1) << 8;
+}
+
+/**
+ * @brief Returns the parent IRQ of the level 2 raw IRQ number
+ * @def irq_parent_level_2()
+ *
+ * The parent of a 2nd level interrupt is in the 1st byte
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 2nd level IRQ parent
+ */
+static inline unsigned int irq_parent_level_2(unsigned int irq)
+{
+	return irq & 0xFF;
+}
+#endif
+
+#ifdef CONFIG_3RD_LEVEL_INTERRUPTS
+/**
+ * @brief Return the 3rd level interrupt number
+ * @def irq_from_level_3()
+ *
+ * This routine returns the third level irq number of the zephyr irq
+ * number passed in
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 3rd level IRQ number
+ */
+static inline unsigned int irq_from_level_3(unsigned int irq)
+{
+	return (irq >> 16) - 1;
+}
+
+/**
+ * @brief Converts irq from level 1 to level 3 format
+ * @def irq_to_level_3()
+ *
+ * This routine converts the input into the level 3 irq number format
+ *
+ * @note Values >= 0xFF are invalid
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 3rd level IRQ number
+ */
+static inline unsigned int irq_to_level_3(unsigned int irq)
+{
+	return (irq + 1) << 16;
+}
+
+/**
+ * @brief Returns the parent IRQ of the level 3 raw IRQ number
+ * @def irq_parent_level_3()
+ *
+ * The parent of a 3rd level interrupt is in the 2nd byte
+ *
+ * @param irq IRQ number in its zephyr format
+ *
+ * @return 3rd level IRQ parent
+ */
+static inline unsigned int irq_parent_level_3(unsigned int irq)
+{
+	return (irq >> 8) & 0xFF;
+}
+#endif
+
+/**
  * @brief Enable an IRQ.
  *
  * This routine enables interrupts from source @a irq.
