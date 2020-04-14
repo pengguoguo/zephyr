@@ -24,6 +24,9 @@
 
 /**
  * @brief devicetree.h API
+ * @defgroup devicetree Devicetree
+ * @{
+ * @}
  */
 
 /*
@@ -51,6 +54,7 @@
 
 /**
  * @defgroup devicetree-generic-id Node identifiers
+ * @ingroup devicetree
  * @{
  */
 
@@ -240,6 +244,7 @@
 
 /**
  * @defgroup devicetree-generic-prop Property accessors
+ * @ingroup devicetree
  * @{
  */
 
@@ -818,6 +823,7 @@
 
 /**
  * @defgroup devicetree-generic-chosen Chosen nodes
+ * @ingroup devicetree
  * @{
  */
 
@@ -836,6 +842,7 @@
 
 /**
  * @defgroup devicetree-generic-exist Existence checks
+ * @ingroup devicetree
  * @{
  */
 
@@ -997,6 +1004,7 @@
 
 /**
  * @defgroup devicetree-generic-bus Bus helpers
+ * @ingroup devicetree
  * @{
  */
 
@@ -1093,6 +1101,7 @@
 
 /**
  * @defgroup devicetree-inst Instance-based devicetree APIs
+ * @ingroup devicetree
  * @{
  */
 
@@ -1474,11 +1483,6 @@
  * @}
  */
 
-#include <devicetree/adc.h>
-#include <devicetree/clocks.h>
-#include <devicetree/gpio.h>
-#include <devicetree/spi.h>
-
 /** @internal pay no attention to the man behind the curtain! */
 #define DT_PATH_INTERNAL(...) \
 	UTIL_CAT(DT_ROOT, MACRO_MAP_CAT(DT_S_PREFIX, __VA_ARGS__))
@@ -1490,5 +1494,13 @@
 #define DT_DASH(...) MACRO_MAP_CAT(DT_DASH_PREFIX, __VA_ARGS__)
 /** @internal helper for DT_DASH(): prepends _ to a name */
 #define DT_DASH_PREFIX(name) _##name
+
+/* have these last so the have access to all previously defined macros */
+#include <devicetree/adc.h>
+#include <devicetree/clocks.h>
+#include <devicetree/gpio.h>
+#include <devicetree/spi.h>
+#include <devicetree/dma.h>
+#include <devicetree/zephyr.h>
 
 #endif /* DEVICETREE_H */
