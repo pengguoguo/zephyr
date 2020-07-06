@@ -38,9 +38,9 @@ static int iis3dhhc_sample_fetch(struct device *dev,
 }
 
 static inline void iis3dhhc_convert(struct sensor_value *val,
-					s16_t raw_val)
+					int16_t raw_val)
 {
-	s64_t micro_ms2;
+	int64_t micro_ms2;
 
 	/* Convert to m/s^2 */
 	micro_ms2 = ((iis3dhhc_from_lsb_to_mg(raw_val) * SENSOR_G) / 1000LL);
@@ -53,7 +53,7 @@ static inline void iis3dhhc_channel_get_acc(struct device *dev,
 					     struct sensor_value *val)
 {
 	int i;
-	u8_t ofs_start, ofs_stop;
+	uint8_t ofs_start, ofs_stop;
 	struct iis3dhhc_data *iis3dhhc = dev->driver_data;
 	struct sensor_value *pval = val;
 
@@ -153,7 +153,7 @@ static const struct sensor_driver_api iis3dhhc_api_funcs = {
 static int iis3dhhc_init_chip(struct device *dev)
 {
 	struct iis3dhhc_data *data = dev->driver_data;
-	u8_t chip_id, rst;
+	uint8_t chip_id, rst;
 
 	if (iis3dhhc_device_id_get(data->ctx, &chip_id) < 0) {
 		LOG_DBG("Failed reading chip id");
@@ -191,7 +191,7 @@ static int iis3dhhc_init_chip(struct device *dev)
 
 static int iis3dhhc_init(struct device *dev)
 {
-	const struct iis3dhhc_config * const config = dev->config->config_info;
+	const struct iis3dhhc_config * const config = dev->config_info;
 	struct iis3dhhc_data *data = dev->driver_data;
 
 	data->bus = device_get_binding(config->master_dev_name);
@@ -232,7 +232,7 @@ static const struct iis3dhhc_config iis3dhhc_config = {
 	.int_flags	= DT_INST_GPIO_FLAGS_BY_IDX(0, irq_gpios, 1),
 #endif /* CONFIG_IIS3DHHC_DRDY_INT1 */
 #endif /* CONFIG_IIS3DHHC_TRIGGER */
-#if DT_ANY_INST_ON_BUS(spi)
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
 	.bus_init = iis3dhhc_spi_init,
 	.spi_conf.frequency = DT_INST_PROP(0, spi_max_frequency),
 	.spi_conf.operation = (SPI_OP_MODE_MASTER | SPI_MODE_CPOL |

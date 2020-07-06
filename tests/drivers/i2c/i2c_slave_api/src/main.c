@@ -23,18 +23,18 @@ LOG_MODULE_REGISTER(main);
 
 #define TEST_DATA_SIZE	20
 
-static u8_t eeprom_0_data[TEST_DATA_SIZE] = "0123456789abcdefghij";
-static u8_t eeprom_1_data[TEST_DATA_SIZE] = "jihgfedcba9876543210";
-static u8_t i2c_buffer[TEST_DATA_SIZE];
+static uint8_t eeprom_0_data[TEST_DATA_SIZE] = "0123456789abcdefghij";
+static uint8_t eeprom_1_data[TEST_DATA_SIZE] = "jihgfedcba9876543210";
+static uint8_t i2c_buffer[TEST_DATA_SIZE];
 
 /*
  * We need 5x(buffer size) + 1 to print a comma-separated list of each
  * byte in hex, plus a null.
  */
-u8_t buffer_print_eeprom[TEST_DATA_SIZE * 5 + 1];
-u8_t buffer_print_i2c[TEST_DATA_SIZE * 5 + 1];
+uint8_t buffer_print_eeprom[TEST_DATA_SIZE * 5 + 1];
+uint8_t buffer_print_i2c[TEST_DATA_SIZE * 5 + 1];
 
-static void to_display_format(const u8_t *src, size_t size, char *dst)
+static void to_display_format(const uint8_t *src, size_t size, char *dst)
 {
 	size_t i;
 
@@ -43,12 +43,12 @@ static void to_display_format(const u8_t *src, size_t size, char *dst)
 	}
 }
 
-static void run_full_read(struct device *i2c, u8_t addr, u8_t *comp_buffer)
+static void run_full_read(struct device *i2c, uint8_t addr, uint8_t *comp_buffer)
 {
 	int ret;
 
 	LOG_INF("Start full read. Master: %s, address: 0x%x",
-		    i2c->config->name, addr);
+		    i2c->name, addr);
 
 	/* Read EEPROM from I2C Master requests, then compare */
 	ret = i2c_burst_read(i2c, addr,
@@ -69,13 +69,13 @@ static void run_full_read(struct device *i2c, u8_t addr, u8_t *comp_buffer)
 	}
 }
 
-static void run_partial_read(struct device *i2c, u8_t addr, u8_t *comp_buffer,
+static void run_partial_read(struct device *i2c, uint8_t addr, uint8_t *comp_buffer,
 			     unsigned int offset)
 {
 	int ret;
 
 	LOG_INF("Start partial read. Master: %s, address: 0x%x, off=%d",
-		    i2c->config->name, addr, offset);
+		    i2c->name, addr, offset);
 
 	ret = i2c_burst_read(i2c, addr,
 			     offset, i2c_buffer, TEST_DATA_SIZE-offset);
@@ -95,12 +95,12 @@ static void run_partial_read(struct device *i2c, u8_t addr, u8_t *comp_buffer,
 	}
 }
 
-static void run_program_read(struct device *i2c, u8_t addr, unsigned int offset)
+static void run_program_read(struct device *i2c, uint8_t addr, unsigned int offset)
 {
 	int ret, i;
 
 	LOG_INF("Start program. Master: %s, address: 0x%x, off=%d",
-		    i2c->config->name, addr, offset);
+		    i2c->name, addr, offset);
 
 	for (i = 0 ; i < TEST_DATA_SIZE-offset ; ++i) {
 		i2c_buffer[i] = i;

@@ -22,7 +22,7 @@ K_SEM_DEFINE(sem, 0, 1);
 static const char *now_str(void)
 {
 	static char buf[16]; /* ...HH:MM:SS.MMM */
-	u32_t now = k_uptime_get_32();
+	uint32_t now = k_uptime_get_32();
 	unsigned int ms = now % MSEC_PER_SEC;
 	unsigned int s;
 	unsigned int min;
@@ -176,7 +176,7 @@ void main(void)
 		return;
 	}
 
-	printf("device is %p, name is %s\n", dev, dev->config->name);
+	printf("device is %p, name is %s\n", dev, dev->name);
 
 	process(dev);
 }

@@ -36,12 +36,16 @@ MALLOC_BSS static unsigned char __aligned(CONFIG_NEWLIB_LIBC_ALIGNED_HEAP_SIZE)
 #define USED_RAM_END_ADDR   POINTER_TO_UINT(&_end)
 
 #if CONFIG_X86
-#define USED_RAM_SIZE  (USED_RAM_END_ADDR - DT_PHYS_RAM_ADDR)
-#define MAX_HEAP_SIZE ((KB(DT_RAM_SIZE)) - USED_RAM_SIZE)
+#define PHYS_RAM_ADDR DT_REG_ADDR(DT_CHOSEN(zephyr_sram))
+#define PHYS_RAM_SIZE DT_REG_SIZE(DT_CHOSEN(zephyr_sram))
+#define USED_RAM_SIZE (USED_RAM_END_ADDR - PHYS_RAM_ADDR)
+#define MAX_HEAP_SIZE (PHYS_RAM_SIZE - USED_RAM_SIZE)
 #elif CONFIG_NIOS2
 #include <layout.h>
-#define USED_RAM_SIZE  (USED_RAM_END_ADDR - _RAM_ADDR)
-#define MAX_HEAP_SIZE (_RAM_SIZE - USED_RAM_SIZE)
+#define RAM_ADDR DT_REG_ADDR(DT_CHOSEN(zephyr_sram))
+#define RAM_SIZE DT_REG_SIZE(DT_CHOSEN(zephyr_sram))
+#define USED_RAM_SIZE  (USED_RAM_END_ADDR - RAM_ADDR)
+#define MAX_HEAP_SIZE (RAM_SIZE - USED_RAM_SIZE)
 #elif CONFIG_RISCV
 #include <soc.h>
 #define USED_RAM_SIZE  (USED_RAM_END_ADDR - RISCV_RAM_BASE)
@@ -80,7 +84,7 @@ static int malloc_prepare(struct device *unused)
 	ARG_UNUSED(unused);
 
 #if CONFIG_NEWLIB_LIBC_ALIGNED_HEAP_SIZE
-	z_malloc_partition.start = (u32_t)heap_base;
+	z_malloc_partition.start = (uint32_t)heap_base;
 #else
 	z_malloc_partition.start = HEAP_BASE;
 #endif
@@ -269,6 +273,18 @@ __weak FUNC_ALIAS(_sbrk, sbrk, void *);
 __weak int *__errno(void)
 {
 	return z_errno();
+}
+
+/* This function gets called if static buffer overflow detection is enabled
+ * on stdlib side (Newlib here), in case such an overflow is detected. Newlib
+ * provides an implementation not suitable for us, so we override it here.
+ */
+__weak FUNC_NORETURN void __chk_fail(void)
+{
+	static const char chk_fail_msg[] = "* buffer overflow detected *\n";
+	_write(2, chk_fail_msg, sizeof(chk_fail_msg) - 1);
+	k_oops();
+	CODE_UNREACHABLE;
 }
 
 #if CONFIG_XTENSA

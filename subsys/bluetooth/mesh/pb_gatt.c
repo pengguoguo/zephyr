@@ -32,24 +32,29 @@ static void reset_state(void)
 {
 	if (link.conn) {
 		bt_conn_unref(link.conn);
+		link.conn = NULL;
 	}
 
 	k_delayed_work_cancel(&link.prot_timer);
-	memset(&link, 0, offsetof(struct prov_link, prot_timer));
 
 	link.rx_buf = bt_mesh_proxy_get_buf();
 }
 
-static void protocol_timeout(struct k_work *work)
+static void link_closed(enum prov_bearer_link_status status)
 {
 	const struct prov_bearer_cb *cb = link.cb;
-
-	BT_DBG("Protocol timeout");
+	void *cb_data = link.cb_data;
 
 	reset_state();
 
-	cb->link_closed(&pb_gatt, link.cb_data,
-			PROV_BEARER_LINK_STATUS_TIMEOUT);
+	cb->link_closed(&pb_gatt, cb_data, status);
+}
+
+static void protocol_timeout(struct k_work *work)
+{
+	BT_DBG("Protocol timeout");
+
+	link_closed(PROV_BEARER_LINK_STATUS_TIMEOUT);
 }
 
 int bt_mesh_pb_gatt_recv(struct bt_conn *conn, struct net_buf_simple *buf)
@@ -98,10 +103,7 @@ int bt_mesh_pb_gatt_close(struct bt_conn *conn)
 		return -ENOTCONN;
 	}
 
-	link.cb->link_closed(&pb_gatt, link.cb_data,
-			     PROV_BEARER_LINK_STATUS_SUCCESS);
-
-	reset_state();
+	link_closed(PROV_BEARER_LINK_STATUS_SUCCESS);
 
 	return 0;
 }
@@ -137,6 +139,11 @@ static void clear_tx(void)
 void pb_gatt_init(void)
 {
 	k_delayed_work_init(&link.prot_timer, protocol_timeout);
+}
+
+void pb_gatt_reset(void)
+{
+	reset_state();
 }
 
 const struct prov_bearer pb_gatt = {

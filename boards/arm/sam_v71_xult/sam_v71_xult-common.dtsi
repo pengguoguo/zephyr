@@ -1,16 +1,13 @@
 /*
- * Copyright (c) 2019 Gerson Fernando Budke
  * Copyright (c) 2017 Piotr Mienkowski
  * Copyright (c) 2017 Justin Watson
+ * Copyright (c) 2019-2020 Gerson Fernando Budke <nandojve@gmail.com>
  * Copyright (c) 2020 Stephanos Ioannidis <root@stephanos.io>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 / {
-	model = "Atmel SAM V71 Xplained Ultra board";
-	compatible = "atmel,sam_v71_xult", "atmel,samv71q21", "atmel,samv71";
-
 	aliases {
 		i2c-0 = &twihs0;
 		i2c-1 = &twihs1;
@@ -158,4 +155,13 @@
 			reg = <0x001e0000 0x00020000>;
 		};
 	};
+};
+
+&ssc {
+	status = "okay";
+	label = "I2S_0";
+	dma-names = "rx", "tx";
+	dmas = <&xdmac 22 DMA_PERID_SSC_RX>, <&xdmac 23 DMA_PERID_SSC_TX>;
+	pinctrl-0 = <&pd24b_ssc_rf &pa22a_ssc_rk &pa10c_ssc_rd
+		     &pb0d_ssc_tf &pb1d_ssc_tk &pb5d_ssc_td>;
 };

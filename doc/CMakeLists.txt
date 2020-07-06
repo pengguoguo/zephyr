@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.13.1)
 project(Zephyr-Kernel-Doc LANGUAGES)
 
 set(NO_BOILERPLATE TRUE)
-find_package(Zephyr HINTS $ENV{ZEPHYR_BASE} ..)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE} ..)
 
 # Find west to (optionally) process modules for Kconfig
 find_program(
@@ -26,7 +26,7 @@ else()
   message(STATUS "West: not found")
 endif()
 
-find_package(PythonInterp 3.6 REQUIRED)
+include(${ZEPHYR_BASE}/cmake/python.cmake)
 set(DOXYGEN_SKIP_DOT True)
 find_package(Doxygen REQUIRED)
 find_package(LATEX)

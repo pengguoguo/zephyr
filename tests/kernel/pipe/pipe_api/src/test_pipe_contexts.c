@@ -209,6 +209,10 @@ void test_pipe_user_thread2thread(void)
 
 /**
  * @brief Test pipe put of blocks
+ * @details Check if kernel support sending a kernel
+ * memory block into a pipe.
+ * - Using a sub thread to put blcok data to pipe
+ * - Get the pipe data and verify it
  * @see k_pipe_block_put()
  */
 void test_pipe_block_put(void)
@@ -312,8 +316,8 @@ void test_half_pipe_get_put(void)
  */
 void test_half_pipe_saturating_block_put(void)
 {
-	int r[3];
-	struct k_mem_block blocks[3];
+	int nb;
+	struct k_mem_block blocks[16];
 
 	/**TESTPOINT: thread-thread data passing via pipe*/
 	k_tid_t tid = k_thread_create(&tdata, tstack, STACK_SIZE,
@@ -324,12 +328,19 @@ void test_half_pipe_saturating_block_put(void)
 	k_msleep(10);
 
 	/* Ensure half the mempool is still queued in the pipe */
-	r[0] = k_mem_pool_alloc(&mpool, &blocks[0], BYTES_TO_WRITE, K_NO_WAIT);
-	r[1] = k_mem_pool_alloc(&mpool, &blocks[1], BYTES_TO_WRITE, K_NO_WAIT);
-	r[2] = k_mem_pool_alloc(&mpool, &blocks[2], BYTES_TO_WRITE, K_NO_WAIT);
-	zassert_true(r[0] == 0 && r[1] == 0 && r[2] == -ENOMEM, NULL);
-	k_mem_pool_free(&blocks[0]);
-	k_mem_pool_free(&blocks[1]);
+	for (nb = 0; nb < ARRAY_SIZE(blocks); nb++) {
+		if (k_mem_pool_alloc(&mpool, &blocks[nb],
+				     BYTES_TO_WRITE, K_NO_WAIT) != 0) {
+			break;
+		}
+	}
+
+	/* Must have allocated two blocks, and pool must be full */
+	zassert_true(nb >= 2 && nb < ARRAY_SIZE(blocks), NULL);
+
+	for (int i = 0; i < nb; i++) {
+		k_mem_pool_free(&blocks[i]);
+	}
 
 	tpipe_get(&khalfpipe, K_FOREVER);
 
@@ -376,7 +387,7 @@ void test_pipe_alloc(void)
 	zassert_false(k_pipe_alloc_init(&pipe_test_alloc, 0), NULL);
 	k_pipe_cleanup(&pipe_test_alloc);
 
-	ret = k_pipe_alloc_init(&pipe_test_alloc, 1024);
+	ret = k_pipe_alloc_init(&pipe_test_alloc, 2048);
 	zassert_true(ret == -ENOMEM,
 		"resource pool max block size is not smaller then requested buffer");
 }

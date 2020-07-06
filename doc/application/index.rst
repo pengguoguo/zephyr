@@ -123,11 +123,6 @@ subdirectories which are not described here.
     :ref:`devicetree <dt-guide>` source files used to describe non-discoverable
     board-specific hardware details.
 
-:file:`ext`
-    Externally created code that has been integrated into Zephyr
-    from other sources and that must live inside the zephyr repository unlike
-    `external projects <modules>`_
-
 :file:`include`
     Include files for all public APIs, except those defined under :file:`lib`.
 
@@ -672,7 +667,8 @@ This will use your custom board configuration and will generate the
 Zephyr binary into your application directory.
 
 You can also define the ``BOARD_ROOT`` variable in the application
-:file:`CMakeLists.txt` file.
+:file:`CMakeLists.txt` file. Make sure to do so **before** pulling in the Zephyr
+boilerplate with ``find_package(Zephyr ...)``.
 
 
 SOC Definitions
@@ -729,7 +725,8 @@ This will use your custom platform configurations and will generate the
 Zephyr binary into your application directory.
 
 You can also define the ``SOC_ROOT`` variable in the application
-:file:`CMakeLists.txt` file.
+:file:`CMakeLists.txt` file. Make sure to do so **before** pulling in the
+Zephyr boilerplate with ``find_package(Zephyr ...)``.
 
 .. _dts_root:
 
@@ -760,8 +757,9 @@ its location through the ``DTS_ROOT`` CMake Cache variable:
    :goals: build
    :compact:
 
-You can also define the variable in the application
-:file:`CMakeLists.txt` file.
+You can also define the variable in the application :file:`CMakeLists.txt`
+file. Make sure to do so **before** pulling in the Zephyr boilerplate with
+``find_package(Zephyr ...)``.
 
 
 Application Debugging
@@ -981,8 +979,8 @@ Create a Debugger Configuration
 
    - In the SVD Path tab:
 
-     - File path: :file:`<zephyr
-       base>\\ext\\hal\\nxp\\mcux\\devices\\MK64F12\\MK64F12.xml`
+     - File path: :file:`<workspace
+       top>\\modules\\hal\\nxp\\mcux\\devices\\MK64F12\\MK64F12.xml`
 
      .. note::
 	This is optional. It provides the SoC's memory-mapped register
@@ -1141,7 +1139,7 @@ Make sure to follow these steps in order.
       find_package(Zephyr)
       project(my_zephyr_app)
 
-   .. note:: ``find_package(Zephyr HINTS $ENV{ZEPHYR_BASE})`` can be used if
+   .. note:: ``find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})`` can be used if
              enforcing a specific Zephyr installation by explicitly
              setting the ``ZEPHYR_BASE`` environment variable should be
              supported. All samples in Zephyr supports the ``ZEPHYR_BASE``

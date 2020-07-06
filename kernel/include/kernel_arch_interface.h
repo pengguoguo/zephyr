@@ -36,7 +36,7 @@ extern "C" {
  *
  * @param usec_to_wait Wait period, in microseconds
  */
-void arch_busy_wait(u32_t usec_to_wait);
+void arch_busy_wait(uint32_t usec_to_wait);
 #endif
 
 /** @} */
@@ -165,7 +165,7 @@ void arch_switch_to_main_thread(struct k_thread *main_thread,
 				  k_thread_entry_t _main);
 #endif /* CONFIG_ARCH_HAS_CUSTOM_SWAP_TO_MAIN */
 
-#if defined(CONFIG_FLOAT) && defined(CONFIG_FP_SHARING)
+#if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING)
 /**
  * @brief Disable floating point context preservation
  *
@@ -179,7 +179,7 @@ void arch_switch_to_main_thread(struct k_thread *main_thread,
  * @retval -EINVAL If the floating point disabling could not be performed.
  */
 int arch_float_disable(struct k_thread *thread);
-#endif /* CONFIG_FLOAT && CONFIG_FP_SHARING */
+#endif /* CONFIG_FPU && CONFIG_FPU_SHARING */
 
 /** @} */
 
@@ -217,6 +217,24 @@ static inline bool arch_is_in_isr(void);
  * @ingroup arch-interface
  * @{
  */
+
+/**
+ * Early boot console output hook
+ *
+ * Definition of this function is optional. If implemented, any invocation
+ * of printk() (or logging calls with CONFIG_LOG_MINIMAL which are backed by
+ * printk) will default to sending characters to this function. It is
+ * useful for early boot debugging before main serial or console drivers
+ * come up.
+ *
+ * This can be overridden at runtime with __printk_hook_install().
+ *
+ * The default __weak implementation of this does nothing.
+ *
+ * @param c Character to print
+ * @return The character printed
+ */
+int arch_printk_char_out(int c);
 
 /**
  * Architecture-specific kernel initialization hook

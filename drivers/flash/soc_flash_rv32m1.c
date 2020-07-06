@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT soc_nv_flash
+#define DT_DRV_COMPAT openisa_rv32m1_ftfe
+#define SOC_NV_FLASH_NODE DT_INST(0, soc_nv_flash)
 
 #include <kernel.h>
 #include <device.h>
@@ -24,7 +25,12 @@ struct flash_priv {
 	 * HACK: flash write protection is managed in software.
 	 */
 	struct k_sem write_lock;
-	u32_t pflash_block_base;
+	uint32_t pflash_block_base;
+};
+
+static const struct flash_parameters flash_mcux_parameters = {
+	.write_block_size = FSL_FEATURE_FLASH_PFLASH_BLOCK_WRITE_UNIT_SIZE,
+	.erase_value = 0xff,
 };
 
 /*
@@ -39,7 +45,7 @@ struct flash_priv {
 static int flash_mcux_erase(struct device *dev, off_t offset, size_t len)
 {
 	struct flash_priv *priv = dev->driver_data;
-	u32_t addr;
+	uint32_t addr;
 	status_t rc;
 	unsigned int key;
 
@@ -62,7 +68,7 @@ static int flash_mcux_read(struct device *dev, off_t offset,
 				void *data, size_t len)
 {
 	struct flash_priv *priv = dev->driver_data;
-	u32_t addr;
+	uint32_t addr;
 
 	/*
 	 * The MCUX supports different flash chips whose valid ranges are
@@ -80,7 +86,7 @@ static int flash_mcux_write(struct device *dev, off_t offset,
 				const void *data, size_t len)
 {
 	struct flash_priv *priv = dev->driver_data;
-	u32_t addr;
+	uint32_t addr;
 	status_t rc;
 	unsigned int key;
 
@@ -115,9 +121,9 @@ static int flash_mcux_write_protection(struct device *dev, bool enable)
 
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 static const struct flash_pages_layout dev_layout = {
-	.pages_count = DT_INST_REG_SIZE(0) /
-					DT_INST_PROP(0, erase_block_size),
-	.pages_size = DT_INST_PROP(0, erase_block_size),
+	.pages_count = DT_REG_SIZE(SOC_NV_FLASH_NODE) /
+				DT_PROP(SOC_NV_FLASH_NODE, erase_block_size),
+	.pages_size = DT_PROP(SOC_NV_FLASH_NODE, erase_block_size),
 };
 
 static void flash_mcux_pages_layout(
@@ -130,6 +136,14 @@ static void flash_mcux_pages_layout(
 }
 #endif /* CONFIG_FLASH_PAGE_LAYOUT */
 
+static const struct flash_parameters *
+flash_mcux_get_parameters(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+
+	return &flash_mcux_parameters;
+}
+
 static struct flash_priv flash_data;
 
 static const struct flash_driver_api flash_mcux_api = {
@@ -137,16 +151,16 @@ static const struct flash_driver_api flash_mcux_api = {
 	.erase = flash_mcux_erase,
 	.write = flash_mcux_write,
 	.read = flash_mcux_read,
+	.get_parameters = flash_mcux_get_parameters,
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	.page_layout = flash_mcux_pages_layout,
 #endif
-	.write_block_size = FSL_FEATURE_FLASH_PFLASH_BLOCK_WRITE_UNIT_SIZE,
 };
 
 static int flash_mcux_init(struct device *dev)
 {
 	struct flash_priv *priv = dev->driver_data;
-	u32_t pflash_block_base;
+	uint32_t pflash_block_base;
 	status_t rc;
 
 	CLOCK_EnableClock(kCLOCK_Mscm);
@@ -157,7 +171,7 @@ static int flash_mcux_init(struct device *dev)
 
 	FLASH_GetProperty(&priv->config, kFLASH_PropertyPflashBlockBaseAddr,
 			(uint32_t *)&pflash_block_base);
-	priv->pflash_block_base = (u32_t) pflash_block_base;
+	priv->pflash_block_base = (uint32_t) pflash_block_base;
 
 	return (rc == kStatus_Success) ? 0 : -EIO;
 }

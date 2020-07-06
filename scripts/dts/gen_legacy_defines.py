@@ -18,6 +18,13 @@ import sys
 
 import edtlib
 
+# Set this to True to generated deprecated macro warnings. Since this
+# entire file is deprecated and must be explicitly enabled with
+# CONFIG_LEGACY_DEVICETREE_MACROS, this was turned off by default
+# shortly before the v2.3 release (this was the least impactful way to
+# do it, which resulted in the smallest and least-risky patch).
+DEPRECATION_MESSAGES = False
+
 def main():
     global header_file
     global flash_area_num
@@ -28,7 +35,9 @@ def main():
         edt = edtlib.EDT(args.dts, args.bindings_dirs,
                          # Suppress this warning if it's suppressed in dtc
                          warn_reg_unit_address_mismatch=
-                             "-Wno-simple_bus_reg" not in args.dtc_flags)
+                             "-Wno-simple_bus_reg" not in args.dtc_flags,
+                         default_prop_types=False,
+                         support_fixed_partitions_on_any_bus = False)
     except edtlib.EDTError as e:
         sys.exit(f"devicetree error: {e}")
 
@@ -270,7 +279,7 @@ def write_bus(node):
         err(f"missing 'label' property on bus node {node.bus_node!r}")
 
     # #define DT_<DEV-IDENT>_BUS_NAME <BUS-LABEL>
-    out_node_s(node, "BUS_NAME", str2ident(node.bus_node.label))
+    out_node_s(node, "BUS_NAME", str2ident(node.bus_node.label), "Macro is deprecated")
 
     for compat in node.compats:
         # #define DT_<COMPAT>_BUS_<BUS-TYPE> 1
@@ -298,8 +307,11 @@ def node_ident(node):
     ident = ""
 
     if node.bus_node:
-        ident += "{}_{:X}_".format(
-            str2ident(node.bus_node.matching_compat), node.bus_node.unit_addr)
+        if node.bus_node.unit_addr is not None:
+            ident += "{}_{:X}_".format(
+                str2ident(node.bus_node.matching_compat), node.bus_node.unit_addr)
+        else:
+            ident += str2ident(node.bus_node.matching_compat)
 
     ident += f"{str2ident(node.matching_compat)}_"
 
@@ -744,9 +756,16 @@ def out(ident, val, aliases=(), deprecation_msg=None):
     out_define(ident, val, deprecation_msg, header_file)
     primary_ident = f"DT_{ident}"
 
+    d_msg = deprecation_msg
+
     for alias in aliases:
         if alias != ident:
+            if alias.startswith("INST_"):
+                deprecation_msg = "Macro is deprecated"
+
             out_define(alias, "DT_" + ident, deprecation_msg, header_file)
+
+            deprecation_msg = d_msg
 
     return primary_ident
 
@@ -756,7 +775,8 @@ def out_define(ident, val, deprecation_msg, out_file):
     # 'deprecation_msg'.
 
     s = f"#define DT_{ident:40}"
-    if deprecation_msg:
+
+    if DEPRECATION_MESSAGES and deprecation_msg:
         s += fr' __WARN("{deprecation_msg}")'
     s += f" {val}"
     print(s, file=out_file)
