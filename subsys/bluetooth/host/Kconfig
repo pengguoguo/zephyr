@@ -79,9 +79,9 @@ config BT_HCI_TX_STACK_SIZE
 	default 512 if BT_H4
 	default 512 if BT_H5
 	default 416 if BT_SPI
-	default 940 if BT_CTLR && (BT_LL_SW_LEGACY || BT_LL_SW_SPLIT) && NO_OPTIMIZATIONS
-	default 1024 if BT_CTLR && (BT_LL_SW_LEGACY || BT_LL_SW_SPLIT) && BT_CENTRAL
-	default 640 if BT_CTLR && (BT_LL_SW_LEGACY || BT_LL_SW_SPLIT)
+	default 940 if BT_CTLR && BT_LL_SW_SPLIT && NO_OPTIMIZATIONS
+	default 1024 if BT_CTLR && BT_LL_SW_SPLIT && BT_CENTRAL
+	default 640 if BT_CTLR && BT_LL_SW_SPLIT
 	default 512 if BT_USERCHAN
 	default 640 if BT_STM32_IPM
 	# Even if no driver is selected the following default is still
@@ -261,16 +261,45 @@ config BT_CONN_TX_MAX
 	  callback. Normally this can be left to the default value, which
 	  is equal to the number of TX buffers in the stack-internal pool.
 
+config BT_USER_PHY_UPDATE
+	bool "User control of PHY Update Procedure"
+	depends on BT_PHY_UPDATE
+	help
+	  Enable application access to initiate the PHY Update Procedure.
+	  The application can also register a callback to be notified about PHY
+	  changes on the connection. The current PHY info is available in the
+	  connection info.
+
 config BT_AUTO_PHY_UPDATE
 	bool "Auto-initiate PHY Update Procedure"
 	depends on BT_PHY_UPDATE
-	default y
+	default y if !BT_USER_PHY_UPDATE
 	help
 	  Initiate PHY Update Procedure on connection establishment.
 
-	  Disable this if you want PHY Update Procedure feature supported but
-	  want to rely on remote device to initiate the procedure at its
-	  discretion.
+	  Disable this if you want the PHY Update Procedure feature supported
+	  but want to rely on the remote device to initiate the procedure at its
+	  discretion or want to initiate manually.
+
+config BT_USER_DATA_LEN_UPDATE
+	bool "User control of Data Length Update Procedure"
+	depends on BT_DATA_LEN_UPDATE
+	help
+	  Enable application access to initiate the Data Length Update
+	  Procedure. The application can also a register callback to be notified
+	  about Data Length changes on the connection. The current Data Length
+	  info is available in the connection info.
+
+config BT_AUTO_DATA_LEN_UPDATE
+	bool "Auto-initiate Data Length Update procedure"
+	depends on BT_DATA_LEN_UPDATE
+	default y if !BT_USER_DATA_LEN_UPDATE
+	help
+	  Initiate Data Length Update Procedure on connection establishment.
+
+	  Disable this if you want the Data Length Update Procedure feature
+	  supported but want to rely on the remote device to initiate the
+	  procedure at its discretion or want to initiate manually.
 
 config BT_REMOTE_INFO
 	bool "Enable application access to remote information"
@@ -400,10 +429,10 @@ config BT_USE_DEBUG_KEYS
 	help
 	  This option places Security Manager in a Debug Mode. In this mode
 	  predefined Diffie-Hellman private/public key pair is used as described
-	  in Core Specification Vol. 3, Part H, 2.3.5.6.1. This option should
-	  only be enabled for debugging and should never be used in production.
-	  If this option is enabled anyone is able to decipher encrypted air
-	  traffic.
+	  in Core Specification Vol. 3, Part H, 2.3.5.6.1.
+
+	  WARNING: This option enables anyone to decrypt on-air traffic.
+	  Use of this feature in production is strongly discouraged.
 
 config BT_BONDABLE
 	bool "Bondable Mode"
@@ -425,8 +454,12 @@ config BT_STORE_DEBUG_KEYS
 	bool "Store Debug Mode bonds"
 	help
 	  This option enables support for storing bonds where either of devices
-	  has the Security Manager in Debug mode. This option should
-	  only be enabled for debugging and should never be used in production.
+	  is using the predefined Diffie-Hellman private/public key pair as
+	  described in the Core Specification Vol 3, Part H, 2.3.5.6.1.
+
+	  WARNING: This option potentially enables anyone to decrypt on-air
+	  traffic.
+	  Use of this feature in production is strongly discouraged.
 
 config BT_SMP_ENFORCE_MITM
 	bool "Enforce MITM protection"
@@ -442,8 +475,10 @@ config BT_OOB_DATA_FIXED
 	help
 	  With this option enabled, the application will be able to perform LESC
 	  pairing with OOB data that consists of fixed random number and confirm
-	  value. This option should only be enabled for debugging and should
-	  never be used in production.
+	  value.
+
+	  WARNING: This option stores a hardcoded Out-of-Band value in the image.
+	  Use of this feature in production is strongly discouraged.
 
 config BT_KEYS_OVERWRITE_OLDEST
 	bool "Overwrite oldest keys with new ones if key storage is full"
@@ -616,6 +651,10 @@ config BT_DEBUG_KEYS
 	  This option enables debug support for the handling of
 	  Bluetooth security keys.
 
+	  WARNING: This option prints out private security keys such as
+	  the Long Term Key.
+	  Use of this feature in production is strongly discouraged.
+
 config BT_DEBUG_SMP
 	bool "Bluetooth Security Manager Protocol (SMP) debug"
 	depends on BT_HCI_HOST
@@ -623,6 +662,10 @@ config BT_DEBUG_SMP
 	help
 	  This option enables debug support for the Bluetooth
 	  Security Manager Protocol (SMP).
+
+	  WARNING: This option prints out private security keys such as
+	  the Long Term Key.
+	  Use of this feature in production is strongly discouraged.
 
 config BT_SMP_SELFTEST
 	bool "Bluetooth SMP self tests executed on init"

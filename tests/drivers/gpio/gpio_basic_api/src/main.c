@@ -22,7 +22,7 @@
 
 static void board_setup(void)
 {
-#if DT_HAS_NODE(DT_INST(0, test_gpio_basic_api))
+#if DT_NODE_HAS_STATUS(DT_INST(0, test_gpio_basic_api), okay)
 	/* PIN_IN and PIN_OUT must be on same controller. */
 	if (strcmp(DT_GPIO_LABEL(DT_INST(0, test_gpio_basic_api), out_gpios),
 		   DT_GPIO_LABEL(DT_INST(0, test_gpio_basic_api), in_gpios)) != 0) {
@@ -100,7 +100,7 @@ static void board_setup(void)
 	/* Assumes ARDUINO pins are mapped on PORT0 on all boards*/
 	struct device *port0 =
 		device_get_binding(CONFIG_PINMUX_MCUX_LPC_PORT0_NAME);
-	const u32_t pin_config = (
+	const uint32_t pin_config = (
 			IOCON_PIO_FUNC0 |
 			IOCON_PIO_INV_DI |
 			IOCON_PIO_DIGITAL_EN |
@@ -126,7 +126,6 @@ void test_main(void)
 			 ztest_unit_test(test_gpio_callback_add_remove),
 			 ztest_unit_test(test_gpio_callback_self_remove),
 			 ztest_unit_test(test_gpio_callback_enable_disable),
-			 ztest_unit_test(test_gpio_callback_variants),
-			 ztest_unit_test(test_gpio_deprecated));
+			 ztest_unit_test(test_gpio_callback_variants));
 	ztest_run_test_suite(gpio_basic_test);
 }

@@ -57,6 +57,11 @@
 	status = "okay";
 };
 
+&gmac {
+	status = "okay";
+	zephyr,random-mac-address;
+};
+
 &wdt {
 	status = "okay";
 };

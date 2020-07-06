@@ -74,8 +74,8 @@ static struct dns_resolve_context resv_ipv6_2;
 #define WAIT_TIME K_MSEC((DNS_TIMEOUT + 300) * 3)
 
 struct net_if_test {
-	u8_t idx;
-	u8_t mac_addr[sizeof(struct net_eth_addr)];
+	uint8_t idx;
+	uint8_t mac_addr[sizeof(struct net_eth_addr)];
 };
 
 static int net_iface_dev_init(struct device *dev)
@@ -83,7 +83,7 @@ static int net_iface_dev_init(struct device *dev)
 	return 0;
 }
 
-static u8_t *net_iface_get_mac(struct device *dev)
+static uint8_t *net_iface_get_mac(struct device *dev)
 {
 	struct net_if_test *data = dev->driver_data;
 
@@ -102,7 +102,7 @@ static u8_t *net_iface_get_mac(struct device *dev)
 
 static void net_iface_init(struct net_if *iface)
 {
-	u8_t *mac = net_iface_get_mac(net_if_get_device(iface));
+	uint8_t *mac = net_iface_get_mac(net_if_get_device(iface));
 
 	net_if_set_link_addr(iface, mac, sizeof(struct net_eth_addr),
 			     NET_LINK_ETHERNET);
@@ -142,7 +142,7 @@ NET_DEVICE_INIT_INSTANCE(net_iface1_test,
 			 127);
 
 static void dns_evt_handler(struct net_mgmt_event_callback *cb,
-			      u32_t mgmt_event, struct net_if *iface)
+			      uint32_t mgmt_event, struct net_if *iface)
 {
 	if (mgmt_event == NET_EVENT_DNS_SERVER_ADD) {
 		k_sem_give(&dns_added);
@@ -203,7 +203,7 @@ static void test_init(void)
 	net_mgmt_add_event_callback(&mgmt_cb);
 }
 
-static void dns_do_not_add_add_callback6(void)
+static void test_dns_do_not_add_add_callback6(void)
 {
 #if defined(CONFIG_NET_IPV6)
 	/* Wait for DNS added callback without adding DNS */
@@ -218,7 +218,7 @@ static void dns_do_not_add_add_callback6(void)
 }
 
 /* Wait for DNS added callback after adding DNS */
-static void dns_add_callback6(void)
+static void test_dns_add_callback6(void)
 {
 #if defined(CONFIG_NET_IPV6)
 
@@ -243,7 +243,7 @@ static void dns_add_callback6(void)
 #endif
 }
 
-static void dns_remove_callback6(void)
+static void test_dns_remove_callback6(void)
 {
 #if defined(CONFIG_NET_IPV6)
 	/* Wait for DNS removed callback after removing DNS */
@@ -263,7 +263,7 @@ static void dns_remove_callback6(void)
 #endif
 }
 
-static void dns_remove_none_callback6(void)
+static void test_dns_remove_none_callback6(void)
 {
 #if defined(CONFIG_NET_IPV6)
 	/* Wait for DNS removed callback without removing DNS */
@@ -282,7 +282,7 @@ static void dns_remove_none_callback6(void)
 #endif
 }
 
-static void dns_add_remove_two_callback6(void)
+static void test_dns_add_remove_two_callback6(void)
 {
 #if defined(CONFIG_NET_IPV6)
 	struct dns_resolve_context *dnsCtx = &resv_ipv6;
@@ -372,7 +372,7 @@ static void dns_add_remove_two_callback6(void)
 #endif
 }
 
-static void dns_do_not_add_add_callback(void)
+static void test_dns_do_not_add_add_callback(void)
 {
 #if defined(CONFIG_NET_IPV4)
 	/* Wait for DNS added callback without adding DNS */
@@ -386,7 +386,7 @@ static void dns_do_not_add_add_callback(void)
 #endif
 }
 
-static void dns_add_callback(void)
+static void test_dns_add_callback(void)
 {
 #if defined(CONFIG_NET_IPV4)
 	/* Wait for DNS added callback after adding DNS */
@@ -411,7 +411,7 @@ static void dns_add_callback(void)
 #endif
 }
 
-static void dns_remove_callback(void)
+static void test_dns_remove_callback(void)
 {
 #if defined(CONFIG_NET_IPV4)
 	/* Wait for DNS removed callback after removing DNS */
@@ -430,7 +430,7 @@ static void dns_remove_callback(void)
 #endif
 }
 
-static void dns_remove_none_callback(void)
+static void test_dns_remove_none_callback(void)
 {
 #if defined(CONFIG_NET_IPV4)
 	/* Wait for DNS removed callback without removing DNS */
@@ -449,7 +449,7 @@ static void dns_remove_none_callback(void)
 #endif
 }
 
-static void dns_add_remove_two_callback(void)
+static void test_dns_add_remove_two_callback(void)
 {
 #if defined(CONFIG_NET_IPV4)
 	struct dns_resolve_context *dnsCtx = &resv_ipv4;
@@ -543,16 +543,16 @@ void test_main(void)
 {
 	ztest_test_suite(dns_tests,
 			 ztest_unit_test(test_init),
-			 ztest_unit_test(dns_do_not_add_add_callback6),
-			 ztest_unit_test(dns_add_callback6),
-			 ztest_unit_test(dns_remove_callback6),
-			 ztest_unit_test(dns_remove_none_callback6),
-			 ztest_unit_test(dns_add_remove_two_callback6),
-			 ztest_unit_test(dns_do_not_add_add_callback),
-			 ztest_unit_test(dns_add_callback),
-			 ztest_unit_test(dns_remove_callback),
-			 ztest_unit_test(dns_remove_none_callback),
-			 ztest_unit_test(dns_add_remove_two_callback)
+			 ztest_unit_test(test_dns_do_not_add_add_callback6),
+			 ztest_unit_test(test_dns_add_callback6),
+			 ztest_unit_test(test_dns_remove_callback6),
+			 ztest_unit_test(test_dns_remove_none_callback6),
+			 ztest_unit_test(test_dns_add_remove_two_callback6),
+			 ztest_unit_test(test_dns_do_not_add_add_callback),
+			 ztest_unit_test(test_dns_add_callback),
+			 ztest_unit_test(test_dns_remove_callback),
+			 ztest_unit_test(test_dns_remove_none_callback),
+			 ztest_unit_test(test_dns_add_remove_two_callback)
 
 );
 

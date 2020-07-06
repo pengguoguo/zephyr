@@ -5,7 +5,9 @@ zephyr_library()
 zephyr_library_sources(
   vector_table.S
   reset.S
+  fault_s.S
   fault.c
+  exc_exit.S
   scb.c
   irq_init.c
   thread_abort.c
@@ -17,7 +19,9 @@ zephyr_linker_sources_ifdef(CONFIG_SW_VECTOR_RELAY
   relay_vector_table.ld
   )
 
-zephyr_linker_sources_ifdef(CONFIG_SW_VECTOR_RELAY
+if (CONFIG_SW_VECTOR_RELAY OR CONFIG_SW_VECTOR_RELAY_CLIENT)
+zephyr_linker_sources(
   RAM_SECTIONS
   vt_pointer_section.ld
   )
+endif()

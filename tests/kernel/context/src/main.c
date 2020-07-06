@@ -66,9 +66,9 @@
 #elif defined(CONFIG_RISCV_MACHINE_TIMER)
 #define TICK_IRQ RISCV_MACHINE_TIMER_IRQ
 #elif defined(CONFIG_LITEX_TIMER)
-#define TICK_IRQ DT_LITEX_TIMER0_E0002800_IRQ_0
+#define TICK_IRQ DT_IRQN(DT_NODELABEL(timer0))
 #elif defined(CONFIG_RV32M1_LPTMR_TIMER)
-#define TICK_IRQ DT_OPENISA_RV32M1_LPTMR_SYSTEM_LPTMR_IRQ_0
+#define TICK_IRQ DT_IRQN(DT_ALIAS(system_lptmr))
 #elif defined(CONFIG_XLNX_PSTTC_TIMER)
 #define TICK_IRQ DT_IRQN(DT_INST(0, xlnx_ttcps))
 #elif defined(CONFIG_CPU_CORTEX_M)
@@ -324,6 +324,13 @@ static void test_kernel_cpu_idle_atomic(void)
 
 static void test_kernel_cpu_idle(void)
 {
+/*
+ * Fixme: remove the skip code when sleep instruction in
+ * nsim_hs_smp is fixed.
+ */
+#if defined(CONFIG_SOC_NSIM) && defined(CONFIG_SMP)
+	ztest_test_skip();
+#endif
 	_test_kernel_cpu_idle(0);
 }
 
@@ -663,7 +670,7 @@ static void kernel_thread_entry(void *_thread_id, void *arg1, void *arg2)
  */
 struct timeout_order {
 	void *link_in_fifo;
-	s32_t timeout;
+	int32_t timeout;
 	int timeout_order;
 	int q_order;
 };
@@ -686,7 +693,7 @@ static struct k_thread timeout_threads[NUM_TIMEOUT_THREADS];
 /* a thread busy waits */
 static void busy_wait_thread(void *mseconds, void *arg2, void *arg3)
 {
-	u32_t usecs;
+	uint32_t usecs;
 
 	ARG_UNUSED(arg2);
 	ARG_UNUSED(arg3);
@@ -696,6 +703,16 @@ static void busy_wait_thread(void *mseconds, void *arg2, void *arg3)
 	TC_PRINT("Thread busy waiting for %d usecs\n", usecs);
 	k_busy_wait(usecs);
 	TC_PRINT("Thread busy waiting completed\n");
+
+	/* FIXME: Broken on Nios II, see #22956 */
+#ifndef CONFIG_NIOS2
+	int key = arch_irq_lock();
+
+	TC_PRINT("Thread busy waiting for %d usecs (irqs locked)\n", usecs);
+	k_busy_wait(usecs);
+	TC_PRINT("Thread busy waiting completed (irqs locked)\n");
+	arch_irq_unlock(key);
+#endif
 
 	/*
 	 * Ideally the test should verify that the correct number of ticks
@@ -716,7 +733,7 @@ static void busy_wait_thread(void *mseconds, void *arg2, void *arg3)
 /* a thread sleeps and times out, then reports through a fifo */
 static void thread_sleep(void *delta, void *arg2, void *arg3)
 {
-	s64_t timestamp;
+	int64_t timestamp;
 	int timeout = POINTER_TO_INT(delta);
 
 	ARG_UNUSED(arg2);
@@ -761,7 +778,7 @@ static void delayed_thread(void *num, void *arg2, void *arg3)
  */
 static void test_busy_wait(void)
 {
-	s32_t timeout;
+	int32_t timeout;
 	int rv;
 
 	timeout = 20;           /* in ms */
@@ -771,7 +788,7 @@ static void test_busy_wait(void)
 			INT_TO_POINTER(timeout), NULL,
 			NULL, K_PRIO_COOP(THREAD_PRIORITY), 0, K_NO_WAIT);
 
-	rv = k_sem_take(&reply_timeout, K_MSEC(timeout * 2));
+	rv = k_sem_take(&reply_timeout, K_MSEC(timeout * 2 * 2));
 
 	zassert_false(rv, " *** thread timed out waiting for " "k_busy_wait()");
 }
@@ -786,7 +803,7 @@ static void test_busy_wait(void)
 static void test_k_sleep(void)
 {
 	struct timeout_order *data;
-	s32_t timeout;
+	int32_t timeout;
 	int rv;
 	int i;
 

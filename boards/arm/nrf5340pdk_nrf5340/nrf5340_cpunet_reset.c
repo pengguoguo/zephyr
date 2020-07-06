@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Nordic Semiconductor ASA.
+ * Copyright (c) 2019-2020 Nordic Semiconductor ASA.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,6 +12,13 @@
 
 LOG_MODULE_REGISTER(nrf5340pdk_nrf5340_cpuapp, CONFIG_LOG_DEFAULT_LEVEL);
 
+/* Shared memory definitions */
+#if DT_HAS_CHOSEN(zephyr_ipc_shm)
+#define SHM_NODE            DT_CHOSEN(zephyr_ipc_shm)
+#define SHM_BASE_ADDRESS    DT_REG_ADDR(SHM_NODE)
+#define SHM_SIZE            DT_REG_SIZE(SHM_NODE)
+#endif
+
 #if !defined(CONFIG_TRUSTED_EXECUTION_NONSECURE)
 
 /* This should come from DTS, possibly an overlay. */
@@ -19,6 +26,12 @@ LOG_MODULE_REGISTER(nrf5340pdk_nrf5340_cpuapp, CONFIG_LOG_DEFAULT_LEVEL);
 #define CPUNET_UARTE_PIN_RX  26
 #define CPUNET_UARTE_PIN_RTS 10
 #define CPUNET_UARTE_PIN_CTS 12
+
+#if defined(CONFIG_BT_CTLR_DEBUG_PINS_CPUAPP)
+#include <../subsys/bluetooth/controller/ll_sw/nordic/hal/nrf5/debug.h>
+#else
+#define DEBUG_SETUP()
+#endif
 
 static void remoteproc_mgr_config(void)
 {
@@ -34,6 +47,9 @@ static void remoteproc_mgr_config(void)
 	GPIO_PIN_CNF_MCUSEL_NetworkMCU << GPIO_PIN_CNF_MCUSEL_Pos;
 	NRF_P0->PIN_CNF[CPUNET_UARTE_PIN_CTS] =
 	GPIO_PIN_CNF_MCUSEL_NetworkMCU << GPIO_PIN_CNF_MCUSEL_Pos;
+
+	/* Route Bluetooth Controller Debug Pins */
+	DEBUG_SETUP();
 
 	/* Retain nRF5340 Network MCU in Secure domain (bus
 	 * accesses by Network MCU will have Secure attribute set).
@@ -51,12 +67,13 @@ static int remoteproc_mgr_boot(struct device *dev)
 	remoteproc_mgr_config();
 #endif /* !CONFIG_TRUSTED_EXECUTION_NONSECURE */
 
-#if (DT_IPC_SHM_BASE_ADDRESS != 0)
+#if defined(SHM_BASE_ADDRESS) && (SHM_BASE_ADDRESS != 0)
+
 	/* Initialize inter-processor shared memory block to zero. It is
 	 * assumed that the application image has access to the shared
 	 * memory at this point (see #24147).
 	 */
-	memset((void *) DT_IPC_SHM_BASE_ADDRESS, 0, KB(DT_IPC_SHM_SIZE));
+	memset((void *) SHM_BASE_ADDRESS, 0, SHM_SIZE);
 #endif
 
 	/* Release the Network MCU, 'Release force off signal' */

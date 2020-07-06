@@ -62,7 +62,7 @@ K_SEM_DEFINE(wait_data, 0, UINT_MAX);
 #define PEER_PORT 13856
 
 struct net_test_mld {
-	u8_t mac_addr[sizeof(struct net_eth_addr)];
+	uint8_t mac_addr[sizeof(struct net_eth_addr)];
 	struct net_linkaddr ll_addr;
 };
 
@@ -71,7 +71,7 @@ int net_test_dev_init(struct device *dev)
 	return 0;
 }
 
-static u8_t *net_test_get_mac(struct device *dev)
+static uint8_t *net_test_get_mac(struct device *dev)
 {
 	struct net_test_mld *context = dev->driver_data;
 
@@ -90,7 +90,7 @@ static u8_t *net_test_get_mac(struct device *dev)
 
 static void net_test_iface_init(struct net_if *iface)
 {
-	u8_t *mac = net_test_get_mac(net_if_get_device(iface));
+	uint8_t *mac = net_test_get_mac(net_if_get_device(iface));
 
 	net_if_set_link_addr(iface, mac, sizeof(struct net_eth_addr),
 			     NET_LINK_ETHERNET);
@@ -148,7 +148,7 @@ NET_DEVICE_INIT(net_test_mld, "net_test_mld",
 		127);
 
 static void group_joined(struct net_mgmt_event_callback *cb,
-			 u32_t nm_event, struct net_if *iface)
+			 uint32_t nm_event, struct net_if *iface)
 {
 	if (nm_event != NET_EVENT_IPV6_MCAST_JOIN) {
 		/* Spurious callback. */
@@ -161,7 +161,7 @@ static void group_joined(struct net_mgmt_event_callback *cb,
 }
 
 static void group_left(struct net_mgmt_event_callback *cb,
-			 u32_t nm_event, struct net_if *iface)
+			 uint32_t nm_event, struct net_if *iface)
 {
 	if (nm_event != NET_EVENT_IPV6_MCAST_LEAVE) {
 		/* Spurious callback. */
@@ -174,7 +174,7 @@ static void group_left(struct net_mgmt_event_callback *cb,
 }
 
 static struct mgmt_events {
-	u32_t event;
+	uint32_t event;
 	net_mgmt_event_handler_t handler;
 	struct net_mgmt_event_callback cb;
 } mgmt_events[] = {
@@ -196,7 +196,7 @@ static void setup_mgmt_events(void)
 	}
 }
 
-static void mld_setup(void)
+static void test_mld_setup(void)
 {
 	struct net_if_addr *ifaddr;
 
@@ -212,7 +212,7 @@ static void mld_setup(void)
 	zassert_not_null(ifaddr, "Cannot add IPv6 address");
 }
 
-static void join_group(void)
+static void test_join_group(void)
 {
 	int ret;
 
@@ -231,7 +231,7 @@ static void join_group(void)
 	k_yield();
 }
 
-static void leave_group(void)
+static void test_leave_group(void)
 {
 	int ret;
 
@@ -244,13 +244,13 @@ static void leave_group(void)
 	k_yield();
 }
 
-static void catch_join_group(void)
+static void test_catch_join_group(void)
 {
 	is_group_joined = false;
 
 	ignore_already = false;
 
-	join_group();
+	test_join_group();
 
 	if (k_sem_take(&wait_data, K_MSEC(WAIT_TIME))) {
 		zassert_true(0, "Timeout while waiting join event");
@@ -263,11 +263,11 @@ static void catch_join_group(void)
 	is_group_joined = false;
 }
 
-static void catch_leave_group(void)
+static void test_catch_leave_group(void)
 {
 	is_group_joined = false;
 
-	leave_group();
+	test_leave_group();
 
 	if (k_sem_take(&wait_data, K_MSEC(WAIT_TIME))) {
 		zassert_true(0, "Timeout while waiting leave event");
@@ -280,13 +280,13 @@ static void catch_leave_group(void)
 	is_group_left = false;
 }
 
-static void verify_join_group(void)
+static void test_verify_join_group(void)
 {
 	is_join_msg_ok = false;
 
 	ignore_already = false;
 
-	join_group();
+	test_join_group();
 
 	if (k_sem_take(&wait_data, K_MSEC(WAIT_TIME))) {
 		zassert_true(0, "Timeout while waiting join event");
@@ -299,11 +299,11 @@ static void verify_join_group(void)
 	is_join_msg_ok = false;
 }
 
-static void verify_leave_group(void)
+static void test_verify_leave_group(void)
 {
 	is_leave_msg_ok = false;
 
-	leave_group();
+	test_leave_group();
 
 	if (k_sem_take(&wait_data, K_MSEC(WAIT_TIME))) {
 		zassert_true(0, "Timeout while waiting leave event");
@@ -403,7 +403,7 @@ static struct net_icmpv6_handler mld_query_input_handler = {
 	.handler = handle_mld_query,
 };
 
-static void catch_query(void)
+static void test_catch_query(void)
 {
 	is_query_received = false;
 
@@ -426,14 +426,14 @@ static void catch_query(void)
 	net_icmpv6_unregister_handler(&mld_query_input_handler);
 }
 
-static void verify_send_report(void)
+static void test_verify_send_report(void)
 {
 	is_query_received = false;
 	is_report_sent = false;
 
 	ignore_already = true;
 
-	join_group();
+	test_join_group();
 
 	send_query(net_if_get_default());
 
@@ -486,15 +486,15 @@ static void test_solicit_node(void)
 void test_main(void)
 {
 	ztest_test_suite(net_mld_test,
-			 ztest_unit_test(mld_setup),
-			 ztest_unit_test(join_group),
-			 ztest_unit_test(leave_group),
-			 ztest_unit_test(catch_join_group),
-			 ztest_unit_test(catch_leave_group),
-			 ztest_unit_test(verify_join_group),
-			 ztest_unit_test(verify_leave_group),
-			 ztest_unit_test(catch_query),
-			 ztest_unit_test(verify_send_report),
+			 ztest_unit_test(test_mld_setup),
+			 ztest_unit_test(test_join_group),
+			 ztest_unit_test(test_leave_group),
+			 ztest_unit_test(test_catch_join_group),
+			 ztest_unit_test(test_catch_leave_group),
+			 ztest_unit_test(test_verify_join_group),
+			 ztest_unit_test(test_verify_leave_group),
+			 ztest_unit_test(test_catch_query),
+			 ztest_unit_test(test_verify_send_report),
 			 ztest_unit_test(test_allnodes),
 			 ztest_unit_test(test_solicit_node)
 			 );

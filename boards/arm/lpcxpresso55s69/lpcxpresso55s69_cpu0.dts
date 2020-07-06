@@ -29,6 +29,7 @@
 		zephyr,code-partition = &sramx;
 		zephyr,console = &flexcomm0;
 		zephyr,shell-uart = &flexcomm0;
+		zephyr,entropy = &rng;
 	};
 
 	gpio_keys {
@@ -72,7 +73,7 @@
 	status = "okay";
 };
 
-&flexcomm8 {
+&hs_lspi {
 	status = "okay";
 };
 

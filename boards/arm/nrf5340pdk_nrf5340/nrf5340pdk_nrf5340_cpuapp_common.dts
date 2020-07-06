@@ -6,8 +6,7 @@
 
 / {
 	model = "Nordic NRF5340 PDK NRF5340 Application";
-	compatible = "nordic,nrf5340-pdk-nrf5340-cpuapp",
-		"nordic,nrf5340-cpuapp-qkaa", "nordic,nrf5340-cpuapp";
+	compatible = "nordic,nrf5340-pdk-nrf5340-cpuapp";
 
 	chosen {
 		zephyr,console = &uart0;
@@ -89,8 +88,8 @@
 &i2c1 {
 	compatible = "nordic,nrf-twim";
 	status = "okay";
-	sda-pin = <30>;
-	scl-pin = <31>;
+	sda-pin = <34>;
+	scl-pin = <35>;
 };
 
 &uart0 {
@@ -110,9 +109,9 @@
 &spi2 {
 	compatible = "nordic,nrf-spim";
 	status = "okay";
-	sck-pin = <32>;
-	mosi-pin = <32>;
-	miso-pin = <36>;
+	sck-pin = <47>;
+	miso-pin = <46>;
+	mosi-pin = <45>;
 };
 
 &timer0 {
@@ -139,15 +138,15 @@
 
 		boot_partition: partition@0 {
 			label = "mcuboot";
-			reg = <0x00000000 0x10000>;
+			reg = <0x00000000 0x0000C000>;
 		};
-		slot0_partition: partition@10000 {
+		slot0_partition: partition@c000 {
 			label = "image-0";
 		};
-		slot0_ns_partition: partition@40000 {
+		slot0_ns_partition: partition@3e000 {
 			label = "image-0-nonsecure";
 		};
-		slot1_partition: partition@80000 {
+		slot1_partition: partition@7e000 {
 			label = "image-1";
 		};
 		slot1_ns_partition: partition@b0000 {
@@ -164,21 +163,23 @@
 	};
 };
 
-&sram0 {
+/ {
 
-	partitions {
-		compatible = "fixed-partitions";
+	reserved-memory {
 		#address-cells = <1>;
 		#size-cells = <1>;
+		ranges;
 
-		/* SRAM allocated to the Secure image */
-		sram0_s: memory@20000000 {
-			label = "secure_sram_partition";
+		sram0_image: image@20000000 {
+			/* Zephyr image(s) memory */
 		};
 
-		/* SRAM allocated to the Non-Secure image */
-		sram0_ns: memory@20010000 {
-			label = "non_secure_sram_partition";
+		sram0_s: image_s@20000000 {
+			/* Secure image memory */
+		};
+
+		sram0_ns: image_ns@20010000 {
+			/* Non-Secure image memory */
 		};
 	};
 };

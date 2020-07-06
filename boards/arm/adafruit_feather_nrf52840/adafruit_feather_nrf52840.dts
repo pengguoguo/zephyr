@@ -6,10 +6,11 @@
 
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
+#include "feather_connector.dtsi"
 
 / {
 	model = "Adafruit Feather nRF52840 Express";
-	compatible = "nordic,nrf52840-qiaa", "nordic,nrf52840";
+	compatible = "adafruit,feather-nrf52840";
 
 	chosen {
 		zephyr,console = &uart0;
@@ -103,11 +104,11 @@
 		};
 		slot0_partition: partition@c000 {
 			label = "image-0";
-			reg = <0x0000C000 0x000067000>;
+			reg = <0x0000C000 0x00067000>;
 		};
 		slot1_partition: partition@73000 {
 			label = "image-1";
-			reg = <0x00073000 0x000067000>;
+			reg = <0x00073000 0x00067000>;
 		};
 		scratch_partition: partition@da000 {
 			label = "image-scratch";

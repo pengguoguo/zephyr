@@ -50,8 +50,21 @@ endif()
 # Connect main serial port to the console chardev.
 list(APPEND QEMU_FLAGS -serial chardev:con)
 
+# Connect semihosting console to the console chardev if configured.
+if(CONFIG_SEMIHOST_CONSOLE)
+  list(APPEND QEMU_FLAGS
+    -semihosting-config enable=on,target=auto,chardev=con
+    )
+endif()
+
 # Connect monitor to the console chardev.
 list(APPEND QEMU_FLAGS -mon chardev=con,mode=readline)
+
+if(CONFIG_QEMU_ICOUNT)
+  list(APPEND QEMU_FLAGS
+	  -icount shift=${CONFIG_QEMU_ICOUNT_SHIFT},align=off,sleep=off
+	  -rtc clock=vm)
+endif()
 
 # Add a BT serial device when building for bluetooth, unless the
 # application explicitly opts out with NO_QEMU_SERIAL_BT_SERVER.

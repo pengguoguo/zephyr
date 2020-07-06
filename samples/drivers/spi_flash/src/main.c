@@ -14,10 +14,12 @@
 /* NB: W25Q16DV is a JEDEC spi-nor device, but has a separate driver. */
 #define FLASH_DEVICE CONFIG_SPI_FLASH_W25QXXDV_DRV_NAME
 #define FLASH_NAME "W25QXXDV"
-#elif (CONFIG_SPI_NOR - 0) || DT_HAS_NODE(DT_INST(0, jedec_spi_nor))
+#elif (CONFIG_SPI_NOR - 0) ||				\
+	DT_NODE_HAS_STATUS(DT_INST(0, jedec_spi_nor), okay)
 #define FLASH_DEVICE DT_LABEL(DT_INST(0, jedec_spi_nor))
 #define FLASH_NAME "JEDEC SPI-NOR"
-#elif (CONFIG_NORDIC_QSPI_NOR - 0) || DT_HAS_NODE(DT_INST(0, nordic_qspi_nor))
+#elif (CONFIG_NORDIC_QSPI_NOR - 0) || \
+	DT_NODE_HAS_STATUS(DT_INST(0, nordic_qspi_nor), okay)
 #define FLASH_DEVICE DT_LABEL(DT_INST(0, nordic_qspi_nor))
 #define FLASH_NAME "JEDEC QSPI-NOR"
 #else
@@ -33,9 +35,9 @@
 
 void main(void)
 {
-	const u8_t expected[] = { 0x55, 0xaa, 0x66, 0x99 };
+	const uint8_t expected[] = { 0x55, 0xaa, 0x66, 0x99 };
 	const size_t len = sizeof(expected);
-	u8_t buf[sizeof(expected)];
+	uint8_t buf[sizeof(expected)];
 	struct device *flash_dev;
 	int rc;
 
@@ -86,14 +88,14 @@ void main(void)
 	if (memcmp(expected, buf, len) == 0) {
 		printf("Data read matches data written. Good!!\n");
 	} else {
-		const u8_t *wp = expected;
-		const u8_t *rp = buf;
-		const u8_t *rpe = rp + len;
+		const uint8_t *wp = expected;
+		const uint8_t *rp = buf;
+		const uint8_t *rpe = rp + len;
 
 		printf("Data read does not match data written!!\n");
 		while (rp < rpe) {
 			printf("%08x wrote %02x read %02x %s\n",
-			       (u32_t)(FLASH_TEST_REGION_OFFSET + (rp - buf)),
+			       (uint32_t)(FLASH_TEST_REGION_OFFSET + (rp - buf)),
 			       *wp, *rp, (*rp == *wp) ? "match" : "MISMATCH");
 			++rp;
 			++wp;

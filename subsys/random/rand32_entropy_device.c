@@ -12,10 +12,10 @@
 static struct device *entropy_driver;
 
 #if defined(CONFIG_ENTROPY_DEVICE_RANDOM_GENERATOR)
-u32_t sys_rand32_get(void)
+uint32_t sys_rand32_get(void)
 {
 	struct device *dev = entropy_driver;
-	u32_t random_num;
+	uint32_t random_num;
 	int ret;
 
 	if (unlikely(!dev)) {
@@ -30,7 +30,7 @@ u32_t sys_rand32_get(void)
 		entropy_driver = dev;
 	}
 
-	ret = entropy_get_entropy(dev, (u8_t *)&random_num,
+	ret = entropy_get_entropy(dev, (uint8_t *)&random_num,
 				  sizeof(random_num));
 	if (unlikely(ret < 0)) {
 		/* Use system timer in case the entropy device couldn't deliver
@@ -46,10 +46,10 @@ u32_t sys_rand32_get(void)
 }
 #endif /* CONFIG_ENTROPY_DEVICE_RANDOM_GENERATOR */
 
-static int rand_get(u8_t *dst, size_t outlen, bool csrand)
+static int rand_get(uint8_t *dst, size_t outlen, bool csrand)
 {
 	struct device *dev = entropy_driver;
-	u32_t random_num;
+	uint32_t random_num;
 	int ret;
 
 	if (unlikely(!dev)) {
@@ -81,20 +81,19 @@ static int rand_get(u8_t *dst, size_t outlen, bool csrand)
 		 * still be gathering entropy during early boot situations.
 		 */
 
-		u32_t len = 0;
-		u32_t blocksize = 4;
+		uint32_t len = 0;
+		uint32_t blocksize = 4;
 
 		while (len < outlen) {
-			random_num = k_cycle_get_32();
-			if ((outlen-len) < sizeof(random_num)) {
-				blocksize = len;
-				(void)memcpy(&(dst[random_num]),
-						&random_num, blocksize);
-			} else {
-				*((u32_t *)&dst[len]) = random_num;
+			size_t copylen = outlen - len;
+
+			if (copylen > blocksize) {
+				copylen = blocksize;
 			}
 
-			len += blocksize;
+			random_num = k_cycle_get_32();
+			(void)memcpy(&(dst[len]), &random_num, copylen);
+			len += copylen;
 		}
 	}
 
