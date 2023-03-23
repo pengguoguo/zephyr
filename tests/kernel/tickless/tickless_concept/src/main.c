@@ -4,45 +4,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <power/power.h>
+#include <zephyr/ztest.h>
+#include <zephyr/pm/pm.h>
 
-#define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACKSIZE)
+#define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 #define NUM_THREAD 4
 static K_THREAD_STACK_ARRAY_DEFINE(tstack, NUM_THREAD, STACK_SIZE);
 static struct k_thread tdata[NUM_THREAD];
-/*for those not supporting tickless idle*/
-#ifndef CONFIG_TICKLESS_IDLE
-#define CONFIG_TICKLESS_IDLE_THRESH 20
-#endif
+
+#define IDLE_THRESH 20
+
 /*sleep duration tickless*/
-#define SLEEP_TICKLESS	 k_ticks_to_ms_floor64(CONFIG_TICKLESS_IDLE_THRESH)
+#define SLEEP_TICKLESS	 k_ticks_to_ms_floor64(IDLE_THRESH)
 
 /*sleep duration with tick*/
-#define SLEEP_TICKFUL	 k_ticks_to_ms_floor64(CONFIG_TICKLESS_IDLE_THRESH - 1)
+#define SLEEP_TICKFUL	 k_ticks_to_ms_floor64(IDLE_THRESH - 1)
 
 /*slice size is set as half of the sleep duration*/
-#define SLICE_SIZE	 k_ticks_to_ms_floor64(CONFIG_TICKLESS_IDLE_THRESH >> 1)
+#define SLICE_SIZE	 k_ticks_to_ms_floor64(IDLE_THRESH >> 1)
 
 /*maximum slice duration accepted by the test*/
-#define SLICE_SIZE_LIMIT k_ticks_to_ms_floor64((CONFIG_TICKLESS_IDLE_THRESH >> 1) + 1)
+#define SLICE_SIZE_LIMIT k_ticks_to_ms_floor64((IDLE_THRESH >> 1) + 1)
 
 /*align to millisecond boundary*/
-#if defined(CONFIG_ARCH_POSIX)
 #define ALIGN_MS_BOUNDARY()		       \
 	do {				       \
 		uint32_t t = k_uptime_get_32();   \
 		while (t == k_uptime_get_32()) \
-			k_busy_wait(50);       \
+			Z_SPIN_DELAY(50);       \
 	} while (0)
-#else
-#define ALIGN_MS_BOUNDARY()		       \
-	do {				       \
-		uint32_t t = k_uptime_get_32();   \
-		while (t == k_uptime_get_32()) \
-			;		       \
-	} while (0)
-#endif
+
 K_SEM_DEFINE(sema, 0, NUM_THREAD);
 static int64_t elapsed_slice;
 
@@ -54,18 +45,20 @@ static void thread_tslice(void *p1, void *p2, void *p3)
 		t, SLICE_SIZE, SLICE_SIZE_LIMIT);
 
 	/**TESTPOINT: verify slicing scheduler behaves as expected*/
-	zassert_true(t >= SLICE_SIZE, NULL);
+	zassert_true(t >= SLICE_SIZE);
 	/*less than one tick delay*/
-	zassert_true(t <= SLICE_SIZE_LIMIT, NULL);
+	zassert_true(t <= SLICE_SIZE_LIMIT);
 
 	/*keep the current thread busy for more than one slice*/
 	k_busy_wait(1000 * SLEEP_TICKLESS);
 	k_sem_give(&sema);
 }
 /**
- * @addtogroup kernel_tickless_tests
+ * @defgroup  kernel_tickless_tests Tickless
+ * @ingroup all_tests
  * @{
  */
+
 
 /**
  * @brief Verify system clock with and without tickless idle
@@ -73,7 +66,7 @@ static void thread_tslice(void *p1, void *p2, void *p3)
  * @details Check if system clock recovers and works as expected
  * when tickless idle is enabled and disabled.
  */
-void test_tickless_sysclock(void)
+ZTEST(tickless_concept, test_tickless_sysclock)
 {
 	volatile uint32_t t0, t1;
 
@@ -83,7 +76,7 @@ void test_tickless_sysclock(void)
 	t1 = k_uptime_get_32();
 	TC_PRINT("time %d, %d\n", t0, t1);
 	/**TESTPOINT: verify system clock recovery after exiting tickless idle*/
-	zassert_true((t1 - t0) >= SLEEP_TICKLESS, NULL);
+	zassert_true((t1 - t0) >= SLEEP_TICKLESS);
 
 	ALIGN_MS_BOUNDARY();
 	t0 = k_uptime_get_32();
@@ -91,7 +84,7 @@ void test_tickless_sysclock(void)
 	t1 = k_uptime_get_32();
 	TC_PRINT("time %d, %d\n", t0, t1);
 	/**TESTPOINT: verify system clock recovery after exiting tickful idle*/
-	zassert_true((t1 - t0) >= SLEEP_TICKFUL, NULL);
+	zassert_true((t1 - t0) >= SLEEP_TICKFUL);
 }
 
 /**
@@ -100,7 +93,7 @@ void test_tickless_sysclock(void)
  * @details Create threads of equal priority and enable time
  * slice. Check if the threads execute more than a tick.
  */
-void test_tickless_slice(void)
+ZTEST(tickless_concept, test_tickless_slice)
 {
 	k_tid_t tid[NUM_THREAD];
 
@@ -132,10 +125,6 @@ void test_tickless_slice(void)
 /**
  * @}
  */
-void test_main(void)
-{
-	ztest_test_suite(tickless_concept,
-			 ztest_1cpu_unit_test(test_tickless_sysclock),
-			 ztest_1cpu_unit_test(test_tickless_slice));
-	ztest_run_test_suite(tickless_concept);
-}
+
+ZTEST_SUITE(tickless_concept, NULL, NULL,
+		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);

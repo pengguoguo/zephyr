@@ -1,5 +1,5 @@
 identifier: nucleo_h745zi_q_m7
-name: ST Nucleo H745ZI-Q
+name: ST Nucleo H745ZI-Q (M7)
 type: mcu
 arch: arm
 toolchain:
@@ -16,3 +16,4 @@ supported:
   - counter
   - i2c
   - pwm
+  - netif:eth

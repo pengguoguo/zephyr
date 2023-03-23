@@ -22,6 +22,7 @@
 		/* sw0/1 alias defined for compatibility with samples */
 		sw0 = &sw2;
 		sw1 = &sw3;
+		watchdog0 = &wdt0;
 	};
 
 	chosen {
@@ -62,6 +63,10 @@
 	};
 };
 
+&adc0 {
+	status = "okay";
+};
+
 &uart0 {
 	status = "okay";
 	current-speed = <115200>;
@@ -70,4 +75,8 @@
 &i2c0 {
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_FAST>;
+};
+
+&wdt0 {
+	status = "okay";
 };

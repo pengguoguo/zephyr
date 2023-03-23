@@ -41,9 +41,7 @@ some highlights of the B_L4S5I_IOT01A Discovery kit:
 
 
 .. image:: img/b-l4s5i_iot01a.jpg
-     :width: 450px
      :align: center
-     :height: 394px
      :alt: B_L4S5I_IOT01A Discovery kit
 
 More information about the board can be found at the `B L4S5I IOT01A Discovery kit website`_.
@@ -155,7 +153,7 @@ Default Zephyr Peripheral Mapping:
 - UART_4 TX/RX : PA0/PA1 (Arduino Serial)
 - I2C1 SCL/SDA : PB8/PB9 (Arduino I2C)
 - I2C2 SCL/SDA : PB10/PB11 (Sensor I2C bus)
-- SPI1 SCK/MISO/MOSI : PA5/PA6/PA7 (Arduino SPI)
+- SPI1 NSS/SCK/MISO/MOSI : PA2/PA5/PA6/PA7 (Arduino SPI)
 - SPI3 SCK/MISO/MOSI : PC10/PC11/PC12 (BT SPI bus)
 - PWM_2_CH1 : PA15
 - LD1 : PA5

@@ -8,23 +8,25 @@
  * and ciphertexts used for crosschecking are from TinyCrypt.
  */
 
-#include <device.h>
-#include <zephyr.h>
+#include <zephyr/device.h>
+#include <zephyr/kernel.h>
 #include <string.h>
-#include <crypto/cipher.h>
+#include <zephyr/crypto/crypto.h>
 
 #define LOG_LEVEL CONFIG_CRYPTO_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
 #ifdef CONFIG_CRYPTO_TINYCRYPT_SHIM
 #define CRYPTO_DRV_NAME CONFIG_CRYPTO_TINYCRYPT_SHIM_DRV_NAME
 #elif CONFIG_CRYPTO_MBEDTLS_SHIM
 #define CRYPTO_DRV_NAME CONFIG_CRYPTO_MBEDTLS_SHIM_DRV_NAME
-#elif CONFIG_CRYPTO_STM32
-#define CRYPTO_DRV_NAME DT_LABEL(DT_INST(0, st_stm32_cryp))
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_cryp)
+#define CRYPTO_DEV_COMPAT st_stm32_cryp
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_aes)
+#define CRYPTO_DEV_COMPAT st_stm32_aes
 #elif CONFIG_CRYPTO_NRF_ECB
-#define CRYPTO_DRV_NAME CONFIG_CRYPTO_NRF_ECB_DRV_NAME
+#define CRYPTO_DEV_COMPAT nordic_nrf_ecb
 #else
 #error "You need to enable one crypto device"
 #endif
@@ -75,11 +77,11 @@ static void print_buffer_comparison(const uint8_t *wanted_result,
 	printk("\n");
 }
 
-int validate_hw_compatibility(struct device *dev)
+int validate_hw_compatibility(const struct device *dev)
 {
 	uint32_t flags = 0U;
 
-	flags = cipher_query_hwcaps(dev);
+	flags = crypto_query_hwcaps(dev);
 	if ((flags & CAP_RAW_KEY) == 0U) {
 		LOG_INF("Please provision the key separately "
 			"as the module doesnt support a raw key");
@@ -104,7 +106,7 @@ int validate_hw_compatibility(struct device *dev)
 
 }
 
-void ecb_mode(struct device *dev)
+void ecb_mode(const struct device *dev)
 {
 	/* from FIPS-197 test vectors */
 	uint8_t ecb_key[16] = {
@@ -200,7 +202,7 @@ static const uint8_t cbc_ciphertext[80] = {
 	0x12, 0x0e, 0xca, 0x30, 0x75, 0x86, 0xe1, 0xa7
 };
 
-void cbc_mode(struct device *dev)
+void cbc_mode(const struct device *dev)
 {
 	uint8_t encrypted[80] = {0};
 	uint8_t decrypted[64] = {0};
@@ -289,7 +291,7 @@ static const uint8_t ctr_ciphertext[64] = {
 	0xa3, 0x5c, 0x85, 0x3a, 0xb9, 0x2c, 0x6, 0xbb
 };
 
-void ctr_mode(struct device *dev)
+void ctr_mode(const struct device *dev)
 {
 	uint8_t encrypted[64] = {0};
 	uint8_t decrypted[64] = {0};
@@ -356,7 +358,7 @@ void ctr_mode(struct device *dev)
 
 	if (memcmp(decrypt.out_buf, plaintext, sizeof(plaintext))) {
 		LOG_ERR("CTR mode DECRYPT - Mismatch between plaintext "
-			    "and decypted cipher text");
+			    "and decrypted cipher text");
 		print_buffer_comparison(plaintext,
 					decrypt.out_buf, sizeof(plaintext));
 		goto out;
@@ -389,7 +391,7 @@ static const uint8_t ccm_expected[31] = {
 	0xe8, 0xd1, 0x2c, 0xfd, 0xf9, 0x26, 0xe0
 };
 
-void ccm_mode(struct device *dev)
+void ccm_mode(const struct device *dev)
 {
 	uint8_t encrypted[50];
 	uint8_t decrypted[25];
@@ -506,7 +508,7 @@ static const uint8_t gcm_expected[58] = {
 	0x96, 0x04, 0x94, 0xc3
 };
 
-void gcm_mode(struct device *dev)
+void gcm_mode(const struct device *dev)
 {
 	uint8_t encrypted[60] = {0};
 	uint8_t decrypted[44] = {0};
@@ -598,12 +600,26 @@ out:
 
 struct mode_test {
 	const char *mode;
-	void (*mode_func)(struct device *dev);
+	void (*mode_func)(const struct device *dev);
 };
 
 void main(void)
 {
-	struct device *dev = device_get_binding(CRYPTO_DRV_NAME);
+#ifdef CRYPTO_DRV_NAME
+	const struct device *dev = device_get_binding(CRYPTO_DRV_NAME);
+
+	if (!dev) {
+		LOG_ERR("%s pseudo device not found", CRYPTO_DRV_NAME);
+		return;
+	}
+#else
+	const struct device *const dev = DEVICE_DT_GET_ONE(CRYPTO_DEV_COMPAT);
+
+	if (!device_is_ready(dev)) {
+		LOG_ERR("Crypto device is not ready\n");
+		return;
+	}
+#endif
 	const struct mode_test modes[] = {
 		{ .mode = "ECB Mode", .mode_func = ecb_mode },
 		{ .mode = "CBC Mode", .mode_func = cbc_mode },
@@ -613,11 +629,6 @@ void main(void)
 		{ },
 	};
 	int i;
-
-	if (!dev) {
-		LOG_ERR("%s pseudo device not found", CRYPTO_DRV_NAME);
-		return;
-	}
 
 	if (validate_hw_compatibility(dev)) {
 		LOG_ERR("Incompatible h/w");

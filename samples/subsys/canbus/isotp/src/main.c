@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <canbus/isotp.h>
+#include <zephyr/kernel.h>
+#include <zephyr/canbus/isotp.h>
 
 
 #define RX_THREAD_STACK_SIZE 512
@@ -16,26 +16,26 @@ const struct isotp_fc_opts fc_opts_0_5 = {.bs = 0, .stmin = 5};
 
 const struct isotp_msg_id rx_addr_8_0 = {
 	.std_id = 0x80,
-	.id_type = CAN_STANDARD_IDENTIFIER,
+	.ide = 0,
 	.use_ext_addr = 0
 };
 const struct isotp_msg_id tx_addr_8_0 = {
 	.std_id = 0x180,
-	.id_type = CAN_STANDARD_IDENTIFIER,
+	.ide = 0,
 	.use_ext_addr = 0
 };
 const struct isotp_msg_id rx_addr_0_5 = {
 	.std_id = 0x01,
-	.id_type = CAN_STANDARD_IDENTIFIER,
+	.ide = 0,
 	.use_ext_addr = 0
 };
 const struct isotp_msg_id tx_addr_0_5 = {
 	.std_id = 0x101,
-	.id_type = CAN_STANDARD_IDENTIFIER,
+	.ide = 0,
 	.use_ext_addr = 0
 };
 
-struct device *can_dev;
+const struct device *can_dev;
 struct isotp_recv_ctx recv_ctx_8_0;
 struct isotp_recv_ctx recv_ctx_0_5;
 
@@ -122,7 +122,7 @@ void rx_0_5_thread(void *arg1, void *arg2, void *arg3)
 		received_len = isotp_recv(&recv_ctx_0_5, rx_buffer,
 					  sizeof(rx_buffer)-1U, K_MSEC(2000));
 		if (received_len < 0) {
-			printk("Receiving erreor [%d]\n", received_len);
+			printk("Receiving error [%d]\n", received_len);
 			continue;
 		}
 
@@ -148,9 +148,23 @@ void main(void)
 	static struct isotp_send_ctx send_ctx_0_5;
 	int ret = 0;
 
-	can_dev = device_get_binding(DT_CHOSEN_ZEPHYR_CAN_PRIMARY_LABEL);
-	if (!can_dev) {
-		printk("CAN: Device driver not found.\n");
+	can_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_canbus));
+	if (!device_is_ready(can_dev)) {
+		printk("CAN: Device driver not ready.\n");
+		return;
+	}
+
+#ifdef CONFIG_SAMPLE_LOOPBACK_MODE
+	ret = can_set_mode(can_dev, CAN_MODE_LOOPBACK);
+	if (ret != 0) {
+		printk("CAN: Failed to set loopback mode [%d]", ret);
+		return;
+	}
+#endif /* CONFIG_SAMPLE_LOOPBACK_MODE */
+
+	ret = can_start(can_dev);
+	if (ret != 0) {
+		printk("CAN: Failed to start device [%d]\n", ret);
 		return;
 	}
 

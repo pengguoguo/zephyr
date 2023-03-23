@@ -12,3 +12,6 @@ supported:
   - arduino_gpio
   - gpio
   - counter
+  - can
+  - i2c
+  - spi

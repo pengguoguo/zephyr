@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "init.h"
+#include <zephyr/init.h>
 #include <stdint.h>
 #include <string.h>
 #include "bs_types.h"
@@ -191,7 +191,7 @@ bool bst_irq_sniffer(int irq_number)
 	}
 }
 
-static int bst_fake_device_driver_pre2_init(struct device *arg)
+static int bst_fake_device_driver_pre2_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 	if (current_test && current_test->test_fake_ddriver_prekernel_f) {
@@ -200,7 +200,7 @@ static int bst_fake_device_driver_pre2_init(struct device *arg)
 	return 0;
 }
 
-static int bst_fake_device_driver_post_init(struct device *arg)
+static int bst_fake_device_driver_post_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 	if (current_test && current_test->test_fake_ddriver_postkernel_f) {

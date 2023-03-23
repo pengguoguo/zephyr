@@ -4,25 +4,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 
-#include <device.h>
-#include <init.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <fsl_clock.h>
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 
 #if defined(CONFIG_MULTI_LEVEL_INTERRUPTS)
 #include <errno.h>
-#include <irq_nextlevel.h>
+#include <zephyr/irq_nextlevel.h>
 #endif
 
 #define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(soc);
 
 #define SCG_LPFLL_DISABLE 0U
 
-static struct device *dev_intmux;
+static const struct device *dev_intmux;
 
 /*
  * Run-mode configuration for the fast internal reference clock (FIRC).
@@ -146,9 +146,7 @@ void soc_interrupt_init(void)
 	(void)(EVENT_UNIT->EVTPENDCLEAR); /* Ensures write has finished. */
 
 	if (IS_ENABLED(CONFIG_MULTI_LEVEL_INTERRUPTS)) {
-		dev_intmux = device_get_binding(
-				DT_LABEL(DT_INST(0, openisa_rv32m1_intmux)));
-		__ASSERT(dev_intmux, "no INTMUX device found");
+		dev_intmux = DEVICE_DT_GET(DT_INST(0, openisa_rv32m1_intmux));
 	}
 }
 
@@ -218,7 +216,7 @@ static void rv32m1_setup_peripheral_clocks(void)
  *
  * @return 0
  */
-static int soc_rv32m1_init(struct device *arg)
+static int soc_rv32m1_init(const struct device *arg)
 {
 	unsigned int key;
 

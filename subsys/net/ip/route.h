@@ -13,10 +13,11 @@
 #ifndef __ROUTE_H
 #define __ROUTE_H
 
-#include <kernel.h>
-#include <sys/slist.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/slist.h>
 
-#include <net/net_ip.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_timeout.h>
 
 #include "nbr.h"
 
@@ -54,12 +55,26 @@ struct net_route_entry {
 	/** Network interface for the route. */
 	struct net_if *iface;
 
+	/** Route lifetime timer. */
+	struct net_timeout lifetime;
+
 	/** IPv6 address/prefix of the route. */
 	struct in6_addr addr;
 
 	/** IPv6 address/prefix length. */
 	uint8_t prefix_len;
+
+	uint8_t preference : 2;
+
+	/** Is the route valid forever */
+	uint8_t is_infinite : 1;
 };
+
+/* Route preference values, as defined in RFC 4191 */
+#define NET_ROUTE_PREFERENCE_HIGH     0x01
+#define NET_ROUTE_PREFERENCE_MEDIUM   0x00
+#define NET_ROUTE_PREFERENCE_LOW      0x03 /* -1 if treated as 2 bit signed int */
+#define NET_ROUTE_PREFERENCE_RESERVED 0x02
 
 /**
  * @brief Lookup route to a given destination.
@@ -91,13 +106,17 @@ static inline struct net_route_entry *net_route_lookup(struct net_if *iface,
  * @param addr IPv6 address.
  * @param prefix_len Length of the IPv6 address/prefix.
  * @param nexthop IPv6 address of the Next hop device.
+ * @param lifetime Route lifetime in seconds.
+ * @param preference Route preference.
  *
  * @return Return created route entry, NULL if could not be created.
  */
 struct net_route_entry *net_route_add(struct net_if *iface,
 				      struct in6_addr *addr,
 				      uint8_t prefix_len,
-				      struct in6_addr *nexthop);
+				      struct in6_addr *nexthop,
+				      uint32_t lifetime,
+				      uint8_t preference);
 
 /**
  * @brief Delete a route from routing table.
@@ -134,6 +153,16 @@ int net_route_del_by_nexthop(struct net_if *iface,
 int net_route_del_by_nexthop_data(struct net_if *iface,
 				  struct in6_addr *nexthop,
 				  void *data);
+
+/**
+ * @brief Update the route lifetime.
+ *
+ * @param route Pointer to routing entry.
+ * @param lifetime Route lifetime in seconds.
+ *
+ * @return 0 if ok, <0 if error
+ */
+void net_route_update_lifetime(struct net_route_entry *route, uint32_t lifetime);
 
 /**
  * @brief Get nexthop IPv6 address tied to this route.
@@ -186,12 +215,28 @@ struct net_route_entry_mcast {
 	/** Routing entry lifetime in seconds. */
 	uint32_t lifetime;
 
-	/** Is this entry in user or not */
+	/** Is this entry in use or not */
 	bool is_used;
+
+	/** IPv6 multicast group prefix length. */
+	uint8_t prefix_len;
 };
 
 typedef void (*net_route_mcast_cb_t)(struct net_route_entry_mcast *entry,
 				     void *user_data);
+
+/**
+ * @brief Forwards a multicast packet by checking the local multicast
+ * routing table
+ *
+ * @param pkt The original received ipv6 packet to forward
+ * @param hdr The IPv6 header of the packet
+ *
+ * @return Number of interfaces which forwarded the packet, or a negative
+ * value in case of an error.
+ */
+int net_route_mcast_forward_packet(struct net_pkt *pkt,
+				   const struct net_ipv6_hdr *hdr);
 
 /**
  * @brief Go through all the multicast routing entries and call callback
@@ -212,11 +257,13 @@ int net_route_mcast_foreach(net_route_mcast_cb_t cb,
  *
  * @param iface Network interface to use.
  * @param group IPv6 multicast address.
+ * @param prefix_len Length of the IPv6 group that must match.
  *
  * @return Multicast routing entry.
  */
 struct net_route_entry_mcast *net_route_mcast_add(struct net_if *iface,
-						  struct in6_addr *group);
+						  struct in6_addr *group,
+						  uint8_t prefix_len);
 
 /**
  * @brief Delete a multicast routing entry.

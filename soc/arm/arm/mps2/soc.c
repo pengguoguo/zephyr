@@ -7,16 +7,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <arch/cpu.h>
-#include <drivers/gpio/gpio_mmio32.h>
-#include <init.h>
+#include <zephyr/arch/cpu.h>
+#include <zephyr/drivers/gpio/gpio_mmio32.h>
+#include <zephyr/init.h>
 #include <soc.h>
+#include <zephyr/linker/linker-defs.h>
 
 
 /* Setup GPIO drivers for accessing FPGAIO registers */
 #define FPGAIO_NODE(n) DT_INST(n, arm_mps2_fpgaio_gpio)
 #define FPGAIO_INIT(n)						\
-	GPIO_MMIO32_INIT(fpgaio_##n, DT_LABEL(FPGAIO_NODE(n)),	\
+	GPIO_MMIO32_INIT(FPGAIO_NODE(n),			\
 			DT_REG_ADDR(FPGAIO_NODE(n)),		\
 			BIT_MASK(DT_PROP(FPGAIO_NODE(n), ngpios)))
 
@@ -36,27 +37,21 @@ FPGAIO_INIT(2);
 /* The base address that the application image will start at on the secondary
  * (non-TrustZone) Cortex-M33 mcu.
  */
-#define CPU1_FLASH_ADDRESS      (0x100000)
+#define CPU1_FLASH_ADDRESS      (0x38B000)
 
 /* The memory map offset for the application image, which is used
  * to determine the location of the reset vector at startup.
  */
 #define CPU1_FLASH_OFFSET       (0x10000000)
 
-/* Space reserved for TF-M's secure bootloader on the secondary mcu.
- * This space is reserved whether BL2 is used or not.
- */
-#define BL2_HEADER_SIZE         (0x400)
-
 /**
- * @brief Wake up CPU 1 from another CPU, this is plaform specific.
+ * @brief Wake up CPU 1 from another CPU, this is platform specific.
  */
 void wakeup_cpu1(void)
 {
 	/* Set the Initial Secure Reset Vector Register for CPU 1 */
 	*(uint32_t *)(SSE_200_SYSTEM_CTRL_INITSVTOR1) =
-		CONFIG_FLASH_BASE_ADDRESS +
-		BL2_HEADER_SIZE +
+		(uint32_t)_vector_start +
 		CPU1_FLASH_ADDRESS -
 		CPU1_FLASH_OFFSET;
 
@@ -65,7 +60,7 @@ void wakeup_cpu1(void)
 }
 
 /**
- * @brief Get the current CPU ID, this is plaform specific.
+ * @brief Get the current CPU ID, this is platform specific.
  *
  * @return Current CPU ID
  */
@@ -81,7 +76,7 @@ uint32_t sse_200_platform_get_cpu_id(void)
  *
  * @return 0
  */
-static int arm_mps2_init(struct device *arg)
+static int arm_mps2_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 

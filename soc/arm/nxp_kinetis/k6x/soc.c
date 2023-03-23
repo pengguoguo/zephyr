@@ -13,27 +13,27 @@
  * hardware for the fsl_frdm_k64f platform.
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <soc.h>
-#include <drivers/uart.h>
+#include <zephyr/drivers/uart.h>
 #include <fsl_common.h>
 #include <fsl_clock.h>
-#include <arch/cpu.h>
-#include <arch/arm/aarch32/cortex_m/cmsis.h>
+#include <zephyr/arch/cpu.h>
+#include <zephyr/arch/arm/aarch32/cortex_m/cmsis.h>
 
-#define PLLFLLSEL_MCGFLLCLK	(0)
-#define PLLFLLSEL_MCGPLLCLK	(1)
-#define PLLFLLSEL_IRC48MHZ	(3)
-
-#define ER32KSEL_OSC32KCLK	(0)
-#define ER32KSEL_RTC		(2)
-#define ER32KSEL_LPO1KHZ	(3)
+#define LPUART0SRC_OSCERCLK     (1)
 
 #define TIMESRC_OSCERCLK        (2)
 
 #define RUNM_HSRUN              (3)
+
+#define CLOCK_NODEID(clk) \
+	DT_CHILD(DT_INST(0, nxp_kinetis_sim), clk)
+
+#define CLOCK_DIVIDER(clk) \
+	DT_PROP_OR(CLOCK_NODEID(clk), clock_div, 1) - 1
 
 static const osc_config_t oscConfig = {
 	.freq = CONFIG_OSC_XTAL0_FREQ,
@@ -65,12 +65,12 @@ static const mcg_pll_config_t pll0Config = {
 };
 
 static const sim_clock_config_t simConfig = {
-	.pllFllSel = PLLFLLSEL_MCGPLLCLK, /* PLLFLLSEL select PLL. */
-	.er32kSrc = ER32KSEL_RTC,         /* ERCLK32K selection, use RTC. */
-	.clkdiv1 = SIM_CLKDIV1_OUTDIV1(CONFIG_K6X_CORE_CLOCK_DIVIDER - 1) |
-		   SIM_CLKDIV1_OUTDIV2(CONFIG_K6X_BUS_CLOCK_DIVIDER - 1) |
-		   SIM_CLKDIV1_OUTDIV3(CONFIG_K6X_FLEXBUS_CLOCK_DIVIDER - 1) |
-		   SIM_CLKDIV1_OUTDIV4(CONFIG_K6X_FLASH_CLOCK_DIVIDER - 1),
+	.pllFllSel = DT_PROP(DT_INST(0, nxp_kinetis_sim), pllfll_select),
+	.er32kSrc = DT_PROP(DT_INST(0, nxp_kinetis_sim), er32k_select),
+	.clkdiv1 = SIM_CLKDIV1_OUTDIV1(CLOCK_DIVIDER(core_clk)) |
+		   SIM_CLKDIV1_OUTDIV2(CLOCK_DIVIDER(bus_clk)) |
+		   SIM_CLKDIV1_OUTDIV3(CLOCK_DIVIDER(flexbus_clk)) |
+		   SIM_CLKDIV1_OUTDIV4(CLOCK_DIVIDER(flash_clk)),
 };
 
 /**
@@ -85,8 +85,6 @@ static const sim_clock_config_t simConfig = {
  * PLL Bypassed External (PBE) modes to get to the desired
  * PLL Engaged External (PEE) mode and generate the maximum 120 MHz system
  * clock.
- *
- * @return N/A
  *
  */
 static ALWAYS_INLINE void clock_init(void)
@@ -103,13 +101,17 @@ static ALWAYS_INLINE void clock_init(void)
 
 	CLOCK_SetSimConfig(&simConfig);
 
+#if DT_NODE_HAS_STATUS(DT_NODELABEL(lpuart0), okay)
+	CLOCK_SetLpuartClock(LPUART0SRC_OSCERCLK);
+#endif
+
 #if CONFIG_ETH_MCUX
 	CLOCK_SetEnetTime0Clock(TIMESRC_OSCERCLK);
 #endif
 #if CONFIG_ETH_MCUX_RMII_EXT_CLK
 	CLOCK_SetRmii0Clock(1);
 #endif
-#if CONFIG_USB_KINETIS
+#if CONFIG_USB_KINETIS || CONFIG_UDC_KINETIS
 	CLOCK_EnableUsbfs0Clock(kCLOCK_UsbSrcPll0,
 				DT_PROP(DT_PATH(cpus, cpu_0), clock_frequency));
 #endif
@@ -125,7 +127,7 @@ static ALWAYS_INLINE void clock_init(void)
  * @return 0
  */
 
-static int k6x_init(struct device *arg)
+static int k6x_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 
@@ -177,5 +179,14 @@ static int k6x_init(struct device *arg)
 	irq_unlock(oldLevel);
 	return 0;
 }
+
+#ifdef CONFIG_PLATFORM_SPECIFIC_INIT
+
+void z_arm_platform_init(void)
+{
+	SystemInit();
+}
+
+#endif /* CONFIG_PLATFORM_SPECIFIC_INIT */
 
 SYS_INIT(k6x_init, PRE_KERNEL_1, 0);

@@ -6,13 +6,12 @@ NXP MIMXRT1010-EVK
 Overview
 ********
 
-The i.MX RT1010 offers a new entry-point into the i.MX RT crossover processor
+The i.MX RT1010 offer a new entry-point into the i.MX RT crossover processor
 series by providing the lowest-cost LQFP package option, combined with the
 high performance and ease-of-use known throughout the entire i.MX RT series.
 This device is fully supported by NXP’s MCUXpresso Software and Tools.
 
-.. image:: ./mimxrt1010_evk.jpg
-   :width: 720px
+.. image:: mimxrt1010_evk.jpg
    :align: center
    :alt: MIMXRT1010-EVK
 
@@ -55,8 +54,12 @@ these references:
 Supported Features
 ==================
 
-The mimxrt1010_evk board configuration supports the following hardware
-features:
+The mimxrt1010_evk board configuration supports the hardware features listed
+below.  For additional features not yet supported, please also refer to the
+:ref:`mimxrt1064_evk` , which is the superset board in NXP's i.MX RT10xx family.
+NXP prioritizes enabling the superset board with NXP's Full Platform Support for
+Zephyr.  Therefore, the mimxrt1064_evk board may have additional features
+already supported, which can also be re-used on this mimxrt1010_evk board:
 
 +-----------+------------+-------------------------------------+
 | Interface | Controller | Driver/Component                    |
@@ -67,12 +70,20 @@ features:
 +-----------+------------+-------------------------------------+
 | GPIO      | on-chip    | gpio                                |
 +-----------+------------+-------------------------------------+
+| SPI       | on-chip    | spi                                 |
++-----------+------------+-------------------------------------+
 | I2C       | on-chip    | i2c                                 |
 +-----------+------------+-------------------------------------+
 | UART      | on-chip    | serial port-polling;                |
 |           |            | serial port-interrupt               |
 +-----------+------------+-------------------------------------+
 | USB       | on-chip    | USB device                          |
++-----------+------------+-------------------------------------+
+| ADC       | on-chip    | adc                                 |
++-----------+------------+-------------------------------------+
+| GPT       | on-chip    | gpt                                 |
++-----------+------------+-------------------------------------+
+| TRNG      | on-chip    | entropy                             |
 +-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
@@ -100,12 +111,29 @@ The MIMXRT1010 SoC has five pairs of pinmux/gpio controllers.
 +---------------+-----------------+---------------------------+
 | GPIO_02       | LPI2C1_CLK      | I2C SCL                   |
 +---------------+-----------------+---------------------------+
+| GPIO_AD_03    | LPSPI1_SDI      | SPI                       |
++---------------+-----------------+---------------------------+
+| GPIO_AD_04    | LPSPI1_SDO      | SPI                       |
++---------------+-----------------+---------------------------+
+| GPIO_AD_05    | LPSPI1_PCS0     | SPI                       |
++---------------+-----------------+---------------------------+
+| GPIO_AD_06    | LPSPI1_SCK      | SPI                       |
++---------------+-----------------+---------------------------+
+| GPIO_AD_01    | ADC             | ADC1 Channel 1            |
++---------------+-----------------+---------------------------+
+| GPIO_AD_02    | ADC             | ADC1 Channel 2            |
++---------------+-----------------+---------------------------+
 
 System Clock
 ============
 
-The MIMXRT1010 SoC is configured to use the 24 MHz external oscillator on the
-board with the on-chip PLL to generate a 500 MHz core clock.
+The MIMXRT1010 SoC is configured to use SysTick as the system clock source,
+running at 500MHz.
+
+When power management is enabled, the 32 KHz low frequency
+oscillator on the board will be used as a source for the GPT timer to
+generate a system clock. This clock enables lower power states, at the
+cost of reduced resolution
 
 Serial Port
 ===========
@@ -181,7 +209,7 @@ see the following message in the terminal:
    https://www.nxp.com/webapp/Download?colCode=MIMXRT1010EVKHUG
 
 .. _MIMXRT1010-EVK Design Files:
-   https://www.nxp.com/downloads/en/printed-circuit-boards/IMXRT1010-EVK-DESIGN-FILES.7z
+   https://www.nxp.com/webapp/Download?colCode=IMXRT1010-EVK-DESIGN-FILES
 
 .. _i.MX RT1010 Website:
    https://www.nxp.com/imxrt1010

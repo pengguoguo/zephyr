@@ -8,15 +8,22 @@
 
 #define LOG_MODULE_NAME eth_e1000
 #define LOG_LEVEL CONFIG_ETHERNET_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <sys/types.h>
-#include <zephyr.h>
-#include <net/ethernet.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/ethernet.h>
 #include <ethernet/eth_stats.h>
-#include <drivers/pcie/pcie.h>
+#include <zephyr/drivers/pcie/pcie.h>
+#include <zephyr/irq.h>
 #include "eth_e1000_priv.h"
+
+#if defined(CONFIG_ETH_E1000_PTP_CLOCK)
+#include <zephyr/drivers/ptp_clock.h>
+
+#define PTP_INST_NODEID(n) DT_INST_CHILD(n, ptp)
+#endif
 
 #if defined(CONFIG_ETH_E1000_VERBOSE_DEBUG)
 #define hexdump(_buf, _len, fmt, args...)				\
@@ -26,7 +33,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 									\
 	snprintk(_str, STR_SIZE, "%s: " fmt, __func__, ## args);	\
 									\
-	LOG_HEXDUMP_DBG(_buf, _len, log_strdup(_str));			\
+	LOG_HEXDUMP_DBG(_buf, _len, _str);			\
 })
 #else
 #define hexdump(args...)
@@ -79,15 +86,31 @@ static struct net_if *get_iface(struct e1000_dev *ctx, uint16_t vlan_tag)
 #endif
 }
 
-static enum ethernet_hw_caps e1000_caps(struct device *dev)
+static enum ethernet_hw_caps e1000_caps(const struct device *dev)
 {
 	return
-#if IS_ENABLED(CONFIG_NET_VLAN)
+#if defined(CONFIG_NET_VLAN)
 		ETHERNET_HW_VLAN |
 #endif
+#if defined(CONFIG_ETH_E1000_PTP_CLOCK)
+		ETHERNET_PTP |
+#endif
 		ETHERNET_LINK_10BASE_T | ETHERNET_LINK_100BASE_T |
-		ETHERNET_LINK_1000BASE_T;
+		ETHERNET_LINK_1000BASE_T |
+		/* The driver does not really support TXTIME atm but mark
+		 * it to support it so that we can test the txtime sample.
+		 */
+		ETHERNET_TXTIME;
 }
+
+#if defined(CONFIG_ETH_E1000_PTP_CLOCK)
+static const struct device *e1000_get_ptp_clock(const struct device *dev)
+{
+	struct e1000_dev *ctx = dev->data;
+
+	return ctx->ptp_clock;
+}
+#endif
 
 static int e1000_tx(struct e1000_dev *dev, void *buf, size_t len)
 {
@@ -108,9 +131,9 @@ static int e1000_tx(struct e1000_dev *dev, void *buf, size_t len)
 	return (dev->tx.sta & TDESC_STA_DD) ? 0 : -EIO;
 }
 
-static int e1000_send(struct device *device, struct net_pkt *pkt)
+static int e1000_send(const struct device *ddev, struct net_pkt *pkt)
 {
-	struct e1000_dev *dev = device->driver_data;
+	struct e1000_dev *dev = ddev->data;
 	size_t len = net_pkt_get_len(pkt);
 
 	if (net_pkt_read(pkt, dev->txb, len)) {
@@ -160,9 +183,9 @@ out:
 	return pkt;
 }
 
-static void e1000_isr(struct device *device)
+static void e1000_isr(const struct device *ddev)
 {
-	struct e1000_dev *dev = device->driver_data;
+	struct e1000_dev *dev = ddev->data;
 	uint32_t icr = ior32(dev, ICR); /* Cleared upon read */
 	uint16_t vlan_tag = NET_VLAN_TAG_UNSPEC;
 
@@ -207,30 +230,29 @@ static void e1000_isr(struct device *device)
 	}
 }
 
-#define PCI_VENDOR_ID_INTEL	0x8086
-#define PCI_DEVICE_ID_I82540EM	0x100e
 
-DEVICE_DECLARE(eth_e1000);
-
-int e1000_probe(struct device *device)
+int e1000_probe(const struct device *ddev)
 {
-	const pcie_bdf_t bdf = PCIE_BDF(0, 3, 0);
-	struct e1000_dev *dev = device->driver_data;
-	int retval = -ENODEV;
+	/* PCI ID is decoded into REG_SIZE */
+	struct e1000_dev *dev = ddev->data;
 	uint32_t ral, rah;
+	struct pcie_bar mbar;
 
-	if (pcie_probe(bdf, PCIE_ID(PCI_VENDOR_ID_INTEL,
-			    PCI_DEVICE_ID_I82540EM))) {
-		dev->address = pcie_get_mbar(bdf, 0);
-		pcie_set_cmd(bdf, PCIE_CONF_CMDSTAT_MEM |
-				  PCIE_CONF_CMDSTAT_MASTER, true);
-		retval = 0;
+	if (dev->pcie->bdf == PCIE_BDF_NONE) {
+		return -ENODEV;
 	}
+
+	pcie_probe_mbar(dev->pcie->bdf, 0, &mbar);
+	pcie_set_cmd(dev->pcie->bdf, PCIE_CONF_CMDSTAT_MEM |
+		     PCIE_CONF_CMDSTAT_MASTER, true);
+
+	device_map(&dev->address, mbar.phys_addr, mbar.size,
+		   K_MEM_CACHE_NONE);
 
 	/* Setup TX descriptor */
 
-	iow32(dev, TDBAL, (uint32_t) &dev->tx);
-	iow32(dev, TDBAH, 0);
+	iow32(dev, TDBAL, (uint32_t)POINTER_TO_UINT(&dev->tx));
+	iow32(dev, TDBAH, (uint32_t)((POINTER_TO_UINT(&dev->tx) >> 16) >> 16));
 	iow32(dev, TDLEN, 1*16);
 
 	iow32(dev, TDH, 0);
@@ -243,8 +265,8 @@ int e1000_probe(struct device *device)
 	dev->rx.addr = POINTER_TO_INT(dev->rxb);
 	dev->rx.len = sizeof(dev->rxb);
 
-	iow32(dev, RDBAL, (uint32_t) &dev->rx);
-	iow32(dev, RDBAH, 0);
+	iow32(dev, RDBAL, (uint32_t)POINTER_TO_UINT(&dev->rx));
+	iow32(dev, RDBAH, (uint32_t)((POINTER_TO_UINT(&dev->rx) >> 16) >> 16));
 	iow32(dev, RDLEN, 1*16);
 
 	iow32(dev, RDH, 0);
@@ -258,12 +280,16 @@ int e1000_probe(struct device *device)
 	memcpy(dev->mac, &ral, 4);
 	memcpy(dev->mac + 4, &rah, 2);
 
-	return retval;
+	return 0;
 }
+
+BUILD_ASSERT(DT_INST_IRQN(0) != PCIE_IRQ_DETECT,
+	     "Dynamic IRQ allocation is not supported");
 
 static void e1000_iface_init(struct net_if *iface)
 {
-	struct e1000_dev *dev = net_if_get_device(iface)->driver_data;
+	struct e1000_dev *dev = net_if_get_device(iface)->data;
+	const struct e1000_config *config = net_if_get_device(iface)->config;
 
 	/* For VLAN, this value is only used to get the correct L2 driver.
 	 * The iface pointer in device context should contain the main
@@ -273,14 +299,7 @@ static void e1000_iface_init(struct net_if *iface)
 		dev->iface = iface;
 
 		/* Do the phy link up only once */
-		IRQ_CONNECT(DT_INST_IRQN(0),
-			DT_INST_IRQ(0, priority),
-			e1000_isr, DEVICE_GET(eth_e1000),
-			DT_INST_IRQ(0, sense));
-
-		irq_enable(DT_INST_IRQN(0));
-		iow32(dev, CTRL, CTRL_SLU); /* Set link up */
-		iow32(dev, RCTL, RCTL_EN | RCTL_MPE);
+		config->config_func(dev);
 	}
 
 	ethernet_init(iface);
@@ -291,20 +310,170 @@ static void e1000_iface_init(struct net_if *iface)
 	LOG_DBG("done");
 }
 
-static struct e1000_dev e1000_dev;
-
 static const struct ethernet_api e1000_api = {
 	.iface_api.init		= e1000_iface_init,
+#if defined(CONFIG_ETH_E1000_PTP_CLOCK)
+	.get_ptp_clock		= e1000_get_ptp_clock,
+#endif
 	.get_capabilities	= e1000_caps,
 	.send			= e1000_send,
 };
 
-ETH_NET_DEVICE_INIT(eth_e1000,
-		    "ETH_0",
-		    e1000_probe,
-		    device_pm_control_nop,
-		    &e1000_dev,
-		    NULL,
-		    CONFIG_ETH_INIT_PRIORITY,
-		    &e1000_api,
-		    NET_ETH_MTU);
+#define E1000_PCI_INIT(inst)						\
+	DEVICE_PCIE_INST_DECLARE(inst);					\
+									\
+	static struct e1000_dev dev_##inst = {				\
+		DEVICE_PCIE_INST_INIT(inst, pcie),			\
+	};								\
+									\
+	static void e1000_config_##inst(const struct e1000_dev *dev)	\
+	{								\
+		IRQ_CONNECT(DT_INST_IRQN(inst),				\
+			    DT_INST_IRQ(inst, priority),		\
+			    e1000_isr, DEVICE_DT_INST_GET(inst),	\
+			    DT_INST_IRQ(inst, sense));			\
+									\
+		irq_enable(DT_INST_IRQN(0));				\
+		iow32(dev, CTRL, CTRL_SLU); /* Set link up */		\
+		iow32(dev, RCTL, RCTL_EN | RCTL_MPE);			\
+	}								\
+									\
+	static const struct e1000_config config_##inst = {		\
+		.config_func = e1000_config_##inst,			\
+	};								\
+									\
+	ETH_NET_DEVICE_DT_INST_DEFINE(inst,				\
+				      e1000_probe,			\
+				      NULL,				\
+				      &dev_##inst,			\
+				      &config_##inst,			\
+				      CONFIG_ETH_INIT_PRIORITY,		\
+				      &e1000_api,			\
+				      NET_ETH_MTU);
+
+DT_INST_FOREACH_STATUS_OKAY(E1000_PCI_INIT);
+
+#if defined(CONFIG_ETH_E1000_PTP_CLOCK)
+struct ptp_context {
+	struct e1000_dev *eth_context;
+
+	/* Simulate the clock. This is only for testing.
+	 * The value is in nanoseconds
+	 */
+	uint64_t clock_time;
+};
+
+static int ptp_clock_e1000_set(const struct device *dev,
+			       struct net_ptp_time *tm)
+{
+	struct ptp_context *ptp_context = dev->data;
+
+	/* TODO: Set the clock real value here */
+	ptp_context->clock_time = tm->second * NSEC_PER_SEC + tm->nanosecond;
+
+	return 0;
+}
+
+static int ptp_clock_e1000_get(const struct device *dev,
+			       struct net_ptp_time *tm)
+{
+	struct ptp_context *ptp_context = dev->data;
+
+	/* TODO: Get the clock value */
+	tm->second = ptp_context->clock_time / NSEC_PER_SEC;
+	tm->nanosecond = ptp_context->clock_time - tm->second * NSEC_PER_SEC;
+
+	return 0;
+}
+
+static int ptp_clock_e1000_adjust(const struct device *dev, int increment)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(increment);
+
+	/* TODO: Implement clock adjustment */
+
+	return 0;
+}
+
+static int ptp_clock_e1000_rate_adjust(const struct device *dev, double ratio)
+{
+	const int hw_inc = NSEC_PER_SEC / CONFIG_ETH_E1000_PTP_CLOCK_SRC_HZ;
+	struct ptp_context *ptp_context = dev->data;
+	struct e1000_dev *context = ptp_context->eth_context;
+	int corr;
+	int32_t mul;
+	float val;
+
+	/* No change needed. */
+	if (ratio == 1.0f) {
+		return 0;
+	}
+
+	ratio *= context->clk_ratio;
+
+	/* Limit possible ratio. */
+	if ((ratio > 1.0f + 1.0f/(2 * hw_inc)) ||
+			(ratio < 1.0f - 1.0f/(2 * hw_inc))) {
+		return -EINVAL;
+	}
+
+	/* Save new ratio. */
+	context->clk_ratio = ratio;
+
+	if (ratio < 1.0f) {
+		corr = hw_inc - 1;
+		val = 1.0f / (hw_inc * (1.0f - ratio));
+	} else if (ratio > 1.0f) {
+		corr = hw_inc + 1;
+		val = 1.0f / (hw_inc * (ratio - 1.0f));
+	} else {
+		val = 0;
+		corr = hw_inc;
+	}
+
+	if (val >= INT32_MAX) {
+		/* Value is too high.
+		 * It is not possible to adjust the rate of the clock.
+		 */
+		mul = 0;
+	} else {
+		mul = val;
+	}
+
+	/* TODO: Adjust the clock here */
+
+	return 0;
+}
+
+static const struct ptp_clock_driver_api api = {
+	.set = ptp_clock_e1000_set,
+	.get = ptp_clock_e1000_get,
+	.adjust = ptp_clock_e1000_adjust,
+	.rate_adjust = ptp_clock_e1000_rate_adjust,
+};
+
+static int ptp_e1000_init(const struct device *port)
+{
+	struct ptp_context *ptp_context = port->data;
+	struct e1000_dev *context = ptp_context->eth_context;
+
+	context->ptp_clock = port;
+	ptp_context->clock_time = k_ticks_to_ns_floor64(k_uptime_ticks());
+
+	return 0;
+}
+
+#define E1000_PTP_INIT(inst)						\
+	static struct ptp_context ptp_e1000_context_##inst = {		\
+		.eth_context = DEVICE_DT_INST_GET(inst)->data,		\
+	};								\
+									\
+	DEVICE_DEFINE(e1000_ptp_clock, PTP_CLOCK_NAME,			\
+		      ptp_e1000_init, NULL,				\
+		      &ptp_e1000_context_##inst, NULL, POST_KERNEL,	\
+		      CONFIG_APPLICATION_INIT_PRIORITY, &api);
+
+DT_INST_FOREACH_STATUS_OKAY(E1000_PTP_INIT);
+
+#endif /* CONFIG_ETH_E1000_PTP_CLOCK */

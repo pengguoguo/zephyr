@@ -1,7 +1,7 @@
 .. _mec15xxevb_assy6853:
 
-MEC15xxEVB ASSY6853
-###################
+Microchip MEC15xxEVB ASSY6853
+#############################
 
 Overview
 ********
@@ -9,16 +9,20 @@ Overview
 The MEC15xxEVB_ASSY6853 kit is a future development platform to evaluate the
 Microchip MEC15XX series microcontrollers. This board needs to be mated with
 part number MEC1501 144WFBA SOLDER DC ASSY 6860(cpu board) in order to operate.
+The MEC152x has superseded the MEC1501 in production. MEC152x is identical to
+MEC150x except for an enhanced Boot-ROM SPI loader. The SPI image format has
+been updated requiring a new SPI image tool. MEC1501 and MEC152x SPI image
+formats are not compatible with each other. Evaluation and cpu boards are
+compatible.
 
-.. image:: ./mec15xxevb_assy6853.png
-     :width: 600px
+.. image:: mec15xxevb_assy6853.jpg
      :align: center
      :alt: MEC15XX EVB ASSY 6853
 
 Hardware
 ********
 
-- MEC1501HB0SZ ARM Cortex-M4 Processor
+- MEC1521HA0SZ ARM Cortex-M4 Processor
 - 256 KB RAM and 64 KB boot ROM
 - Keyboard interface
 - ADC & GPIO headers
@@ -40,7 +44,7 @@ Hardware
 - One external LTC2489 delta-sigma ADC with jumper selectable I2C address.
 - Board power jumper selectable from +5V 2.1mm/5.5mm barrel connector or USB Micro A connector.
 
-For more information about the SOC please see the `MEC1501 Reference Manual`_
+For more information about the SOC's please see `MEC152x Reference Manual`_
 
 Supported Features
 ==================
@@ -84,13 +88,13 @@ Connections and IOs
 This evaluation board kit is comprised of the following HW blocks:
 
 - MEC15xx EVB ASSY 6853 Rev A `MEC15xx EVB Schematic`_
-- MEC1501 144WFBA SOLDER DC ASSY 6860 `MEC1501 Daughter Card Schematic`_
+- MEC1501 144WFBA SOLDER DC ASSY 6883 with MEC152x silicon `MEC1501 Daughter Card Schematic`_
 - SPI DONGLE ASSY 6791 `SPI Dongle Schematic`_
 
 System Clock
 ============
 
-The MEC1501 MCU is configured to use the 48Mhz internal oscillator with the
+The MEC1521 MCU is configured to use the 48Mhz internal oscillator with the
 on-chip PLL to generate a resulting EC clock rate of 12 MHz. See Processor clock
 control register in chapter 4 "4.0 POWER, CLOCKS, and RESETS" of the data sheet in
 the references at the end of this document.
@@ -191,8 +195,7 @@ PVT SPI, SHD SPI and LED0-2 respectively.
 To receive UART2 serial output, please refer to the picture below
 to make sure that JP9 configured for UART2 output.
 
-.. image:: ./mec15xxevb_assy6853_jp9_1.png
-     :width: 300px
+.. image:: mec15xxevb_assy6853_jp9_1.jpg
      :align: center
      :alt: JP9 header Assy6853
 
@@ -256,8 +259,9 @@ Setup
    Add directory with program ``dpcmd`` (on Linux)
    or ``dpcmd.exe`` (on Windows) to your ``PATH``.
 
-#. Clone the `SPI Image Gen`_ repository or download the files within
-   that directory.
+#. Clone the `MEC152x SPI Image Gen`_ repository or download the files within
+   that directory. For the pre-production MEC150x use `MEC150x SPI Image Gen`_
+   repository.
 
 #. Make the image generation available for Zephyr, by making the tool
    searchable by path, or by setting an environment variable
@@ -265,9 +269,10 @@ Setup
 
    .. code-block:: console
 
-      export EVERGLADES_SPI_GEN=<path to tool>/everglades_spi_gen_lin64
+      export EVERGLADES_SPI_GEN=<path to tool>/everglades_spi_gen_RomE
 
    Note that the tools for Linux and Windows have different file names.
+   For the pre-production MEC1501 SOC use everglades_spi_gen_lin64.
 
 #. If needed, a custom SPI image configuration file can be specified
    to override the default one.
@@ -280,8 +285,7 @@ Wiring
 ========
 #. Connect the SPI Dongle ASSY 6791 to ``J44`` in the EVB.
 
-   .. image:: ./spidongle_assy6791_view1.png
-        :width: 400px
+   .. image:: spidongle_assy6791_view1.jpg
         :align: center
         :alt: SPI DONGLE ASSY 6791 Connected
 
@@ -293,21 +297,18 @@ Wiring
       :align: center
 
       * -
-          .. image:: spidongle_assy6791.png
-             :width: 300px
+          .. image:: spidongle_assy6791.jpg
              :align: center
              :alt: SPI DONGLE ASSY 6791
 
         -
-          .. image:: spidongle_assy6791_view2.png
-             :width: 300px
+          .. image:: spidongle_assy6791_view2.jpg
              :align: center
              :alt: SPI DONGLE ASSY 6791 view 2
 
           |
 
-          .. image:: dediprog_connector_2.png
-             :width: 300px
+          .. image:: dediprog_connector_2.jpg
              :align: center
              :alt: SPI DONGLE ASSY 6791 Connected
 
@@ -339,15 +340,13 @@ Wiring
 #. Apply power to the board via a micro-USB cable.
    Configure this option by using a jumper between ``JP88 7-8``.
 
-   .. image:: ./jp88_power_options.png
-        :width: 400px
+   .. image:: jp88_power_options.jpg
         :align: center
         :alt: SPI DONGLE ASSY 6791 Connected
 
 #. Final wiring for the board should look like this:
 
-   .. image:: ./mec_board_setup.png
-        :width: 600px
+   .. image:: mec_board_setup.jpg
         :align: center
         :alt: SPI DONGLE ASSY 6791 Connected
 
@@ -388,13 +387,12 @@ Flashing
    .. note:: When west process started press Reset button and do not release it
     till the whole west process will not be finished successfully.
 
-    .. image:: ./reset_button_1.png
-         :width: 400px
+    .. image:: reset_button_1.jpg
          :align: center
          :alt: SPI DONGLE ASSY 6791 Connected
 
 
-   .. note:: If you dont't want to press Reset button every time, you can disconnect
+   .. note:: If you don't want to press Reset button every time, you can disconnect
     SPI Dongle ASSY 6791 from the EVB during the west flash programming.
     Then connect it back to the ``J44`` header and apply power to the EVB.
     Result will be the same.
@@ -419,6 +417,24 @@ Troubleshooting
 
 #. If Dediprog can't detect the onboard flash, press the board's Reset button and try again.
 
+Notes
+=====
+#. To enable PCA9555PW and test the I2C on mec15xxevb_assy6853, additional works are needed:
+
+   As the I2C slave device NXP pca95xx on mec15xxevb_assy6853 is connected to I2C00 port,
+   however, I2C00 port is shared with UART2 RS232 to TTL converter used to catch serial log,
+   so it's not possible to use UART2 and I2C00 port simultaneously. We need to change to use
+   I2C01 port by making some jumpers setting as below:
+
+ * JP99         1-2     Connected       Connect I2C01_SDA from CPU to header J5
+ * JP99         13-14   Connected       Connect I2C01_SCL from CPU to header J5
+ * JP25         21-22   Connected       External pull-up for I2C01_SDA
+ * JP25         23-24   Connected       External pull-up for I2C01_SCL
+ *
+ * JP44.1       J5.1    Connected       Connect NXP PCA95xx to I2C01
+ * JP44.3       J5.3    Connected       Connect NXP PCA95xx to I2C01
+
+
 References
 **********
 .. target-notes::
@@ -427,6 +443,10 @@ References
     https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC1501/MEC1501_Datasheet.pdf
 .. _MEC1501 Reference Manual:
     https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC1501/MEC1501_Datasheet.pdf
+.. _MEC152x Preliminary Data Sheet:
+    https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC152x/MEC152x_Datasheet.pdf
+.. _MEC152x Reference Manual:
+    https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC152x/MEC152x_Datasheet.pdf
 .. _MEC15xx EVB Schematic:
     https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC1501/Everglades%20EVB%20-%20Assy_6853%20Rev%20A1p1%20-%20SCH.pdf
 .. _MEC1501 Daughter Card Schematic:
@@ -435,7 +455,9 @@ References
     https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC1501/MEC1503%20Socket%20DC%20for%20EVERGLADES%20EVB%20-%20Assy_6856%20Rev%20A1p0%20-%20SCH.pdf
 .. _SPI Dongle Schematic:
     https://github.com/MicrochipTech/CPGZephyrDocs/blob/master/MEC1501/SPI%20Dongles%20and%20Aardvark%20Interposer%20Assy%206791%20Rev%20A1p1%20-%20SCH.pdf
-.. _SPI Image Gen:
+.. _MEC152x SPI Image Gen:
+    https://github.com/MicrochipTech/CPGZephyrDocs/tree/master/MEC152x/SPI_image_gen
+.. _MEC150x SPI Image Gen:
     https://github.com/MicrochipTech/CPGZephyrDocs/tree/master/MEC1501/SPI_image_gen
 .. _SF100 Linux GitHub:
     https://github.com/DediProgSW/SF100Linux

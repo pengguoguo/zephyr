@@ -20,14 +20,14 @@
 
 #else
 
-#include <arch/arm/aarch32/cortex_m/cmsis.h>
+#include <zephyr/arch/arm/aarch32/cortex_m/cmsis.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern K_THREAD_STACK_ARRAY_DEFINE(z_interrupt_stacks, CONFIG_MP_NUM_CPUS,
-				   CONFIG_ISR_STACK_SIZE);
+K_KERNEL_STACK_ARRAY_DECLARE(z_interrupt_stacks, CONFIG_MP_MAX_NUM_CPUS,
+			     CONFIG_ISR_STACK_SIZE);
 
 /**
  *
@@ -36,12 +36,12 @@ extern K_THREAD_STACK_ARRAY_DEFINE(z_interrupt_stacks, CONFIG_MP_NUM_CPUS,
  * On Cortex-M, the interrupt stack is registered in the MSP (main stack
  * pointer) register, and switched to automatically when taking an exception.
  *
- * @return N/A
  */
 static ALWAYS_INLINE void z_arm_interrupt_stack_setup(void)
 {
-	uint32_t msp = (uint32_t)(Z_THREAD_STACK_BUFFER(z_interrupt_stacks[0])) +
-			    K_THREAD_STACK_SIZEOF(z_interrupt_stacks[0]);
+	uint32_t msp =
+		(uint32_t)(Z_KERNEL_STACK_BUFFER(z_interrupt_stacks[0])) +
+			   K_KERNEL_STACK_SIZEOF(z_interrupt_stacks[0]);
 
 	__set_MSP(msp);
 #if defined(CONFIG_BUILTIN_STACK_GUARD)

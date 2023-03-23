@@ -23,14 +23,18 @@ zephyr_compile_options(
 
 zephyr_library_sources(
 	irq_handler.c
-	k_busy_wait.c
+	cpu_wait.c
 	bstests_entry.c
 	argparse.c
 	main.c
 	time_machine.c
 	trace_hook.c
-	cmsis.c
+	cmsis/cmsis.c
+	soc/nrfx_coredep.c
 )
+
+zephyr_include_directories(soc)
+zephyr_include_directories(cmsis)
 
 zephyr_library_include_directories(
   $ENV{BSIM_COMPONENTS_PATH}/libUtilv1/src/

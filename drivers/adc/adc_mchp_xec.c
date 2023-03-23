@@ -7,13 +7,14 @@
 #define DT_DRV_COMPAT microchip_xec_adc
 
 #define LOG_LEVEL CONFIG_ADC_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(adc_mchp_xec);
 
-#include <drivers/adc.h>
+#include <zephyr/drivers/adc.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <soc.h>
 #include <errno.h>
-#include <assert.h>
+#include <zephyr/irq.h>
 
 #define ADC_CONTEXT_USES_KERNEL_TIMER
 #include "adc_context.h"
@@ -28,6 +29,10 @@ LOG_MODULE_REGISTER(adc_mchp_xec);
 #define XEC_ADC_CTRL_START_REPEAT		BIT(2)
 #define XEC_ADC_CTRL_START_SINGLE		BIT(1)
 #define XEC_ADC_CTRL_ACTIVATE			BIT(0)
+
+struct adc_xec_config {
+	const struct pinctrl_dev_config *pcfg;
+};
 
 struct adc_xec_data {
 	struct adc_context ctx;
@@ -52,9 +57,6 @@ struct adc_xec_regs {
 #define ADC_XEC_REG_BASE						\
 	((struct adc_xec_regs *)(DT_INST_REG_ADDR(0)))
 
-
-DEVICE_DECLARE(adc_xec);
-
 static void adc_context_start_sampling(struct adc_context *ctx)
 {
 	struct adc_xec_data *data = CONTAINER_OF(ctx, struct adc_xec_data, ctx);
@@ -76,7 +78,7 @@ static void adc_context_update_buffer_pointer(struct adc_context *ctx,
 	}
 }
 
-static int adc_xec_channel_setup(struct device *dev,
+static int adc_xec_channel_setup(const struct device *dev,
 				 const struct adc_channel_cfg *channel_cfg)
 {
 	struct adc_xec_regs *adc_regs = ADC_XEC_REG_BASE;
@@ -146,11 +148,11 @@ static bool adc_xec_validate_buffer_size(const struct adc_sequence *sequence)
 	return true;
 }
 
-static int adc_xec_start_read(struct device *dev,
+static int adc_xec_start_read(const struct device *dev,
 			      const struct adc_sequence *sequence)
 {
 	struct adc_xec_regs *adc_regs = ADC_XEC_REG_BASE;
-	struct adc_xec_data *data = dev->driver_data;
+	struct adc_xec_data *data = dev->data;
 	uint32_t reg;
 
 	if (sequence->channels & ~BIT_MASK(MCHP_ADC_MAX_CHAN)) {
@@ -191,10 +193,10 @@ static int adc_xec_start_read(struct device *dev,
 	return adc_context_wait_for_completion(&data->ctx);
 }
 
-static int adc_xec_read(struct device *dev,
+static int adc_xec_read(const struct device *dev,
 			const struct adc_sequence *sequence)
 {
-	struct adc_xec_data *data = dev->driver_data;
+	struct adc_xec_data *data = dev->data;
 	int error;
 
 	adc_context_lock(&data->ctx, false, NULL);
@@ -205,11 +207,11 @@ static int adc_xec_read(struct device *dev,
 }
 
 #if defined(CONFIG_ADC_ASYNC)
-static int adc_xec_read_async(struct device *dev,
+static int adc_xec_read_async(const struct device *dev,
 			      const struct adc_sequence *sequence,
 			      struct k_poll_signal *async)
 {
-	struct adc_xec_data *data = dev->driver_data;
+	struct adc_xec_data *data = dev->data;
 	int error;
 
 	adc_context_lock(&data->ctx, true, async);
@@ -220,10 +222,10 @@ static int adc_xec_read_async(struct device *dev,
 }
 #endif /* CONFIG_ADC_ASYNC */
 
-static void xec_adc_get_sample(struct device *dev)
+static int xec_adc_get_sample(const struct device *dev)
 {
 	struct adc_xec_regs *adc_regs = ADC_XEC_REG_BASE;
-	struct adc_xec_data *data = dev->driver_data;
+	struct adc_xec_data *data = dev->data;
 	uint32_t idx;
 	uint32_t channels = adc_regs->status_reg;
 	uint32_t ch_status = channels;
@@ -239,7 +241,6 @@ static void xec_adc_get_sample(struct device *dev)
 	bit = find_lsb_set(channels);
 	while (bit != 0) {
 		idx = bit - 1;
-
 		*data->buffer = (uint16_t)adc_regs->channel_read_reg[idx];
 		data->buffer++;
 
@@ -249,13 +250,23 @@ static void xec_adc_get_sample(struct device *dev)
 
 	/* Clear the status register */
 	adc_regs->status_reg = ch_status;
+
+	/* Return error when requested ADC conversion was incomplete
+	 * for some channels.
+	 */
+	if (ch_status != adc_regs->single_reg) {
+		return -EIO;
+	}
+
+	return 0;
 }
 
-static void adc_xec_isr(struct device *dev)
+static void adc_xec_isr(const struct device *dev)
 {
 	struct adc_xec_regs *adc_regs = ADC_XEC_REG_BASE;
-	struct adc_xec_data *data = dev->driver_data;
+	struct adc_xec_data *data = dev->data;
 	uint32_t reg;
+	int ret;
 
 	/* Clear START_SINGLE bit and clear SINGLE_DONE_STATUS */
 	reg = adc_regs->control_reg;
@@ -266,9 +277,12 @@ static void adc_xec_isr(struct device *dev)
 	/* Also clear GIRQ source status bit */
 	MCHP_GIRQ_SRC(MCHP_ADC_GIRQ) = MCHP_ADC_SNG_DONE_GIRQ_VAL;
 
-	xec_adc_get_sample(dev);
-
-	adc_context_on_sampling_done(&data->ctx, dev);
+	ret = xec_adc_get_sample(dev);
+	if (ret) {
+		adc_context_complete(&data->ctx, ret);
+	} else {
+		adc_context_on_sampling_done(&data->ctx, dev);
+	}
 
 	LOG_DBG("ADC ISR triggered.");
 }
@@ -282,10 +296,25 @@ struct adc_driver_api adc_xec_api = {
 	.ref_internal = XEC_ADC_VREF_ANALOG,
 };
 
-static int adc_xec_init(struct device *dev)
+/* ADC Config Register */
+#define XEC_ADC_CFG_CLK_VAL(clk_time)	(		\
+	(clk_time << MCHP_ADC_CFG_CLK_LO_TIME_POS) |	\
+	(clk_time << MCHP_ADC_CFG_CLK_HI_TIME_POS))
+
+static int adc_xec_init(const struct device *dev)
 {
+	const struct adc_xec_config *const cfg = dev->config;
 	struct adc_xec_regs *adc_regs = ADC_XEC_REG_BASE;
-	struct adc_xec_data *data = dev->driver_data;
+	struct adc_xec_data *data = dev->data;
+	int ret;
+
+	ret = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
+	if (ret != 0) {
+		LOG_ERR("XEC ADC pinctrl setup failed (%d)", ret);
+		return ret;
+	}
+
+	adc_regs->config_reg = XEC_ADC_CFG_CLK_VAL(DT_INST_PROP(0, clktime));
 
 	adc_regs->control_reg =  XEC_ADC_CTRL_ACTIVATE
 		| XEC_ADC_CTRL_POWER_SAVER_DIS
@@ -297,7 +326,7 @@ static int adc_xec_init(struct device *dev)
 
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority),
-		    adc_xec_isr, DEVICE_GET(adc_xec), 0);
+		    adc_xec_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
 
 	adc_context_unlock_unconditionally(&data->ctx);
@@ -305,13 +334,19 @@ static int adc_xec_init(struct device *dev)
 	return 0;
 }
 
+PINCTRL_DT_INST_DEFINE(0);
+
+static struct adc_xec_config adc_xec_dev_cfg_0 = {
+	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
+};
+
 static struct adc_xec_data adc_xec_dev_data_0 = {
 	ADC_CONTEXT_INIT_TIMER(adc_xec_dev_data_0, ctx),
 	ADC_CONTEXT_INIT_LOCK(adc_xec_dev_data_0, ctx),
 	ADC_CONTEXT_INIT_SYNC(adc_xec_dev_data_0, ctx),
 };
 
-DEVICE_AND_API_INIT(adc_xec, DT_INST_LABEL(0),
-		    adc_xec_init, &adc_xec_dev_data_0, NULL,
-		    PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+DEVICE_DT_INST_DEFINE(0, adc_xec_init, NULL,
+		    &adc_xec_dev_data_0, &adc_xec_dev_cfg_0,
+		    PRE_KERNEL_1, CONFIG_ADC_INIT_PRIORITY,
 		    &adc_xec_api);

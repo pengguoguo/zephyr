@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 
-static void process_sample(struct device *dev)
+static void process_sample(const struct device *dev)
 {
 	static unsigned int obs;
 	struct sensor_value pressure, temp;
@@ -42,18 +42,18 @@ static void process_sample(struct device *dev)
 
 }
 
-static void lps22hh_handler(struct device *dev,
-			   struct sensor_trigger *trig)
+static void lps22hh_handler(const struct device *dev,
+			    const struct sensor_trigger *trig)
 {
 	process_sample(dev);
 }
 
 void main(void)
 {
-	struct device *dev = device_get_binding("LPS22HH");
+	const struct device *const dev = DEVICE_DT_GET_ONE(st_lps22hh);
 
-	if (dev == NULL) {
-		printf("Could not get LPS22HH device\n");
+	if (!device_is_ready(dev)) {
+		printk("sensor: device not ready.\n");
 		return;
 	}
 
@@ -74,7 +74,7 @@ void main(void)
 		if (sensor_trigger_set(dev, &trig, lps22hh_handler) < 0) {
 			printf("Cannot configure trigger\n");
 			return;
-		};
+		}
 		printk("Configured for triggered collection at %u Hz\n",
 		       attr.val1);
 	}

@@ -8,10 +8,11 @@
 #ifndef ZEPHYR_DRIVERS_SENSOR_CCS811_CCS811_H_
 #define ZEPHYR_DRIVERS_SENSOR_CCS811_CCS811_H_
 
-#include <device.h>
-#include <drivers/gpio.h>
-#include <sys/util.h>
-#include <drivers/sensor/ccs811.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/drivers/sensor/ccs811.h>
 
 /* Registers */
 #define CCS811_REG_STATUS               0x00
@@ -48,11 +49,8 @@
 #define CCS811_CO2_MAX_PPM              32767
 
 struct ccs811_data {
-	struct device *i2c;
-#if DT_INST_NODE_HAS_PROP(0, irq_gpios)
-	struct device *irq_gpio;
 #ifdef CONFIG_CCS811_TRIGGER
-	struct device *dev;
+	const struct device *dev;
 
 	/*
 	 * DATARDY is configured through SENSOR_CHAN_ALL.
@@ -60,9 +58,9 @@ struct ccs811_data {
 	 */
 	struct gpio_callback gpio_cb;
 	sensor_trigger_handler_t handler;
-	struct sensor_trigger trigger;
+	const struct sensor_trigger *trigger;
 #if defined(CONFIG_CCS811_TRIGGER_OWN_THREAD)
-	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_CCS811_THREAD_STACK_SIZE);
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_CCS811_THREAD_STACK_SIZE);
 	struct k_sem gpio_sem;
 	struct k_thread thread;
 #elif defined(CONFIG_CCS811_TRIGGER_GLOBAL_THREAD)
@@ -71,36 +69,36 @@ struct ccs811_data {
 	uint16_t co2_l2m;
 	uint16_t co2_m2h;
 #endif /* CONFIG_CCS811_TRIGGER */
-#endif
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
-	struct device *reset_gpio;
-#endif
-#if DT_INST_NODE_HAS_PROP(0, wake_gpios)
-	struct device *wake_gpio;
-#endif
 	struct ccs811_result_type result;
 	uint8_t mode;
 	uint8_t app_fw_ver;
 };
 
+struct ccs811_config {
+	struct i2c_dt_spec i2c;
+	struct gpio_dt_spec irq_gpio;
+	struct gpio_dt_spec reset_gpio;
+	struct gpio_dt_spec wake_gpio;
+};
+
 #ifdef CONFIG_CCS811_TRIGGER
 
-int ccs811_mutate_meas_mode(struct device *dev,
+int ccs811_mutate_meas_mode(const struct device *dev,
 			    uint8_t set,
 			    uint8_t clear);
 
-int ccs811_set_thresholds(struct device *dev);
+int ccs811_set_thresholds(const struct device *dev);
 
-int ccs811_attr_set(struct device *dev,
+int ccs811_attr_set(const struct device *dev,
 		    enum sensor_channel chan,
 		    enum sensor_attribute attr,
 		    const struct sensor_value *val);
 
-int ccs811_trigger_set(struct device *dev,
+int ccs811_trigger_set(const struct device *dev,
 		       const struct sensor_trigger *trig,
 		       sensor_trigger_handler_t handler);
 
-int ccs811_init_interrupt(struct device *dev);
+int ccs811_init_interrupt(const struct device *dev);
 
 #endif  /* CONFIG_CCS811_TRIGGER */
 

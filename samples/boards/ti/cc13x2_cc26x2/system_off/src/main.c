@@ -6,18 +6,15 @@
  */
 
 #include <stdio.h>
-#include <zephyr.h>
-#include <init.h>
-#include <device.h>
-#include <drivers/gpio.h>
-#include <power/power.h>
+#include <zephyr/kernel.h>
+#include <zephyr/init.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/pm/pm.h>
 
 #include <driverlib/ioc.h>
 
-
-#define PORT    DT_GPIO_LABEL(DT_ALIAS(sw0), gpios)
-#define PIN     DT_GPIO_PIN(DT_ALIAS(sw0), gpios)
-#define PULL_UP DT_GPIO_FLAGS(DT_ALIAS(sw0), gpios)
+static const struct gpio_dt_spec sw0_gpio = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
 #define BUSY_WAIT_S 5U
 #define SLEEP_US 2000U
@@ -28,7 +25,6 @@ extern void CC1352R1_LAUNCHXL_shutDownExtFlash(void);
 void main(void)
 {
 	uint32_t config, status;
-	struct device *gpiob;
 
 	printk("\n%s system off demo\n", CONFIG_BOARD);
 
@@ -36,18 +32,17 @@ void main(void)
 	CC1352R1_LAUNCHXL_shutDownExtFlash();
 
 	/* Configure to generate PORT event (wakeup) on button 1 press. */
-	gpiob = device_get_binding(PORT);
-	if (!gpiob) {
-		printk("error\n");
+	if (!device_is_ready(sw0_gpio.port)) {
+		printk("%s: device not ready.\n", sw0_gpio.port->name);
 		return;
 	}
 
-	gpio_pin_configure(gpiob, PIN, GPIO_INPUT | PULL_UP);
+	gpio_pin_configure_dt(&sw0_gpio, GPIO_INPUT);
 
 	/* Set wakeup bits for button gpio */
-	config = IOCPortConfigureGet(PIN);
+	config = IOCPortConfigureGet(sw0_gpio.pin);
 	config |= IOC_WAKE_ON_LOW;
-	IOCPortConfigureSet(PIN, IOC_PORT_GPIO, config);
+	IOCPortConfigureSet(sw0_gpio.pin, IOC_PORT_GPIO, config);
 
 	printk("Busy-wait %u s\n", BUSY_WAIT_S);
 	k_busy_wait(BUSY_WAIT_S * USEC_PER_SEC);
@@ -64,12 +59,16 @@ void main(void)
 	status = GPIO_getEventMultiDio(GPIO_DIO_ALL_MASK);
 	GPIO_clearEventMultiDio(status);
 
-	/* Above we disabled entry to deep sleep based on duration of
-	 * controlled delay.  Here we need to override that, then
-	 * force a sleep so that the deep sleep takes effect.
+	/*
+	 * Force the SOFT_OFF state.
 	 */
-	sys_pm_force_power_state(SYS_POWER_STATE_DEEP_SLEEP_1);
-	k_sleep(K_MSEC(1));
+	pm_state_force(0u, &(struct pm_state_info){PM_STATE_SOFT_OFF, 0, 0});
+
+	/* Now we need to go sleep. This will let the idle thread runs and
+	 * the pm subsystem will use the forced state. To confirm that the
+	 * forced state is used, lets set the same timeout used previously.
+	 */
+	k_sleep(K_SECONDS(SLEEP_S));
 
 	printk("ERROR: System off failed\n");
 	while (true) {

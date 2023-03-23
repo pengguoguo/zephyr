@@ -45,11 +45,11 @@
 		struct {                                                    \
 			/* TODO: const, optimise RAM use */                 \
 			/* TODO: Separate s,n,f,l out into common struct */ \
-			uint8_t const s;         /* Stride between elements */ \
-			uint8_t const n;         /* Number of buffers */       \
-			uint8_t f;               /* First. Read index */       \
-			uint8_t l;               /* Last. Write index */       \
-			uint8_t MALIGN(4) m[MROUND(sz) * ((cnt) + 1)];         \
+			uint16_t const s;     /* Stride between elements */ \
+			uint16_t const n;     /* Number of buffers */       \
+			uint8_t f;            /* First. Read index */       \
+			uint8_t l;            /* Last. Write index */       \
+			uint8_t MALIGN(4) m[MROUND(sz) * ((cnt) + 1)];      \
 		} mfifo_##name = {                                          \
 			.n = ((cnt) + 1),                                   \
 			.s = MROUND(sz),                                    \
@@ -123,6 +123,7 @@ static inline void mfifo_by_idx_enqueue(uint8_t *fifo, uint8_t size, uint8_t idx
 	void **p = (void **)(fifo + (*last) * size); /* buffer preceding idx */
 	*p = mem; /* store the payload which for API 2 is only a void-ptr */
 
+	cpu_dmb(); /* Ensure data accesses are synchronized */
 	*last = idx; /* Commit: Update write index */
 }
 
@@ -189,6 +190,7 @@ static inline uint8_t mfifo_enqueue_get(uint8_t *fifo, uint8_t size, uint8_t cou
  */
 static inline void mfifo_enqueue(uint8_t idx, uint8_t *last)
 {
+	cpu_dmb(); /* Ensure data accesses are synchronized */
 	*last = idx; /* Commit: Update write index */
 }
 
@@ -302,7 +304,7 @@ static inline void *mfifo_dequeue_iter_get(uint8_t *fifo, uint8_t size, uint8_t 
 /**
  * @brief Dequeue head-buffer from queue of buffers
  *
- * @param fifo[in]      Contigous memory holding the circular queue
+ * @param fifo[in]      Contiguous memory holding the circular queue
  * @param size[in]      Size of each buffer in circular queue
  * @param count[in]     Number of buffers in circular queue
  * @param last[in]      Tail index, Span: [0 .. count-1]

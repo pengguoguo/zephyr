@@ -17,24 +17,30 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/printk.h>
-#include <sys/byteorder.h>
-#include <zephyr.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/kernel.h>
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
 
-#include <shell/shell.h>
+#include <zephyr/shell/shell.h>
 
-#include <bluetooth/hci.h>
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/services/hrs.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/services/hrs.h>
 
 #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
 
-#if defined(CONFIG_BT_GATT_HRS)
+#if defined(CONFIG_BT_HRS)
 static bool hrs_simulate;
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-	BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0x0d, 0x18, 0x0f, 0x18, 0x0a, 0x18),
+	BT_DATA_BYTES(BT_DATA_UUID16_ALL,
+		      BT_UUID_16_ENCODE(BT_UUID_HRS_VAL),
+		      BT_UUID_16_ENCODE(BT_UUID_BAS_VAL),
+		      BT_UUID_16_ENCODE(BT_UUID_DIS_VAL)),
 };
 
 static int cmd_hrs_simulate(const struct shell *shell,
@@ -76,17 +82,17 @@ static int cmd_hrs_simulate(const struct shell *shell,
 
 	return 0;
 }
-#endif /* CONFIG_BT_GATT_HRS */
+#endif /* CONFIG_BT_HRS */
 
 #define HELP_NONE "[none]"
 #define HELP_ADDR_LE "<address: XX:XX:XX:XX:XX:XX> <type: (public|random)>"
 
 SHELL_STATIC_SUBCMD_SET_CREATE(hrs_cmds,
-#if defined(CONFIG_BT_GATT_HRS)
+#if defined(CONFIG_BT_HRS)
 	SHELL_CMD_ARG(simulate, NULL,
 		"register and simulate Heart Rate Service <value: on, off>",
 		cmd_hrs_simulate, 2, 0),
-#endif /* CONFIG_BT_GATT_HRS*/
+#endif /* CONFIG_BT_HRS*/
 	SHELL_SUBCMD_SET_END
 );
 
@@ -100,7 +106,7 @@ static int cmd_hrs(const struct shell *shell, size_t argc, char **argv)
 SHELL_CMD_ARG_REGISTER(hrs, &hrs_cmds, "Heart Rate Service shell commands",
 		       cmd_hrs, 2, 0);
 
-#if defined(CONFIG_BT_GATT_HRS)
+#if defined(CONFIG_BT_HRS)
 static void hrs_notify(void)
 {
 	static uint8_t heartrate = 90U;
@@ -111,12 +117,27 @@ static void hrs_notify(void)
 		heartrate = 90U;
 	}
 
-	bt_gatt_hrs_notify(heartrate);
+	bt_hrs_notify(heartrate);
 }
-#endif /* CONFIG_BT_GATT_HRS */
+#endif /* CONFIG_BT_HRS */
 
 void main(void)
 {
+#if DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_shell_uart), zephyr_cdc_acm_uart)
+	const struct device *dev;
+	uint32_t dtr = 0;
+
+	dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_shell_uart));
+	if (!device_is_ready(dev) || usb_enable(NULL)) {
+		return;
+	}
+
+	while (!dtr) {
+		uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+		k_sleep(K_MSEC(100));
+	}
+#endif
+
 	printk("Type \"help\" for supported commands.");
 	printk("Before any Bluetooth commands you must `bt init` to initialize"
 	       " the stack.\n");
@@ -124,11 +145,11 @@ void main(void)
 	while (1) {
 		k_sleep(K_SECONDS(1));
 
-#if defined(CONFIG_BT_GATT_HRS)
+#if defined(CONFIG_BT_HRS)
 		/* Heartrate measurements simulation */
 		if (hrs_simulate) {
 			hrs_notify();
 		}
-#endif /* CONFIG_BT_GATT_HRS */
+#endif /* CONFIG_BT_HRS */
 	}
 }

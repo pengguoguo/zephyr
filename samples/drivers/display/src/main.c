@@ -7,40 +7,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(sample, LOG_LEVEL_INF);
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/display.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/display.h>
 
-#if DT_NODE_HAS_STATUS(DT_INST(0, ilitek_ili9340), okay)
-#define DISPLAY_DEV_NAME DT_LABEL(DT_INST(0, ilitek_ili9340))
-#endif
-
-#if DT_NODE_HAS_STATUS(DT_INST(0, solomon_ssd1306fb), okay)
-#define DISPLAY_DEV_NAME DT_LABEL(DT_INST(0, solomon_ssd1306fb))
-#endif
-
-#if DT_NODE_HAS_STATUS(DT_INST(0, gooddisplay_gdeh0213b1), okay)
-#define DISPLAY_DEV_NAME DT_LABEL(DT_INST(0, gooddisplay_gdeh0213b1))
-#endif
-
-#if DT_NODE_HAS_STATUS(DT_INST(0, sitronix_st7789v), okay)
-#define DISPLAY_DEV_NAME DT_LABEL(DT_INST(0, sitronix_st7789v))
-#endif
-
-#if DT_NODE_HAS_STATUS(DT_INST(0, fsl_imx6sx_lcdif), okay)
-#define DISPLAY_DEV_NAME DT_LABEL(DT_INST(0, fsl_imx6sx_lcdif))
-#endif
-
-#ifdef CONFIG_SDL_DISPLAY_DEV_NAME
-#define DISPLAY_DEV_NAME CONFIG_SDL_DISPLAY_DEV_NAME
-#endif
-
-#ifdef CONFIG_DUMMY_DISPLAY_DEV_NAME
-#define DISPLAY_DEV_NAME CONFIG_DUMMY_DISPLAY_DEV_NAME
-#endif
 #ifdef CONFIG_ARCH_POSIX
 #include "posix_board_if.h"
 #endif
@@ -77,7 +50,7 @@ static void posix_exit_main(int exit_code)
 #endif
 
 static void fill_buffer_argb8888(enum corner corner, uint8_t grey, uint8_t *buf,
-			       size_t buf_size)
+				 size_t buf_size)
 {
 	uint32_t color = 0;
 
@@ -201,25 +174,23 @@ void main(void)
 	size_t grey_count;
 	uint8_t *buf;
 	int32_t grey_scale_sleep;
-	struct device *display_dev;
+	const struct device *display_dev;
 	struct display_capabilities capabilities;
 	struct display_buffer_descriptor buf_desc;
 	size_t buf_size = 0;
 	fill_buffer fill_buffer_fnc = NULL;
 
-	LOG_INF("Display sample for %s", DISPLAY_DEV_NAME);
-
-	display_dev = device_get_binding(DISPLAY_DEV_NAME);
-
-	if (display_dev == NULL) {
+	display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
+	if (!device_is_ready(display_dev)) {
 		LOG_ERR("Device %s not found. Aborting sample.",
-			DISPLAY_DEV_NAME);
+			display_dev->name);
 		RETURN_FROM_MAIN(1);
 	}
 
+	LOG_INF("Display sample for %s", display_dev->name);
 	display_get_capabilities(display_dev, &capabilities);
 
-	if (capabilities.screen_info & SCREEN_INFO_MONO_VTILED)  {
+	if (capabilities.screen_info & SCREEN_INFO_MONO_VTILED) {
 		rect_w = 16;
 		rect_h = 8;
 	} else {

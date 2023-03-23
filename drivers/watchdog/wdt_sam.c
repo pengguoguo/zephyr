@@ -19,11 +19,12 @@
  *   CONFIG_WDT_DISABLE_AT_BOOT must be unset in the app's config file
  */
 
-#include <drivers/watchdog.h>
+#include <zephyr/drivers/watchdog.h>
+#include <zephyr/irq.h>
 #include <soc.h>
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wdt_sam);
 
 #define SAM_PRESCALAR   128
@@ -34,8 +35,6 @@ struct wdt_sam_dev_cfg {
 	Wdt *regs;
 };
 
-DEVICE_DECLARE(wdt_sam);
-
 struct wdt_sam_dev_data {
 	wdt_callback_t cb;
 	uint32_t mode;
@@ -45,14 +44,12 @@ struct wdt_sam_dev_data {
 
 static struct wdt_sam_dev_data wdt_sam_data = { 0 };
 
-#define DEV_CFG(dev) \
-	((const struct wdt_sam_dev_cfg *const)(dev)->config_info)
-
-static void wdt_sam_isr(struct device *dev)
+static void wdt_sam_isr(const struct device *dev)
 {
+	const struct wdt_sam_dev_cfg *config = dev->config;
 	uint32_t wdt_sr;
-	Wdt *const wdt = DEV_CFG(dev)->regs;
-	struct wdt_sam_dev_data *data = dev->driver_data;
+	Wdt * const wdt = config->regs;
+	struct wdt_sam_dev_data *data = dev->data;
 
 	/* Clear status bit to acknowledge interrupt by dummy read. */
 	wdt_sr = wdt->WDT_SR;
@@ -83,10 +80,12 @@ int wdt_sam_convert_timeout(uint32_t timeout, uint32_t sclk)
 	return WDT_MR_WDV(timeout / min);
 }
 
-static int wdt_sam_disable(struct device *dev)
+static int wdt_sam_disable(const struct device *dev)
 {
-	Wdt *const wdt = DEV_CFG(dev)->regs;
-	struct wdt_sam_dev_data *data = dev->driver_data;
+	const struct wdt_sam_dev_cfg *config = dev->config;
+
+	Wdt * const wdt = config->regs;
+	struct wdt_sam_dev_data *data = dev->data;
 
 	/* since Watchdog mode register is 'write-once', we can't disable if
 	 * someone has already set the mode register
@@ -106,11 +105,12 @@ static int wdt_sam_disable(struct device *dev)
 	return 0;
 }
 
-static int wdt_sam_setup(struct device *dev, uint8_t options)
+static int wdt_sam_setup(const struct device *dev, uint8_t options)
 {
+	const struct wdt_sam_dev_cfg *config = dev->config;
 
-	Wdt *const wdt = DEV_CFG(dev)->regs;
-	struct wdt_sam_dev_data *data = dev->driver_data;
+	Wdt * const wdt = config->regs;
+	struct wdt_sam_dev_data *data = dev->data;
 
 	if (!data->timeout_valid) {
 		LOG_ERR("No valid timeouts installed");
@@ -139,13 +139,13 @@ static int wdt_sam_setup(struct device *dev, uint8_t options)
 	return 0;
 }
 
-static int wdt_sam_install_timeout(struct device *dev,
+static int wdt_sam_install_timeout(const struct device *dev,
 				   const struct wdt_timeout_cfg *cfg)
 {
 	uint32_t wdt_mode = 0U;
 	int timeout_value;
 
-	struct wdt_sam_dev_data *data = dev->driver_data;
+	struct wdt_sam_dev_data *data = dev->data;
 
 	if (data->timeout_valid) {
 		LOG_ERR("No more timeouts can be installed");
@@ -208,14 +208,16 @@ static int wdt_sam_install_timeout(struct device *dev,
 	return 0;
 }
 
-static int wdt_sam_feed(struct device *dev, int channel_id)
+static int wdt_sam_feed(const struct device *dev, int channel_id)
 {
+	const struct wdt_sam_dev_cfg *config = dev->config;
+
 	/*
 	 * On watchdog restart the Watchdog counter is immediately
-	 * reloaded/feeded with the 12-bit watchdog counter
+	 * reloaded/fed with the 12-bit watchdog counter
 	 * value from WDT_MR and restarted
 	 */
-	Wdt *const wdt = DEV_CFG(dev)->regs;
+	Wdt * const wdt = config->regs;
 
 	wdt->WDT_CR |= WDT_CR_KEY_PASSWD | WDT_CR_WDRSTT;
 
@@ -237,11 +239,11 @@ static void wdt_sam_irq_config(void)
 {
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority), wdt_sam_isr,
-		    DEVICE_GET(wdt_sam), 0);
+		    DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
 }
 
-static int wdt_sam_init(struct device *dev)
+static int wdt_sam_init(const struct device *dev)
 {
 #ifdef CONFIG_WDT_DISABLE_AT_BOOT
 	wdt_sam_disable(dev);
@@ -251,6 +253,6 @@ static int wdt_sam_init(struct device *dev)
 	return 0;
 }
 
-DEVICE_AND_API_INIT(wdt_sam, DT_INST_LABEL(0), wdt_sam_init,
+DEVICE_DT_INST_DEFINE(0, wdt_sam_init, NULL,
 		    &wdt_sam_data, &wdt_sam_cfg, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &wdt_sam_api);

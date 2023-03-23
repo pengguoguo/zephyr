@@ -49,11 +49,6 @@
 
 #endif /* CONFIG_I2S_STM32_USE_PLLI2S_ENABLE */
 
-#define DEV_CFG(dev) \
-	(const struct i2s_stm32_cfg * const)((dev)->config_info)
-#define DEV_DATA(dev) \
-	((struct i2s_stm32_data *const)(dev)->driver_data)
-
 struct queue_item {
 	void *mem_block;
 	size_t size;
@@ -72,14 +67,16 @@ struct i2s_stm32_cfg {
 	SPI_TypeDef *i2s;
 	struct stm32_pclken pclken;
 	uint32_t i2s_clk_sel;
-	void (*irq_config)(struct device *dev);
+	const struct pinctrl_dev_config *pcfg;
+	void (*irq_config)(const struct device *dev);
+	bool master_clk_sel;
 };
 
 struct stream {
 	int32_t state;
 	struct k_sem sem;
 
-	const char *dma_name;
+	const struct device *dev_dma;
 	uint32_t dma_channel;
 	struct dma_config dma_cfg;
 	uint8_t priority;
@@ -92,15 +89,13 @@ struct stream {
 	void *mem_block;
 	bool last_block;
 	bool master;
-	int (*stream_start)(struct stream *, struct device *dev);
-	void (*stream_disable)(struct stream *, struct device *dev);
+	int (*stream_start)(struct stream *, const struct device *dev);
+	void (*stream_disable)(struct stream *, const struct device *dev);
 	void (*queue_drop)(struct stream *);
 };
 
 /* Device run time data */
 struct i2s_stm32_data {
-	struct device *dev_dma_tx;
-	struct device *dev_dma_rx;
 	struct stream rx;
 	struct stream tx;
 };

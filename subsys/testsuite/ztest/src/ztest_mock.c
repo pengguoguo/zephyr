@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
 #include <zephyr/types.h>
+#include <zephyr/ztest.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -56,6 +56,19 @@ void vprintk(const char *fmt, va_list ap)
 {
 	vprintf(fmt, ap);
 }
+
+int snprintk(char *str, size_t size, const char *fmt, ...)
+{
+	va_list ap;
+	int ret;
+
+	va_start(ap, fmt);
+	ret = snprintf(str, size, fmt, ap);
+	va_end(ap);
+
+	return ret;
+}
+
 #else
 
 /*
@@ -67,25 +80,34 @@ void vprintk(const char *fmt, va_list ap)
 	unsigned long int(name)[((bits) + BITS_PER_UL - 1) / BITS_PER_UL]
 
 static inline int sys_bitfield_find_first_clear(const unsigned long *bitmap,
-						unsigned int bits)
+						const unsigned int bits)
 {
-	unsigned int words = (bits + BITS_PER_UL - 1) / BITS_PER_UL;
-	unsigned int cnt;
+	const size_t words = (bits + BITS_PER_UL - 1) / BITS_PER_UL;
+	size_t cnt;
 	unsigned int long neg_bitmap;
 
 	/*
-	 * By bitwise negating the bitmap, we are actually implemeting
+	 * By bitwise negating the bitmap, we are actually implementing
 	 * ffc (find first clear) using ffs (find first set).
 	 */
-	for (cnt = 0U; cnt < words; cnt++) {
+	for (cnt = 0; cnt < words; cnt++) {
 		neg_bitmap = ~bitmap[cnt];
-		if (neg_bitmap == 0) /* all full */
+		if (neg_bitmap == 0) {
+			/* All full. Try next word. */
 			continue;
-		else if (neg_bitmap == ~0UL) /* first bit */
+		} else if (neg_bitmap == ~0UL) {
+			/* First bit is free */
 			return cnt * BITS_PER_UL;
-		else
-			return cnt * BITS_PER_UL + __builtin_ffsl(neg_bitmap) -
-			       1;
+		} else {
+			const unsigned int bit = (cnt * BITS_PER_UL) +
+						 __builtin_ffsl(neg_bitmap) - 1;
+			/* Ensure first free bit is within total bits count */
+			if (bit < bits) {
+				return bit;
+			} else {
+				return -1;
+			}
+		}
 	}
 	return -1;
 }
@@ -97,8 +119,9 @@ static void free_parameter(struct parameter *param)
 {
 	unsigned int allocation_index = param - params;
 
-	if (param == NULL)
+	if (param == NULL) {
 		return;
+	}
 	__ASSERT(allocation_index < CONFIG_ZTEST_PARAMETER_COUNT,
 		 "param %p given to free is not in the static buffer %p:%u",
 		 param, params, CONFIG_ZTEST_PARAMETER_COUNT);
@@ -215,7 +238,12 @@ void z_ztest_check_expected_data(const char *fn, const char *name, void *data,
 	param = find_and_delete_value(&parameter_list, fn, name);
 	if (!param) {
 		PRINT("Failed to find parameter %s for %s\n", name, fn);
+		/* No return from this function but for coverity reasons
+		 * put a return after to avoid the warning of a null
+		 * dereference of param below.
+		 */
 		ztest_test_fail();
+		return;
 	}
 
 	expected = (void *)param->value;
@@ -225,14 +253,43 @@ void z_ztest_check_expected_data(const char *fn, const char *name, void *data,
 		PRINT("%s:%s received null pointer\n", fn, name);
 		ztest_test_fail();
 	} else if (data == NULL && expected != NULL) {
-		PRINT("%s:%s received data fhile expected null pointer\n", fn,
+		PRINT("%s:%s received data while expected null pointer\n", fn,
 		      name);
 		ztest_test_fail();
 	} else if (data != NULL) {
 		if (memcmp(data, expected, length) != 0) {
-			PRINT("%s:%s data provided dont match\n", fn, name);
+			PRINT("%s:%s data provided don't match\n", fn, name);
 			ztest_test_fail();
 		}
+	}
+}
+
+void z_ztest_return_data(const char *fn, const char *name, void *val)
+{
+	insert_value(&parameter_list, fn, name, (uintptr_t)val);
+}
+
+void z_ztest_copy_return_data(const char *fn, const char *name, void *data,
+			      uint32_t length)
+{
+	struct parameter *param;
+	void *return_data;
+
+	if (data == NULL) {
+		PRINT("%s:%s received null pointer\n", fn, name);
+		ztest_test_fail();
+		return;
+	}
+
+	param = find_and_delete_value(&parameter_list, fn, name);
+	if (!param) {
+		PRINT("Failed to find parameter %s for %s\n", name, fn);
+		memset(data, 0, length);
+		ztest_test_fail();
+	} else {
+		return_data = (void *)param->value;
+		free_parameter(param);
+		memcpy(data, return_data, length);
 	}
 }
 

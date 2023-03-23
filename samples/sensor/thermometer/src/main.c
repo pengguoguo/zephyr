@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
 
 void main(void)
 {
-	struct device *temp_dev;
+	const struct device *temp_dev;
 
 	printf("Thermometer Example! %s\n", CONFIG_ARCH);
 

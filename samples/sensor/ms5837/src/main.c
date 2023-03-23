@@ -4,21 +4,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <device.h>
-#include <drivers/sensor.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
 void main(void)
 {
 	struct sensor_value oversampling_rate = { 8192, 0 };
-	struct device *dev = device_get_binding(DT_LABEL(DT_INST(0, meas_ms5837)));
+	const struct device *const dev = DEVICE_DT_GET_ANY(meas_ms5837);
 
 	if (dev == NULL) {
 		LOG_ERR("Could not find MS5837 device, aborting test.");
+		return;
+	}
+	if (!device_is_ready(dev)) {
+		LOG_ERR("MS5837 device %s is not ready, aborting test.",
+			dev->name);
 		return;
 	}
 

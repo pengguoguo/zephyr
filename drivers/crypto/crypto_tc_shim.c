@@ -14,11 +14,11 @@
 #include <tinycrypt/constants.h>
 #include <tinycrypt/utils.h>
 #include <string.h>
-#include <crypto/cipher.h>
+#include <zephyr/crypto/crypto.h>
 #include "crypto_tc_shim_priv.h"
 
 #define LOG_LEVEL CONFIG_CRYPTO_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(tinycrypt);
 
 #define CRYPTO_MAX_SESSION CONFIG_CRYPTO_TINYCRYPT_SHIM_MAX_SESSION
@@ -190,9 +190,9 @@ static int get_unused_session(void)
 	return i;
 }
 
-static int tc_session_setup(struct device *dev, struct cipher_ctx *ctx,
-		     enum cipher_algo algo, enum cipher_mode mode,
-		     enum cipher_op op_type)
+static int tc_session_setup(const struct device *dev, struct cipher_ctx *ctx,
+			    enum cipher_algo algo, enum cipher_mode mode,
+			    enum cipher_op op_type)
 {
 	struct tc_shim_drv_state *data;
 	int idx;
@@ -286,12 +286,12 @@ static int tc_session_setup(struct device *dev, struct cipher_ctx *ctx,
 	return 0;
 }
 
-static int tc_query_caps(struct device *dev)
+static int tc_query_caps(const struct device *dev)
 {
 	return (CAP_RAW_KEY | CAP_SEPARATE_IO_BUFS | CAP_SYNC_OPS);
 }
 
-static int tc_session_free(struct device *dev, struct cipher_ctx *sessn)
+static int tc_session_free(const struct device *dev, struct cipher_ctx *sessn)
 {
 	struct tc_shim_drv_state *data =  sessn->drv_sessn_state;
 
@@ -302,7 +302,7 @@ static int tc_session_free(struct device *dev, struct cipher_ctx *sessn)
 	return 0;
 }
 
-static int tc_shim_init(struct device *dev)
+static int tc_shim_init(const struct device *dev)
 {
 	int i;
 
@@ -315,13 +315,13 @@ static int tc_shim_init(struct device *dev)
 }
 
 static struct crypto_driver_api crypto_enc_funcs = {
-	.begin_session = tc_session_setup,
-	.free_session = tc_session_free,
-	.crypto_async_callback_set = NULL,
+	.cipher_begin_session = tc_session_setup,
+	.cipher_free_session = tc_session_free,
+	.cipher_async_callback_set = NULL,
 	.query_hw_caps = tc_query_caps,
 };
 
-DEVICE_AND_API_INIT(crypto_tinycrypt, CONFIG_CRYPTO_TINYCRYPT_SHIM_DRV_NAME,
-		    &tc_shim_init, NULL, NULL,
+DEVICE_DEFINE(crypto_tinycrypt, CONFIG_CRYPTO_TINYCRYPT_SHIM_DRV_NAME,
+		    &tc_shim_init, NULL, NULL, NULL,
 		    POST_KERNEL, CONFIG_CRYPTO_INIT_PRIORITY,
 		    (void *)&crypto_enc_funcs);

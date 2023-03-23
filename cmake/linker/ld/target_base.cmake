@@ -11,7 +11,11 @@ macro(toolchain_ld_base)
   # TOOLCHAIN_LD_FLAGS comes from compiler/gcc/target.cmake
   # LINKERFLAGPREFIX comes from linker/ld/target.cmake
   zephyr_ld_options(
+    -no-pie
     ${TOOLCHAIN_LD_FLAGS}
+  )
+
+  zephyr_ld_options(
     ${LINKERFLAGPREFIX},--gc-sections
     ${LINKERFLAGPREFIX},--build-id=none
   )
@@ -23,5 +27,11 @@ macro(toolchain_ld_base)
     ${LINKERFLAGPREFIX},--sort-common=descending
     ${LINKERFLAGPREFIX},--sort-section=alignment
   )
+
+  if (NOT CONFIG_LINKER_USE_RELAX)
+    zephyr_ld_options(
+      ${LINKERFLAGPREFIX},--no-relax
+    )
+  endif()
 
 endmacro()

@@ -7,6 +7,7 @@
 /dts-v1/;
 
 #include <nxp/nxp_rt1020.dtsi>
+#include "mimxrt1020_evk-pinctrl.dtsi"
 
 / {
 	model = "NXP MIMXRT1020-EVK board";
@@ -15,9 +16,16 @@
 	aliases {
 		led0 = &green_led;
 		sw0 = &user_button;
+		sdhc0 = &usdhc1;
 	};
 
 	chosen {
+		zephyr,flash-controller = &is25wp064;
+		zephyr,flash = &is25wp064;
+		zephyr,code-partition = &slot0_partition;
+		zephyr,sram = &sdram0;
+		zephyr,itcm = &itcm;
+		zephyr,dtcm = &dtcm;
 		zephyr,console = &lpuart1;
 		zephyr,shell-uart = &lpuart1;
 	};
@@ -25,8 +33,7 @@
 	sdram0: memory@80000000 {
 		/* ISSI IS42S16160J-6TLI */
 		device_type = "memory";
-		compatible = "mmio-sram";
-		reg = <0x80000000 0x2000000>;
+		reg = <0x80000000 DT_SIZE_M(32)>;
 	};
 
 	leds {
@@ -41,7 +48,7 @@
 		compatible = "gpio-keys";
 		user_button: button-1 {
 			label = "User SW4";
-			gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio5 0 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 		};
 	};
 
@@ -75,41 +82,139 @@
 	};
 };
 
-arduino_serial: &lpuart2 {};
+arduino_serial: &lpuart2 {
+	pinctrl-0 = <&pinmux_lpuart2>;
+	pinctrl-1 = <&pinmux_lpuart2_sleep>;
+	pinctrl-names = "default", "sleep";
+};
 
 &flexspi {
-	reg = <0x402a8000 0x4000>, <0x60000000 0x800000>;
+	status = "okay";
+	reg = <0x402a8000 0x4000>, <0x60000000 DT_SIZE_M(8)>;
 	is25wp064: is25wp064@0 {
-		compatible = "issi,is25wp064", "jedec,spi-nor";
+		compatible = "nxp,imx-flexspi-nor";
 		size = <67108864>;
-		label = "IS25WP064";
 		reg = <0>;
 		spi-max-frequency = <133000000>;
 		status = "okay";
 		jedec-id = [9d 70 17];
+		erase-block-size = <4096>;
+		write-block-size = <1>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			boot_partition: partition@0 {
+				label = "mcuboot";
+				reg = <0x00000000 DT_SIZE_K(64)>;
+			};
+			slot0_partition: partition@10000 {
+				label = "image-0";
+				reg = <0x00010000 DT_SIZE_M(3)>;
+			};
+			slot1_partition: partition@310000 {
+				label = "image-1";
+				reg = <0x00310000 DT_SIZE_M(3)>;
+			};
+			scratch_partition: partition@610000 {
+				label = "image-scratch";
+				reg = <0x00610000 DT_SIZE_K(128)>;
+			};
+			storage_partition: partition@630000 {
+				label = "storage";
+				reg = <0x00630000 DT_SIZE_K(1856)>;
+			};
+		};
 	};
 };
 
 &lpi2c1 {
 	status = "okay";
+	pinctrl-0 = <&pinmux_lpi2c1>;
+	pinctrl-names = "default";
 };
 
 &lpi2c4 {
 	status = "okay";
+	pinctrl-0 = <&pinmux_lpi2c4>;
+	pinctrl-names = "default";
 };
 
 &lpuart1 {
 	status = "okay";
 	current-speed = <115200>;
+	pinctrl-0 = <&pinmux_lpuart1>;
+	pinctrl-1 = <&pinmux_lpuart1_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+&lpspi1 {
+	status = "okay";
+	/* DMA channels 0 and 1, muxed to LPSPI1 RX and TX */
+	dmas = <&edma0 0 13>, <&edma0 1 14>;
+	dma-names = "rx", "tx";
+	pinctrl-0 = <&pinmux_lpspi1>;
+	pinctrl-names = "default";
 };
 
 &enet {
 	status = "okay";
+	pinctrl-0 = <&pinmux_enet>;
+	pinctrl-names = "default";
+	int-gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+	reset-gpios = <&gpio1 22 GPIO_ACTIVE_HIGH>;
 	ptp {
+		status = "okay";
+		pinctrl-0 = <&pinmux_ptp>;
+		pinctrl-names = "default";
+	};
+};
+
+zephyr_udc0: &usb1 {
+	status = "okay";
+};
+
+&usdhc1 {
+	status = "okay";
+	no-1-8-v;
+	pinctrl-0 = <&pinmux_usdhc1>;
+	pinctrl-1 = <&pinmux_usdhc1_slow>;
+	pinctrl-2 = <&pinmux_usdhc1_med>;
+	pinctrl-3 = <&pinmux_usdhc1_fast>;
+	pinctrl-names = "default", "slow", "med", "fast";
+	cd-gpios = <&gpio3 19 GPIO_ACTIVE_LOW>;
+	pwr-gpios = <&gpio3 24 GPIO_ACTIVE_HIGH>;
+	sdmmc {
+		compatible = "zephyr,sdmmc-disk";
 		status = "okay";
 	};
 };
 
-&usb1 {
+&adc1 {
+	status = "okay";
+	pinctrl-0 = <&pinmux_adc1>;
+	pinctrl-names = "default";
+};
+
+&sai3 {
+	pinctrl-0 = <&pinmux_sai3>;
+	pinctrl-names = "default";
+};
+
+&edma0 {
+	status = "okay";
+};
+
+/* GPT and Systick are enabled. If power management is enabled, the GPT
+ * timer will be used instead of systick, as allows the core clock to
+ * be gated.
+ */
+&gpt_hw_timer {
+	status = "okay";
+};
+
+&systick {
 	status = "okay";
 };

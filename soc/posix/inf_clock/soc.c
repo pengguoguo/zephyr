@@ -27,7 +27,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <arch/posix/posix_soc_if.h>
+#include <zephyr/arch/posix/posix_soc_if.h>
 #include "posix_soc.h"
 #include "posix_board_if.h"
 #include "posix_core.h"
@@ -73,7 +73,7 @@ int posix_is_cpu_running(void)
  * raise a new interrupt; and how the HW models awake the CPU, and wait for it
  * to complete and go to idle.
  */
-static void posix_change_cpu_state_and_wait(bool halted)
+void posix_change_cpu_state_and_wait(bool halted)
 {
 	PC_SAFE_CALL(pthread_mutex_lock(&mtx_cpu));
 
@@ -109,7 +109,7 @@ static void posix_change_cpu_state_and_wait(bool halted)
 void posix_interrupt_raised(void)
 {
 	/* We change the CPU to running state (we awake it), and block this
-	 * thread until the CPU is hateld again
+	 * thread until the CPU is halted again
 	 */
 	posix_change_cpu_state_and_wait(false);
 
@@ -149,7 +149,7 @@ void posix_halt_cpu(void)
 	posix_irq_handler();
 
 	/*
-	 * And we go back to whatever Zephyr thread calleed us.
+	 * And we go back to whatever Zephyr thread called us.
 	 */
 }
 

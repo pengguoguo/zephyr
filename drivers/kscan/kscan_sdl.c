@@ -4,22 +4,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <drivers/kscan.h>
-#include <logging/log.h>
+#define DT_DRV_COMPAT zephyr_sdl_kscan
+
+#include <zephyr/drivers/kscan.h>
+#include <zephyr/logging/log.h>
 
 #include <SDL.h>
 
 LOG_MODULE_REGISTER(kscan, CONFIG_KSCAN_LOG_LEVEL);
 
 struct sdl_data {
+	const struct device *dev;
 	kscan_callback_t callback;
 	bool enabled;
 };
 
 static int sdl_filter(void *arg, SDL_Event *event)
 {
-	struct device *dev = arg;
-	struct sdl_data *data = dev->driver_data;
+	struct sdl_data *data = arg;
 	uint32_t row = 0;
 	uint32_t column = 0;
 	bool pressed = 0;
@@ -47,14 +49,14 @@ static int sdl_filter(void *arg, SDL_Event *event)
 	}
 
 	if (data->enabled && data->callback) {
-		data->callback(dev, row, column, pressed);
+		data->callback(data->dev, row, column, pressed);
 	}
 	return 1;
 }
 
-static int sdl_configure(struct device *dev, kscan_callback_t callback)
+static int sdl_configure(const struct device *dev, kscan_callback_t callback)
 {
-	struct sdl_data *data = dev->driver_data;
+	struct sdl_data *data = dev->data;
 
 	if (!callback) {
 		LOG_ERR("Callback is null");
@@ -67,28 +69,32 @@ static int sdl_configure(struct device *dev, kscan_callback_t callback)
 	return 0;
 }
 
-static int sdl_enable_callback(struct device *dev)
+static int sdl_enable_callback(const struct device *dev)
 {
-	struct sdl_data *data = dev->driver_data;
+	struct sdl_data *data = dev->data;
 
 	LOG_DBG("%s: enable cb", dev->name);
 	data->enabled = true;
 	return 0;
 }
 
-static int sdl_disable_callback(struct device *dev)
+static int sdl_disable_callback(const struct device *dev)
 {
-	struct sdl_data *data = dev->driver_data;
+	struct sdl_data *data = dev->data;
 
 	LOG_DBG("%s: disable cb", dev->name);
 	data->enabled = false;
 	return 0;
 }
 
-static int sdl_init(struct device *dev)
+static int sdl_init(const struct device *dev)
 {
+	struct sdl_data *data = dev->data;
+
+	data->dev = dev;
+
 	LOG_INF("Init '%s' device", dev->name);
-	SDL_AddEventWatch(sdl_filter, dev);
+	SDL_AddEventWatch(sdl_filter, data);
 
 	return 0;
 }
@@ -102,7 +108,7 @@ static const struct kscan_driver_api sdl_driver_api = {
 
 static struct sdl_data sdl_data;
 
-DEVICE_AND_API_INIT(sdl, CONFIG_SDL_POINTER_KSCAN_DEV_NAME, sdl_init,
-		    &sdl_data, NULL,
+DEVICE_DT_INST_DEFINE(0, sdl_init,
+		    NULL, &sdl_data, NULL,
 		    POST_KERNEL, CONFIG_KSCAN_INIT_PRIORITY,
 		    &sdl_driver_api);

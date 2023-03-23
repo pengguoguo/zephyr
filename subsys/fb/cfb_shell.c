@@ -12,17 +12,15 @@
  */
 
 #include <stdlib.h>
-#include <shell/shell.h>
-#include <display/cfb.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/display/cfb.h>
 
 #define HELP_NONE "[none]"
 #define HELP_INIT "call \"cfb init\" first"
 #define HELP_PRINT "<col: pos> <row: pos> \"<text>\""
 
-#define DISPLAY_DRIVER	CONFIG_CHARACTER_FRAMEBUFFER_SHELL_DRIVER_NAME
-
-
-static struct device *dev;
+static const struct device *const dev =
+	DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
 static const char * const param_name[] = {
 	"height", "width", "ppt", "rows", "cols"};
 
@@ -237,6 +235,33 @@ static int cmd_set_font(const struct shell *shell, size_t argc, char *argv[])
 	return err;
 }
 
+static int cmd_set_kerning(const struct shell *sh, size_t argc, char *argv[])
+{
+	int err;
+	char *ep = NULL;
+	long kerning;
+
+	if (!dev) {
+		shell_error(sh, HELP_INIT);
+		return -ENODEV;
+	}
+
+	errno = 0;
+	kerning = strtol(argv[1], &ep, 10);
+	if (errno || ep == argv[1]) {
+		shell_error(sh, HELP_INIT);
+		return -EINVAL;
+	}
+
+	err = cfb_set_kerning(dev, kerning);
+	if (err) {
+		shell_error(sh, "Failed to set kerning err=%d", err);
+		return err;
+	}
+
+	return err;
+}
+
 static int cmd_invert(const struct shell *shell, size_t argc, char *argv[])
 {
 	int err;
@@ -299,7 +324,7 @@ static int cmd_get_device(const struct shell *shell, size_t argc, char *argv[])
 		return -ENODEV;
 	}
 
-	shell_print(shell, "Framebuffer Device: %s", DISPLAY_DRIVER);
+	shell_print(shell, "Framebuffer Device: %s", dev->name);
 
 	return err;
 }
@@ -413,11 +438,24 @@ static int cmd_init(const struct shell *shell, size_t argc, char *argv[])
 {
 	int err;
 
-	dev = device_get_binding(DISPLAY_DRIVER);
-
-	if (dev == NULL) {
-		shell_error(shell, "Device not found");
+	if (!device_is_ready(dev)) {
+		shell_error(shell, "Display device not ready");
 		return -ENODEV;
+	}
+
+	err = display_set_pixel_format(dev, PIXEL_FORMAT_MONO10);
+	if (err) {
+		err = display_set_pixel_format(dev, PIXEL_FORMAT_MONO01);
+		if (err) {
+			shell_error(shell, "Failed to set required pixel format: %d", err);
+			return err;
+		}
+	}
+
+	err = display_blanking_off(dev);
+	if (err) {
+		shell_error(shell, "Failed to turn off display blanking: %d", err);
+		return err;
 	}
 
 	err = cfb_framebuffer_init(dev);
@@ -426,8 +464,7 @@ static int cmd_init(const struct shell *shell, size_t argc, char *argv[])
 		return err;
 	}
 
-	shell_print(shell, "Framebuffer initialized: %s", DISPLAY_DRIVER);
-
+	shell_print(shell, "Framebuffer initialized: %s", dev->name);
 	cmd_clear(shell, argc, argv);
 
 	return err;
@@ -458,6 +495,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(cfb_cmds,
 		  "<all, height, width, ppt, rows, cols>", NULL),
 	SHELL_CMD_ARG(get_fonts, NULL, HELP_NONE, cmd_get_fonts, 1, 0),
 	SHELL_CMD_ARG(set_font, NULL, "<idx>", cmd_set_font, 2, 0),
+	SHELL_CMD_ARG(set_kerning, NULL, "<kerning>", cmd_set_kerning, 2, 0),
 	SHELL_CMD_ARG(invert, NULL, HELP_NONE, cmd_invert, 1, 0),
 	SHELL_CMD_ARG(print, NULL, HELP_PRINT, cmd_print, 4, 0),
 	SHELL_CMD(scroll, &sub_cmd_scroll, "scroll a text in vertical or "

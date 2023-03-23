@@ -8,22 +8,14 @@
 #ifndef ZEPHYR_DRIVERS_I2C_I2C_DW_H_
 #define ZEPHYR_DRIVERS_I2C_I2C_DW_H_
 
-#include <drivers/i2c.h>
+#include <zephyr/drivers/i2c.h>
 #include <stdbool.h>
 
 #define DT_DRV_COMPAT snps_designware_i2c
 
-#if DT_INST_PROP(0, pcie) || \
-	DT_INST_PROP(1, pcie) || \
-	DT_INST_PROP(2, pcie) || \
-	DT_INST_PROP(3, pcie) || \
-	DT_INST_PROP(4, pcie) || \
-	DT_INST_PROP(5, pcie) || \
-	DT_INST_PROP(6, pcie) || \
-	DT_INST_PROP(7, pcie)
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
 BUILD_ASSERT(IS_ENABLED(CONFIG_PCIE), "DW I2C in DT needs CONFIG_PCIE");
-#define I2C_DW_PCIE_ENABLED
-#include <drivers/pcie/pcie.h>
+#include <zephyr/drivers/pcie/pcie.h>
 #endif
 
 #ifdef __cplusplus
@@ -33,7 +25,7 @@ extern "C" {
 #define I2C_DW_MAGIC_KEY			0x44570140
 
 
-typedef void (*i2c_isr_cb_t)(struct device *port);
+typedef void (*i2c_isr_cb_t)(const struct device *port);
 
 
 #define IC_ACTIVITY                     (1 << 0)
@@ -91,24 +83,26 @@ typedef void (*i2c_isr_cb_t)(struct device *port);
  */
 #define I2C_DW_TX_WATERMARK		2
 #define I2C_DW_RX_WATERMARK		7
-#define I2C_DW_FIFO_DEPTH		16
 
 
 struct i2c_dw_rom_config {
+	DEVICE_MMIO_ROM;
 	i2c_isr_cb_t	config_func;
 	uint32_t		bitrate;
-#ifdef I2C_DW_PCIE_ENABLED
-	bool		pcie;
-	pcie_bdf_t	pcie_bdf;
-	pcie_id_t	pcie_id;
+
+#if defined(CONFIG_PINCTRL)
+	const struct pinctrl_dev_config *pcfg;
+#endif
+
+#if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
+	struct pcie_dev *pcie;
 #endif /* I2C_DW_PCIE_ENABLED */
 };
 
 struct i2c_dw_dev_config {
-	struct i2c_dw_registers *regs;
+	DEVICE_MMIO_RAM;
 	struct k_sem		device_sync_sem;
 	uint32_t app_config;
-
 
 	uint8_t			*xfr_buf;
 	uint32_t		xfr_len;
@@ -121,7 +115,44 @@ struct i2c_dw_dev_config {
 	uint8_t			request_bytes;
 	uint8_t			xfr_flags;
 	bool			support_hs_mode;
+
+	struct i2c_target_config *slave_cfg;
 };
+
+#define Z_REG_READ(__sz) sys_read##__sz
+#define Z_REG_WRITE(__sz) sys_write##__sz
+#define Z_REG_SET_BIT sys_set_bit
+#define Z_REG_CLEAR_BIT sys_clear_bit
+#define Z_REG_TEST_BIT sys_test_bit
+
+#define DEFINE_MM_REG_READ(__reg, __off, __sz)				\
+	static inline uint32_t read_##__reg(uint32_t addr)			\
+	{								\
+		return Z_REG_READ(__sz)(addr + __off);			\
+	}
+#define DEFINE_MM_REG_WRITE(__reg, __off, __sz)				\
+	static inline void write_##__reg(uint32_t data, uint32_t addr)	\
+	{								\
+		Z_REG_WRITE(__sz)(data, addr + __off);			\
+	}
+
+#define DEFINE_SET_BIT_OP(__reg_bit, __reg_off, __bit)			\
+	static inline void set_bit_##__reg_bit(uint32_t addr)		\
+	{								\
+		Z_REG_SET_BIT(addr + __reg_off, __bit);			\
+	}
+
+#define DEFINE_CLEAR_BIT_OP(__reg_bit, __reg_off, __bit)		\
+	static inline void clear_bit_##__reg_bit(uint32_t addr)		\
+	{								\
+		Z_REG_CLEAR_BIT(addr + __reg_off, __bit);		\
+	}
+
+#define DEFINE_TEST_BIT_OP(__reg_bit, __reg_off, __bit)			\
+	static inline int test_bit_##__reg_bit(uint32_t addr)		\
+	{								\
+		return Z_REG_TEST_BIT(addr + __reg_off, __bit);		\
+	}
 
 #ifdef __cplusplus
 }

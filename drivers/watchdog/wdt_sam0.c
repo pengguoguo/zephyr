@@ -8,10 +8,11 @@
 #define DT_DRV_COMPAT atmel_sam0_watchdog
 
 #include <soc.h>
-#include <drivers/watchdog.h>
+#include <zephyr/drivers/watchdog.h>
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(wdt_sam0);
 
 #define WDT_REGS ((Wdt *)DT_INST_REG_ADDR(0))
@@ -26,24 +27,25 @@ LOG_MODULE_REGISTER(wdt_sam0);
 #define WDT_CONFIG_PER_16K_Val WDT_CONFIG_PER_CYC16384_Val
 #endif
 
+/* syncbusy check is different for SAM D/E */
+#ifdef WDT_STATUS_SYNCBUSY
+#define WDT_SYNCBUSY WDT_REGS->STATUS.bit.SYNCBUSY
+#else
+#define WDT_SYNCBUSY WDT_REGS->SYNCBUSY.reg
+#endif
+
 struct wdt_sam0_dev_data {
 	wdt_callback_t cb;
 	bool timeout_valid;
 };
 
-DEVICE_DECLARE(wdt_sam0);
-
 static struct wdt_sam0_dev_data wdt_sam0_data = { 0 };
 
 static void wdt_sam0_wait_synchronization(void)
 {
-#ifdef WDT_STATUS_SYNCBUSY
-	while (WDT_REGS->STATUS.bit.SYNCBUSY) {
+	while (WDT_SYNCBUSY) {
+		/* wait for SYNCBUSY */
 	}
-#else
-	while (WDT_REGS->SYNCBUSY.reg) {
-	}
-#endif
 }
 
 static inline void wdt_sam0_set_enable(bool on)
@@ -82,9 +84,9 @@ static uint32_t wdt_sam0_timeout_to_wdt_period(uint32_t timeout_ms)
 	return find_msb_set(next_pow2 >> 4);
 }
 
-static void wdt_sam0_isr(struct device *dev)
+static void wdt_sam0_isr(const struct device *dev)
 {
-	struct wdt_sam0_dev_data *data = dev->driver_data;
+	struct wdt_sam0_dev_data *data = dev->data;
 
 	WDT_REGS->INTFLAG.reg = WDT_INTFLAG_EW;
 
@@ -93,9 +95,9 @@ static void wdt_sam0_isr(struct device *dev)
 	}
 }
 
-static int wdt_sam0_setup(struct device *dev, uint8_t options)
+static int wdt_sam0_setup(const struct device *dev, uint8_t options)
 {
-	struct wdt_sam0_dev_data *data = dev->driver_data;
+	struct wdt_sam0_dev_data *data = dev->data;
 
 	if (wdt_sam0_is_enabled()) {
 		LOG_ERR("Watchdog already setup");
@@ -124,7 +126,7 @@ static int wdt_sam0_setup(struct device *dev, uint8_t options)
 	return 0;
 }
 
-static int wdt_sam0_disable(struct device *dev)
+static int wdt_sam0_disable(const struct device *dev)
 {
 	if (!wdt_sam0_is_enabled()) {
 		return -EFAULT;
@@ -136,10 +138,10 @@ static int wdt_sam0_disable(struct device *dev)
 	return 0;
 }
 
-static int wdt_sam0_install_timeout(struct device *dev,
-				const struct wdt_timeout_cfg *cfg)
+static int wdt_sam0_install_timeout(const struct device *dev,
+				    const struct wdt_timeout_cfg *cfg)
 {
-	struct wdt_sam0_dev_data *data = dev->driver_data;
+	struct wdt_sam0_dev_data *data = dev->data;
 	uint32_t window, per;
 
 	/* CONFIG is enable protected, error out if already enabled */
@@ -222,13 +224,17 @@ timeout_invalid:
 	return -EINVAL;
 }
 
-static int wdt_sam0_feed(struct device *dev, int channel_id)
+static int wdt_sam0_feed(const struct device *dev, int channel_id)
 {
-	struct wdt_sam0_dev_data *data = dev->driver_data;
+	struct wdt_sam0_dev_data *data = dev->data;
 
 	if (!data->timeout_valid) {
 		LOG_ERR("No valid timeout installed");
 		return -EINVAL;
+	}
+
+	if (WDT_SYNCBUSY) {
+		return -EAGAIN;
 	}
 
 	WDT_REGS->CLEAR.reg = WDT_CLEAR_CLEAR_KEY_Val;
@@ -243,7 +249,7 @@ static const struct wdt_driver_api wdt_sam0_api = {
 	.feed = wdt_sam0_feed,
 };
 
-static int wdt_sam0_init(struct device *dev)
+static int wdt_sam0_init(const struct device *dev)
 {
 #ifdef CONFIG_WDT_DISABLE_AT_BOOT
 	/* Ignore any errors */
@@ -265,7 +271,7 @@ static int wdt_sam0_init(struct device *dev)
 
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority), wdt_sam0_isr,
-		    DEVICE_GET(wdt_sam0), 0);
+		    DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
 
 	return 0;
@@ -273,6 +279,6 @@ static int wdt_sam0_init(struct device *dev)
 
 static struct wdt_sam0_dev_data wdt_sam0_data;
 
-DEVICE_AND_API_INIT(wdt_sam0, DT_INST_LABEL(0), wdt_sam0_init,
+DEVICE_DT_INST_DEFINE(0, wdt_sam0_init, NULL,
 		    &wdt_sam0_data, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &wdt_sam0_api);

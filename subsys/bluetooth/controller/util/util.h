@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stddef.h>
-
 #ifndef DOUBLE_BUFFER_SIZE
 #define DOUBLE_BUFFER_SIZE 2
 #endif
@@ -15,5 +13,7 @@
 #define TRIPLE_BUFFER_SIZE 3
 #endif
 
-uint8_t util_ones_count_get(uint8_t *octets, uint8_t octets_len);
+uint8_t util_ones_count_get(const uint8_t *octets, uint8_t octets_len);
 int util_aa_le32(uint8_t *dst);
+int util_saa_le32(uint8_t *dst, uint8_t handle);
+void util_bis_aa_le32(uint8_t bis, uint8_t *saa, uint8_t *dst);

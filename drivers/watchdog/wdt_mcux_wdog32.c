@@ -9,12 +9,13 @@
 
 #define DT_DRV_COMPAT nxp_kinetis_wdog32
 
-#include <drivers/watchdog.h>
-#include <drivers/clock_control.h>
+#include <zephyr/drivers/watchdog.h>
+#include <zephyr/drivers/clock_control.h>
 #include <fsl_wdog32.h>
 
 #define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(wdt_mcux_wdog32);
 
 #define MIN_TIMEOUT 1
@@ -24,12 +25,12 @@ struct mcux_wdog32_config {
 #if DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency)
 	uint32_t clock_frequency;
 #else /* !DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency) */
-	char *clock_name;
+	const struct device *clock_dev;
 	clock_control_subsys_t clock_subsys;
 #endif /* !DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency) */
 	wdog32_clock_source_t clk_source;
 	wdog32_clock_prescaler_t clk_divider;
-	void (*irq_config_func)(struct device *dev);
+	void (*irq_config_func)(const struct device *dev);
 };
 
 struct mcux_wdog32_data {
@@ -38,10 +39,10 @@ struct mcux_wdog32_data {
 	bool timeout_valid;
 };
 
-static int mcux_wdog32_setup(struct device *dev, uint8_t options)
+static int mcux_wdog32_setup(const struct device *dev, uint8_t options)
 {
-	const struct mcux_wdog32_config *config = dev->config_info;
-	struct mcux_wdog32_data *data = dev->driver_data;
+	const struct mcux_wdog32_config *config = dev->config;
+	struct mcux_wdog32_data *data = dev->data;
 	WDOG_Type *base = config->base;
 
 	if (!data->timeout_valid) {
@@ -61,10 +62,10 @@ static int mcux_wdog32_setup(struct device *dev, uint8_t options)
 	return 0;
 }
 
-static int mcux_wdog32_disable(struct device *dev)
+static int mcux_wdog32_disable(const struct device *dev)
 {
-	const struct mcux_wdog32_config *config = dev->config_info;
-	struct mcux_wdog32_data *data = dev->driver_data;
+	const struct mcux_wdog32_config *config = dev->config;
+	struct mcux_wdog32_data *data = dev->data;
 	WDOG_Type *base = config->base;
 
 	WDOG32_Deinit(base);
@@ -77,11 +78,11 @@ static int mcux_wdog32_disable(struct device *dev)
 #define MSEC_TO_WDOG32_TICKS(clock_freq, divider, msec) \
 	((uint32_t)(clock_freq * msec / 1000U / divider))
 
-static int mcux_wdog32_install_timeout(struct device *dev,
+static int mcux_wdog32_install_timeout(const struct device *dev,
 				       const struct wdt_timeout_cfg *cfg)
 {
-	const struct mcux_wdog32_config *config = dev->config_info;
-	struct mcux_wdog32_data *data = dev->driver_data;
+	const struct mcux_wdog32_config *config = dev->config;
+	struct mcux_wdog32_data *data = dev->data;
 	uint32_t clock_freq;
 	int div;
 
@@ -93,12 +94,12 @@ static int mcux_wdog32_install_timeout(struct device *dev,
 #if DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency)
 	clock_freq = config->clock_frequency;
 #else /* !DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency) */
-	struct device *clock_dev = device_get_binding(config->clock_name);
-	if (clock_dev == NULL) {
-		return -EINVAL;
+	if (!device_is_ready(config->clock_dev)) {
+		LOG_ERR("clock control device not ready");
+		return -ENODEV;
 	}
 
-	if (clock_control_get_rate(clock_dev, config->clock_subsys,
+	if (clock_control_get_rate(config->clock_dev, config->clock_subsys,
 				   &clock_freq)) {
 		return -EINVAL;
 	}
@@ -137,9 +138,9 @@ static int mcux_wdog32_install_timeout(struct device *dev,
 	return 0;
 }
 
-static int mcux_wdog32_feed(struct device *dev, int channel_id)
+static int mcux_wdog32_feed(const struct device *dev, int channel_id)
 {
-	const struct mcux_wdog32_config *config = dev->config_info;
+	const struct mcux_wdog32_config *config = dev->config;
 	WDOG_Type *base = config->base;
 
 	if (channel_id != 0) {
@@ -153,11 +154,10 @@ static int mcux_wdog32_feed(struct device *dev, int channel_id)
 	return 0;
 }
 
-static void mcux_wdog32_isr(void *arg)
+static void mcux_wdog32_isr(const struct device *dev)
 {
-	struct device *dev = (struct device *)arg;
-	const struct mcux_wdog32_config *config = dev->config_info;
-	struct mcux_wdog32_data *data = dev->driver_data;
+	const struct mcux_wdog32_config *config = dev->config;
+	struct mcux_wdog32_data *data = dev->data;
 	WDOG_Type *base = config->base;
 	uint32_t flags;
 
@@ -169,9 +169,9 @@ static void mcux_wdog32_isr(void *arg)
 	}
 }
 
-static int mcux_wdog32_init(struct device *dev)
+static int mcux_wdog32_init(const struct device *dev)
 {
-	const struct mcux_wdog32_config *config = dev->config_info;
+	const struct mcux_wdog32_config *config = dev->config;
 
 	config->irq_config_func(dev);
 
@@ -188,14 +188,14 @@ static const struct wdt_driver_api mcux_wdog32_api = {
 #define TO_WDOG32_CLK_SRC(val) _DO_CONCAT(kWDOG32_ClockSource, val)
 #define TO_WDOG32_CLK_DIV(val) _DO_CONCAT(kWDOG32_ClockPrescalerDivide, val)
 
-static void mcux_wdog32_config_func_0(struct device *dev);
+static void mcux_wdog32_config_func_0(const struct device *dev);
 
 static const struct mcux_wdog32_config mcux_wdog32_config_0 = {
 	.base = (WDOG_Type *) DT_INST_REG_ADDR(0),
 #if DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency)
 	.clock_frequency = DT_INST_PROP_BY_PHANDLE(0, clocks, clock_frequency),
 #else /* !DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency) */
-	.clock_name = DT_INST_CLOCKS_LABEL(0),
+	.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(0)),
 	.clock_subsys = (clock_control_subsys_t)
 		DT_INST_CLOCKS_CELL(0, name),
 #endif /* DT_NODE_HAS_PROP(DT_INST_PHANDLE(0, clocks), clock_frequency) */
@@ -208,17 +208,17 @@ static const struct mcux_wdog32_config mcux_wdog32_config_0 = {
 
 static struct mcux_wdog32_data mcux_wdog32_data_0;
 
-DEVICE_AND_API_INIT(mcux_wdog32_0, DT_INST_LABEL(0),
-		    &mcux_wdog32_init, &mcux_wdog32_data_0,
+DEVICE_DT_INST_DEFINE(0, &mcux_wdog32_init,
+		    NULL, &mcux_wdog32_data_0,
 		    &mcux_wdog32_config_0, POST_KERNEL,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &mcux_wdog32_api);
 
-static void mcux_wdog32_config_func_0(struct device *dev)
+static void mcux_wdog32_config_func_0(const struct device *dev)
 {
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority),
-		    mcux_wdog32_isr, DEVICE_GET(mcux_wdog32_0), 0);
+		    mcux_wdog32_isr, DEVICE_DT_INST_GET(0), 0);
 
 	irq_enable(DT_INST_IRQN(0));
 }

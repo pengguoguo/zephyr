@@ -11,13 +11,14 @@
  */
 
 #include <errno.h>
-#include <kernel.h>
-#include <device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 #include <soc.h>
-#include <drivers/gpio.h>
-#include <sys/util.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/irq.h>
 
-#include "gpio_utils.h"
+#include <zephyr/drivers/gpio/gpio_utils.h>
 
 typedef void (*sifive_cfg_func_t)(void);
 
@@ -60,33 +61,17 @@ struct gpio_sifive_data {
 
 /* Helper Macros for GPIO */
 #define DEV_GPIO_CFG(dev)						\
-	((const struct gpio_sifive_config * const)(dev)->config_info)
+	((const struct gpio_sifive_config * const)(dev)->config)
 #define DEV_GPIO(dev)							\
 	((volatile struct gpio_sifive_t *)(DEV_GPIO_CFG(dev))->gpio_base_addr)
 #define DEV_GPIO_DATA(dev)				\
-	((struct gpio_sifive_data *)(dev)->driver_data)
+	((struct gpio_sifive_data *)(dev)->data)
 
-/* _irq_level and _level2_irq are copied from
- * soc/riscv/riscv-privileged/common/soc_common_irq.c
- * Ideally this kind of thing should be made available in include/irq.h or
- * somewhere similar since the multi-level IRQ format is generic to
-  Zephyr, and then both this copy and the one in riscv-privileged
- * be removed for the shared implementation
- */
-static inline unsigned int _irq_level(unsigned int irq)
-{
-	return ((irq >> 8) && 0xff) == 0U ? 1 : 2;
-}
-
-static inline unsigned int _level2_irq(unsigned int irq)
-{
-	return (irq >> 8) - 1;
-}
 
 /* Given gpio_irq_base and the pin number, return the IRQ number for the pin */
 static inline unsigned int gpio_sifive_pin_irq(unsigned int base_irq, int pin)
 {
-	unsigned int level = _irq_level(base_irq);
+	unsigned int level = irq_get_level(base_irq);
 	unsigned int pin_irq = 0;
 
 	if (level == 1) {
@@ -103,18 +88,17 @@ static inline unsigned int gpio_sifive_pin_irq(unsigned int base_irq, int pin)
  */
 static inline int gpio_sifive_plic_to_pin(unsigned int base_irq, int plic_irq)
 {
-	unsigned int level = _irq_level(base_irq);
+	unsigned int level = irq_get_level(base_irq);
 
 	if (level == 2) {
-		base_irq = _level2_irq(base_irq);
+		base_irq = irq_from_level_2(base_irq);
 	}
 
 	return (plic_irq - base_irq);
 }
 
-static void gpio_sifive_irq_handler(void *arg)
+static void gpio_sifive_irq_handler(const struct device *dev)
 {
-	struct device *dev = (struct device *)arg;
 	struct gpio_sifive_data *data = DEV_GPIO_DATA(dev);
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 	const struct gpio_sifive_config *cfg = DEV_GPIO_CFG(dev);
@@ -153,7 +137,7 @@ static void gpio_sifive_irq_handler(void *arg)
  *
  * @return 0 if successful, failed otherwise
  */
-static int gpio_sifive_config(struct device *dev,
+static int gpio_sifive_config(const struct device *dev,
 			      gpio_pin_t pin,
 			      gpio_flags_t flags)
 {
@@ -193,8 +177,8 @@ static int gpio_sifive_config(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_port_get_raw(struct device *dev,
-				   gpio_port_value_t *value)
+static int gpio_sifive_port_get_raw(const struct device *dev,
+				    gpio_port_value_t *value)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 
@@ -203,9 +187,9 @@ static int gpio_sifive_port_get_raw(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_port_set_masked_raw(struct device *dev,
-					  gpio_port_pins_t mask,
-					  gpio_port_value_t value)
+static int gpio_sifive_port_set_masked_raw(const struct device *dev,
+					   gpio_port_pins_t mask,
+					   gpio_port_value_t value)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 
@@ -214,8 +198,8 @@ static int gpio_sifive_port_set_masked_raw(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_port_set_bits_raw(struct device *dev,
-					gpio_port_pins_t mask)
+static int gpio_sifive_port_set_bits_raw(const struct device *dev,
+					 gpio_port_pins_t mask)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 
@@ -224,8 +208,8 @@ static int gpio_sifive_port_set_bits_raw(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_port_clear_bits_raw(struct device *dev,
-					  gpio_port_pins_t mask)
+static int gpio_sifive_port_clear_bits_raw(const struct device *dev,
+					   gpio_port_pins_t mask)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 
@@ -234,8 +218,8 @@ static int gpio_sifive_port_clear_bits_raw(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_port_toggle_bits(struct device *dev,
-				       gpio_port_pins_t mask)
+static int gpio_sifive_port_toggle_bits(const struct device *dev,
+					gpio_port_pins_t mask)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 
@@ -244,10 +228,10 @@ static int gpio_sifive_port_toggle_bits(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_pin_interrupt_configure(struct device *dev,
-					      gpio_pin_t pin,
-					      enum gpio_int_mode mode,
-					      enum gpio_int_trig trig)
+static int gpio_sifive_pin_interrupt_configure(const struct device *dev,
+					       gpio_pin_t pin,
+					       enum gpio_int_mode mode,
+					       enum gpio_int_trig trig)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 	const struct gpio_sifive_config *cfg = DEV_GPIO_CFG(dev);
@@ -295,14 +279,34 @@ static int gpio_sifive_pin_interrupt_configure(struct device *dev,
 	return 0;
 }
 
-static int gpio_sifive_manage_callback(struct device *dev,
-				      struct gpio_callback *callback,
-				      bool set)
+static int gpio_sifive_manage_callback(const struct device *dev,
+				       struct gpio_callback *callback,
+				       bool set)
 {
 	struct gpio_sifive_data *data = DEV_GPIO_DATA(dev);
 
 	return gpio_manage_callback(&data->cb, callback, set);
 }
+
+#ifdef CONFIG_GPIO_GET_DIRECTION
+static int gpio_sifive_port_get_dir(const struct device *dev, gpio_port_pins_t map,
+				    gpio_port_pins_t *inputs, gpio_port_pins_t *outputs)
+{
+	const struct gpio_sifive_config *cfg = DEV_GPIO_CFG(dev);
+
+	map &= cfg->common.port_pin_mask;
+
+	if (inputs != NULL) {
+		*inputs = map & DEV_GPIO(dev)->in_en;
+	}
+
+	if (outputs != NULL) {
+		*outputs = map & DEV_GPIO(dev)->out_en;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_GPIO_GET_DIRECTION */
 
 static const struct gpio_driver_api gpio_sifive_driver = {
 	.pin_configure           = gpio_sifive_config,
@@ -313,6 +317,9 @@ static const struct gpio_driver_api gpio_sifive_driver = {
 	.port_toggle_bits        = gpio_sifive_port_toggle_bits,
 	.pin_interrupt_configure = gpio_sifive_pin_interrupt_configure,
 	.manage_callback         = gpio_sifive_manage_callback,
+#ifdef CONFIG_GPIO_GET_DIRECTION
+	.port_get_direction      = gpio_sifive_port_get_dir,
+#endif /* CONFIG_GPIO_GET_DIRECTION */
 };
 
 /**
@@ -324,7 +331,7 @@ static const struct gpio_driver_api gpio_sifive_driver = {
  *
  * @return 0
  */
-static int gpio_sifive_init(struct device *dev)
+static int gpio_sifive_init(const struct device *dev)
 {
 	volatile struct gpio_sifive_t *gpio = DEV_GPIO(dev);
 	const struct gpio_sifive_config *cfg = DEV_GPIO_CFG(dev);
@@ -337,6 +344,8 @@ static int gpio_sifive_init(struct device *dev)
 	gpio->fall_ie = 0U;
 	gpio->high_ie = 0U;
 	gpio->low_ie  = 0U;
+	gpio->iof_en  = 0U;
+	gpio->iof_sel = 0U;
 	gpio->invert  = 0U;
 
 	/* Setup IRQ handler for each gpio pin */
@@ -358,17 +367,18 @@ static const struct gpio_sifive_config gpio_sifive_config0 = {
 
 static struct gpio_sifive_data gpio_sifive_data0;
 
-DEVICE_AND_API_INIT(gpio_sifive_0, DT_INST_LABEL(0),
+DEVICE_DT_INST_DEFINE(0,
 		    gpio_sifive_init,
+		    NULL,
 		    &gpio_sifive_data0, &gpio_sifive_config0,
-		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+		    PRE_KERNEL_1, CONFIG_GPIO_INIT_PRIORITY,
 		    &gpio_sifive_driver);
 
 #define		IRQ_INIT(n)					\
 IRQ_CONNECT(DT_INST_IRQ_BY_IDX(0, n, irq),			\
-		CONFIG_GPIO_SIFIVE_##n##_PRIORITY,		\
+		DT_INST_IRQ_BY_IDX(0, n, priority),		\
 		gpio_sifive_irq_handler,			\
-		DEVICE_GET(gpio_sifive_0),			\
+		DEVICE_DT_INST_GET(0),				\
 		0);
 
 static void gpio_sifive_cfg_0(void)

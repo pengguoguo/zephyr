@@ -3,13 +3,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <shell/shell.h>
+#include <zephyr/shell/shell.h>
 #include "shell_utils.h"
+#include "shell_help.h"
 #include "shell_ops.h"
 #include "shell_vt100.h"
 
 #define SHELL_MSG_CMD_NOT_SUPPORTED	"Command not supported.\n"
 #define SHELL_HELP_CLEAR		"Clear screen."
+#define SHELL_HELP_BACKENDS		"List active shell backends.\n"
 #define SHELL_HELP_BACKSPACE_MODE	"Toggle backspace key mode.\n"	      \
 	"Some terminals are not sending separate escape code for "	      \
 	"backspace and delete button. This command forces shell to interpret" \
@@ -22,6 +24,9 @@
 #define SHELL_HELP_COLORS		"Toggle colored syntax."
 #define SHELL_HELP_COLORS_OFF		"Disable colored syntax."
 #define SHELL_HELP_COLORS_ON		"Enable colored syntax."
+#define SHELL_HELP_VT100		"Toggle vt100 commands."
+#define SHELL_HELP_VT100_OFF		"Disable vt100 commands."
+#define SHELL_HELP_VT100_ON		"Enable vt100 commands."
 #define SHELL_HELP_STATISTICS		"Shell statistics."
 #define SHELL_HELP_STATISTICS_SHOW	\
 	"Get shell statistics for the Logger module."
@@ -44,6 +49,7 @@
 	"command to be selected, it must meet the criteria:\n"		      \
 	" - it is a static command\n"					      \
 	" - it is not preceded by a dynamic command\n"			      \
+	" - it accepts arguments\n"					      \
 	"Return to the main command tree is done by pressing alt+r."
 
 #define SHELL_HELP_SHELL		"Useful, not Unix-like shell commands."
@@ -74,12 +80,12 @@ static int cursor_position_get(const struct shell *shell, uint16_t *x, uint16_t 
 	/* escape code asking terminal about its size */
 	static char const cmd_get_terminal_size[] = "\033[6n";
 
-	shell_raw_fprintf(shell->fprintf_ctx, cmd_get_terminal_size);
+	z_shell_raw_fprintf(shell->fprintf_ctx, cmd_get_terminal_size);
 
 	/* fprintf buffer needs to be flushed to start sending prepared
 	 * escape code to the terminal.
 	 */
-	transport_buffer_flush(shell);
+	z_transport_buffer_flush(shell);
 
 	/* timeout for terminal response = ~1s */
 	for (uint16_t i = 0; i < 1000; i++) {
@@ -171,13 +177,13 @@ static int terminal_size_get(const struct shell *shell)
 	uint16_t y; /* vertical position */
 	int ret_val = 0;
 
-	cursor_save(shell);
+	z_cursor_save(shell);
 
 	/* Assumption: terminal width and height < 999. */
 	/* Move to last column. */
-	shell_op_cursor_vert_move(shell, -SHELL_MAX_TERMINAL_SIZE);
+	z_shell_op_cursor_vert_move(shell, -SHELL_MAX_TERMINAL_SIZE);
 	/* Move to last row. */
-	shell_op_cursor_horiz_move(shell, SHELL_MAX_TERMINAL_SIZE);
+	z_shell_op_cursor_horiz_move(shell, SHELL_MAX_TERMINAL_SIZE);
 
 	if (cursor_position_get(shell, &x, &y) == 0) {
 		shell->ctx->vt100_ctx.cons.terminal_wid = x;
@@ -186,7 +192,7 @@ static int terminal_size_get(const struct shell *shell)
 		ret_val = -ENOTSUP;
 	}
 
-	cursor_restore(shell);
+	z_cursor_restore(shell);
 	return ret_val;
 }
 
@@ -194,8 +200,23 @@ static int cmd_clear(const struct shell *shell, size_t argc, char **argv)
 {
 	ARG_UNUSED(argv);
 
-	SHELL_VT100_CMD(shell, SHELL_VT100_CURSORHOME);
-	SHELL_VT100_CMD(shell, SHELL_VT100_CLEARSCREEN);
+	Z_SHELL_VT100_CMD(shell, SHELL_VT100_CURSORHOME);
+	Z_SHELL_VT100_CMD(shell, SHELL_VT100_CLEARSCREEN);
+
+	return 0;
+}
+
+static int cmd_backends(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	uint16_t cnt = 0;
+
+	shell_print(sh, "Active shell backends:");
+	STRUCT_SECTION_FOREACH(shell, obj) {
+		shell_print(sh, "  %2d. :%s", cnt++, obj->ctx->prompt);
+	}
 
 	return 0;
 }
@@ -206,7 +227,7 @@ static int cmd_bacskpace_mode_backspace(const struct shell *shell, size_t argc,
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	flag_mode_delete_set(shell, false);
+	z_flag_mode_delete_set(shell, false);
 
 	return 0;
 }
@@ -217,7 +238,7 @@ static int cmd_bacskpace_mode_delete(const struct shell *shell, size_t argc,
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	flag_mode_delete_set(shell, true);
+	z_flag_mode_delete_set(shell, true);
 
 	return 0;
 }
@@ -227,7 +248,7 @@ static int cmd_colors_off(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	flag_use_colors_set(shell, false);
+	z_flag_use_colors_set(shell, false);
 
 	return 0;
 }
@@ -237,7 +258,27 @@ static int cmd_colors_on(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argv);
 	ARG_UNUSED(argv);
 
-	flag_use_colors_set(shell, true);
+	z_flag_use_colors_set(shell, true);
+
+	return 0;
+}
+
+static int cmd_vt100_off(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	z_flag_use_vt100_set(sh, false);
+
+	return 0;
+}
+
+static int cmd_vt100_on(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argv);
+	ARG_UNUSED(argv);
+
+	z_flag_use_vt100_set(sh, true);
 
 	return 0;
 }
@@ -247,7 +288,7 @@ static int cmd_echo_off(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	flag_echo_set(shell, false);
+	z_flag_echo_set(shell, false);
 
 	return 0;
 }
@@ -257,7 +298,7 @@ static int cmd_echo_on(const struct shell *shell, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	flag_echo_set(shell, true);
+	z_flag_echo_set(shell, true);
 
 	return 0;
 }
@@ -271,29 +312,7 @@ static int cmd_echo(const struct shell *shell, size_t argc, char **argv)
 	}
 
 	shell_print(shell, "Echo status: %s",
-		    flag_echo_get(shell) ? "on" : "off");
-
-	return 0;
-}
-
-static int cmd_help(const struct shell *shell, size_t argc, char **argv)
-{
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	shell_print(shell,
-		"Please press the <Tab> button to see all available commands.\n"
-		"You can also use the <Tab> button to prompt or auto-complete"
-		" all commands or its subcommands.\n"
-		"You can try to call commands with <-h> or <--help> parameter"
-		" for more information.");
-#if defined(CONFIG_SHELL_METAKEYS)
-	shell_print(shell,
-		"Shell supports following meta-keys:\n"
-		"Ctrl+a, Ctrl+b, Ctrl+c, Ctrl+d, Ctrl+e, Ctrl+f, Ctrl+k,"
-		" Ctrl+l, Ctrl+n, Ctrl+p, Ctrl+u, Ctrl+w\nAlt+b, Alt+f.\n"
-		"Please refer to shell documentation for more details.");
-#endif
+		    z_flag_echo_get(shell) ? "on" : "off");
 
 	return 0;
 }
@@ -307,12 +326,12 @@ static int cmd_history(const struct shell *shell, size_t argc, char **argv)
 	uint16_t len;
 
 	while (1) {
-		shell_history_get(shell->history, true,
-				  shell->ctx->temp_buff, &len);
+		z_shell_history_get(shell->history, true,
+				    shell->ctx->temp_buff, &len);
 
 		if (len) {
 			shell_print(shell, "[%3d] %s",
-				    i++, shell->ctx->temp_buff);
+				    (int)i++, shell->ctx->temp_buff);
 
 		} else {
 			break;
@@ -330,7 +349,7 @@ static int cmd_shell_stats_show(const struct shell *shell, size_t argc,
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	shell_print(shell, "Lost logs: %u", shell->stats->log_lost_cnt);
+	shell_print(shell, "Lost logs: %lu", shell->stats->log_lost_cnt);
 
 	return 0;
 }
@@ -352,7 +371,7 @@ static int cmd_resize_default(const struct shell *shell,
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	SHELL_VT100_CMD(shell, SHELL_VT100_SETCOL_80);
+	Z_SHELL_VT100_CMD(shell, SHELL_VT100_SETCOL_80);
 	shell->ctx->vt100_ctx.cons.terminal_wid = SHELL_DEFAULT_TERMINAL_WIDTH;
 	shell->ctx->vt100_ctx.cons.terminal_hei = SHELL_DEFAULT_TERMINAL_HEIGHT;
 
@@ -396,9 +415,9 @@ static int cmd_select(const struct shell *shell, size_t argc, char **argv)
 
 	argc--;
 	argv = argv + 1;
-	candidate = shell_get_last_command(shell->ctx->selected_cmd,
-					   argc, (const char **)argv,
-					   &matching_argc, &entry, true);
+	candidate = z_shell_get_last_command(shell->ctx->selected_cmd,
+					     argc, (const char **)argv,
+					     &matching_argc, &entry, true);
 
 	if ((candidate != NULL) && !no_args(candidate)
 	    && (argc == matching_argc)) {
@@ -412,8 +431,18 @@ static int cmd_select(const struct shell *shell, size_t argc, char **argv)
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(m_sub_colors,
-	SHELL_CMD_ARG(off, NULL, SHELL_HELP_COLORS_OFF, cmd_colors_off, 1, 0),
-	SHELL_CMD_ARG(on, NULL, SHELL_HELP_COLORS_ON, cmd_colors_on, 1, 0),
+	SHELL_COND_CMD_ARG(CONFIG_SHELL_VT100_COMMANDS, off, NULL,
+			   SHELL_HELP_COLORS_OFF, cmd_colors_off, 1, 0),
+	SHELL_COND_CMD_ARG(CONFIG_SHELL_VT100_COMMANDS, on, NULL,
+			   SHELL_HELP_COLORS_ON, cmd_colors_on, 1, 0),
+	SHELL_SUBCMD_SET_END
+);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(m_sub_vt100,
+	SHELL_COND_CMD_ARG(CONFIG_SHELL_VT100_COMMANDS, off, NULL,
+			   SHELL_HELP_VT100_OFF, cmd_vt100_off, 1, 0),
+	SHELL_COND_CMD_ARG(CONFIG_SHELL_VT100_COMMANDS, on, NULL,
+			   SHELL_HELP_VT100_ON, cmd_vt100_on, 1, 0),
 	SHELL_SUBCMD_SET_END
 );
 
@@ -440,9 +469,13 @@ SHELL_STATIC_SUBCMD_SET_CREATE(m_sub_backspace_mode,
 );
 
 SHELL_STATIC_SUBCMD_SET_CREATE(m_sub_shell,
+	SHELL_CMD_ARG(backends, NULL, SHELL_HELP_BACKENDS, cmd_backends, 1, 0),
 	SHELL_CMD(backspace_mode, &m_sub_backspace_mode,
 			SHELL_HELP_BACKSPACE_MODE, NULL),
-	SHELL_CMD(colors, &m_sub_colors, SHELL_HELP_COLORS, NULL),
+	SHELL_COND_CMD(CONFIG_SHELL_VT100_COMMANDS, colors, &m_sub_colors,
+		       SHELL_HELP_COLORS, NULL),
+	SHELL_COND_CMD(CONFIG_SHELL_VT100_COMMANDS, vt100, &m_sub_vt100,
+		       SHELL_HELP_VT100, NULL),
 	SHELL_CMD_ARG(echo, &m_sub_echo, SHELL_HELP_ECHO, cmd_echo, 1, 1),
 	SHELL_COND_CMD(CONFIG_SHELL_STATS, stats, &m_sub_shell_stats,
 			SHELL_HELP_STATISTICS, NULL),
@@ -455,10 +488,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(m_sub_resize,
 	SHELL_SUBCMD_SET_END
 );
 
-SHELL_CMD_ARG_REGISTER(clear, NULL, SHELL_HELP_CLEAR, cmd_clear, 1, 0);
+SHELL_COND_CMD_ARG_REGISTER(CONFIG_SHELL_VT100_COMMANDS, clear, NULL,
+			    SHELL_HELP_CLEAR, cmd_clear, 1, 0);
 SHELL_CMD_REGISTER(shell, &m_sub_shell, SHELL_HELP_SHELL, NULL);
-SHELL_CMD_ARG_REGISTER(help, NULL, SHELL_HELP_HELP, cmd_help,
-			1, SHELL_OPT_ARG_CHECK_SKIP);
 SHELL_COND_CMD_ARG_REGISTER(CONFIG_SHELL_HISTORY, history, NULL,
 			SHELL_HELP_HISTORY, cmd_history, 1, 0);
 SHELL_COND_CMD_ARG_REGISTER(CONFIG_SHELL_CMDS_RESIZE, resize, &m_sub_resize,

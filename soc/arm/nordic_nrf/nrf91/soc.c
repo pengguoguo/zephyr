@@ -12,11 +12,11 @@
  * for the Nordic Semiconductor nRF91 family processor.
  */
 
-#include <kernel.h>
-#include <init.h>
-#include <arch/arm/aarch32/cortex_m/cmsis.h>
+#include <zephyr/kernel.h>
+#include <zephyr/init.h>
+#include <zephyr/arch/arm/aarch32/cortex_m/cmsis.h>
 #include <soc/nrfx_coredep.h>
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 
 #ifdef CONFIG_RUNTIME_NMI
 extern void z_arm_nmi_init(void);
@@ -34,7 +34,7 @@ extern void z_arm_nmi_init(void);
 #define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
 LOG_MODULE_REGISTER(soc);
 
-static int nordicsemi_nrf91_init(struct device *arg)
+static int nordicsemi_nrf91_init(const struct device *arg)
 {
 	uint32_t key;
 
@@ -61,11 +61,5 @@ void arch_busy_wait(uint32_t time_us)
 {
 	nrfx_coredep_delay_us(time_us);
 }
-
-void z_platform_init(void)
-{
-	SystemInit();
-}
-
 
 SYS_INIT(nordicsemi_nrf91_init, PRE_KERNEL_1, 0);

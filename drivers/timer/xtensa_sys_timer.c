@@ -3,10 +3,11 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <drivers/timer/system_timer.h>
-#include <sys_clock.h>
-#include <spinlock.h>
-#include <arch/xtensa/xtensa_rtos.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/timer/system_timer.h>
+#include <zephyr/sys_clock.h>
+#include <zephyr/spinlock.h>
+#include <zephyr/irq.h>
 
 #define TIMER_IRQ UTIL_CAT(XCHAL_TIMER,		\
 			   UTIL_CAT(CONFIG_XTENSA_TIMER_ID, _INTERRUPT))
@@ -19,6 +20,11 @@
 
 static struct k_spinlock lock;
 static unsigned int last_count;
+
+#if defined(CONFIG_TEST)
+const int32_t z_sys_timer_irq_for_test = UTIL_CAT(XCHAL_TIMER,
+					 UTIL_CAT(CONFIG_XTENSA_TIMER_ID, _INTERRUPT));
+#endif
 
 static void set_ccompare(uint32_t val)
 {
@@ -34,7 +40,7 @@ static uint32_t ccount(void)
 	return val;
 }
 
-static void ccompare_isr(void *arg)
+static void ccompare_isr(const void *arg)
 {
 	ARG_UNUSED(arg);
 
@@ -54,24 +60,16 @@ static void ccompare_isr(void *arg)
 	}
 
 	k_spin_unlock(&lock, key);
-	z_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ? dticks : 1);
+	sys_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ? dticks : 1);
 }
 
-int z_clock_driver_init(struct device *device)
-{
-	IRQ_CONNECT(TIMER_IRQ, 0, ccompare_isr, 0, 0);
-	set_ccompare(ccount() + CYC_PER_TICK);
-	irq_enable(TIMER_IRQ);
-	return 0;
-}
-
-void z_clock_set_timeout(int32_t ticks, bool idle)
+void sys_clock_set_timeout(int32_t ticks, bool idle)
 {
 	ARG_UNUSED(idle);
 
 #if defined(CONFIG_TICKLESS_KERNEL)
 	ticks = ticks == K_TICKS_FOREVER ? MAX_TICKS : ticks;
-	ticks = MAX(MIN(ticks - 1, (int32_t)MAX_TICKS), 0);
+	ticks = CLAMP(ticks - 1, 0, (int32_t)MAX_TICKS);
 
 	k_spinlock_key_t key = k_spin_lock(&lock);
 	uint32_t curr = ccount(), cyc, adj;
@@ -96,7 +94,7 @@ void z_clock_set_timeout(int32_t ticks, bool idle)
 #endif
 }
 
-uint32_t z_clock_elapsed(void)
+uint32_t sys_clock_elapsed(void)
 {
 	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
 		return 0;
@@ -109,7 +107,7 @@ uint32_t z_clock_elapsed(void)
 	return ret;
 }
 
-uint32_t z_timer_cycle_get_32(void)
+uint32_t sys_clock_cycle_get_32(void)
 {
 	return ccount();
 }
@@ -121,3 +119,16 @@ void smp_timer_init(void)
 	irq_enable(TIMER_IRQ);
 }
 #endif
+
+static int sys_clock_driver_init(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+
+	IRQ_CONNECT(TIMER_IRQ, 0, ccompare_isr, 0, 0);
+	set_ccompare(ccount() + CYC_PER_TICK);
+	irq_enable(TIMER_IRQ);
+	return 0;
+}
+
+SYS_INIT(sys_clock_driver_init, PRE_KERNEL_2,
+	 CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);

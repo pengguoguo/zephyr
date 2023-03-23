@@ -6,10 +6,10 @@
 
 #define DT_DRV_COMPAT silabs_si7060
 
-#include <device.h>
-#include <drivers/i2c.h>
-#include <drivers/sensor.h>
-#include <logging/log.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/logging/log.h>
 
 #include "si7060.h"
 
@@ -18,34 +18,38 @@
 LOG_MODULE_REGISTER(si7060, CONFIG_SENSOR_LOG_LEVEL);
 
 struct si7060_data {
-	struct device *i2c_dev;
 	uint16_t temperature;
 };
 
-static int si7060_reg_read(struct si7060_data *drv_data, uint8_t reg,
-			     uint8_t *val)
+struct si7060_config {
+	struct i2c_dt_spec i2c;
+};
+
+static int si7060_reg_read(const struct device *dev, uint8_t reg, uint8_t *val)
 {
-	if (i2c_reg_read_byte(drv_data->i2c_dev,
-		DT_INST_REG_ADDR(0), reg, val)) {
+	const struct si7060_config *config = dev->config;
+
+	if (i2c_reg_read_byte_dt(&config->i2c, reg, val)) {
 		return -EIO;
 	}
 
 	return 0;
 }
 
-static int si7060_reg_write(struct si7060_data *drv_data, uint8_t reg,
-			      uint8_t val)
+static int si7060_reg_write(const struct device *dev, uint8_t reg, uint8_t val)
 {
-	return i2c_reg_write_byte(drv_data->i2c_dev,
-		DT_INST_REG_ADDR(0), reg, val);
+	const struct si7060_config *config = dev->config;
+
+	return i2c_reg_write_byte_dt(&config->i2c, reg, val);
 }
 
-static int si7060_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int si7060_sample_fetch(const struct device *dev,
+			       enum sensor_channel chan)
 {
-	struct si7060_data *drv_data = dev->driver_data;
+	struct si7060_data *drv_data = dev->data;
 
-	if (si7060_reg_write(drv_data, SI7060_REG_CONFIG,
-		SI7060_ONE_BURST_VALUE) != 0) {
+	if (si7060_reg_write(dev, SI7060_REG_CONFIG,
+			     SI7060_ONE_BURST_VALUE) != 0) {
 		return -EIO;
 	}
 
@@ -53,10 +57,8 @@ static int si7060_sample_fetch(struct device *dev, enum sensor_channel chan)
 	uint8_t dspsigm;
 	uint8_t dspsigl;
 
-	retval = si7060_reg_read(drv_data, SI7060_REG_TEMP_HIGH,
-		&dspsigm);
-	retval += si7060_reg_read(drv_data, SI7060_REG_TEMP_LOW,
-		&dspsigl);
+	retval = si7060_reg_read(dev, SI7060_REG_TEMP_HIGH, &dspsigm);
+	retval += si7060_reg_read(dev, SI7060_REG_TEMP_LOW, &dspsigl);
 
 	if (retval == 0) {
 		drv_data->temperature = (256 * (dspsigm & SIGN_BIT_MASK))
@@ -70,10 +72,11 @@ static int si7060_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return retval;
 }
 
-static int si7060_channel_get(struct device *dev, enum sensor_channel chan,
+static int si7060_channel_get(const struct device *dev,
+			      enum sensor_channel chan,
 			      struct sensor_value *val)
 {
-	struct si7060_data *drv_data = dev->driver_data;
+	struct si7060_data *drv_data = dev->data;
 	int32_t uval;
 
 	if (chan == SENSOR_CHAN_AMBIENT_TEMP) {
@@ -94,22 +97,17 @@ static const struct sensor_driver_api si7060_api = {
 	.channel_get = &si7060_channel_get,
 };
 
-static int si7060_chip_init(struct device *dev)
+static int si7060_chip_init(const struct device *dev)
 {
-	struct si7060_data *drv_data = dev->driver_data;
+	const struct si7060_config *config = dev->config;
 	uint8_t value;
 
-	drv_data->i2c_dev = device_get_binding(
-		DT_INST_BUS_LABEL(0));
-
-	if (!drv_data->i2c_dev) {
-		LOG_ERR("Failed to get pointer to %s device!",
-			DT_INST_BUS_LABEL(0));
-		return -EINVAL;
+	if (!device_is_ready(config->i2c.bus)) {
+		LOG_ERR("Bus device is not ready");
+		return -ENODEV;
 	}
 
-	if (si7060_reg_read(drv_data, SI7060_REG_CHIP_INFO,
-		&value) != 0) {
+	if (si7060_reg_read(dev, SI7060_REG_CHIP_INFO, &value) != 0) {
 		return -EIO;
 	}
 
@@ -121,7 +119,7 @@ static int si7060_chip_init(struct device *dev)
 	return 0;
 }
 
-static int si7060_init(struct device *dev)
+static int si7060_init(const struct device *dev)
 {
 	if (si7060_chip_init(dev) < 0) {
 		return -EINVAL;
@@ -130,7 +128,15 @@ static int si7060_init(struct device *dev)
 	return 0;
 }
 
-static struct si7060_data si_data;
+#define SI7060_DEFINE(inst)								\
+	static struct si7060_data si7060_data_##inst;					\
+											\
+	static const struct si7060_config si7060_config_##inst = {			\
+		.i2c = I2C_DT_SPEC_INST_GET(inst),					\
+	};										\
+											\
+	SENSOR_DEVICE_DT_INST_DEFINE(inst, si7060_init, NULL,				\
+			      &si7060_data_##inst, &si7060_config_##inst, POST_KERNEL,	\
+			      CONFIG_SENSOR_INIT_PRIORITY, &si7060_api);		\
 
-DEVICE_AND_API_INIT(si7060, DT_INST_LABEL(0), si7060_init,
-	&si_data, NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY, &si7060_api);
+DT_INST_FOREACH_STATUS_OKAY(SI7060_DEFINE)

@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <soc.h>
 
-static int ti_msp432p4xx_init(struct device *arg)
+static int ti_msp432p4xx_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 

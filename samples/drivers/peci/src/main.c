@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <sys/printk.h>
-#include <drivers/peci.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/drivers/peci.h>
 #include <soc.h>
 
 #define TASK_STACK_SIZE         1024
@@ -23,7 +23,7 @@
 
 #define PECI_SAFE_TEMP          72
 
-static struct device *peci_dev;
+static const struct device *const peci_dev = DEVICE_DT_GET(DT_ALIAS(peci_0));
 static bool peci_initialized;
 static uint8_t tjmax;
 static uint8_t rx_fcs;
@@ -90,7 +90,7 @@ int peci_get_tjmax(uint8_t *tjmax)
 		k_sleep(K_MSEC(1));
 		printk("\npeci_resp %x\n", peci_resp);
 		retries--;
-	} while ((peci_resp != PECI_RW_PKG_CFG_RSP_PASS) && (retries > 0));
+	} while ((peci_resp != PECI_CC_RSP_SUCCESS) && (retries > 0));
 
 	*tjmax = packet.rx_buffer.buf[3];
 
@@ -176,9 +176,7 @@ static void monitor_temperature_func(void *dummy1, void *dummy2, void *dummy3)
 
 void main(void)
 {
-#if DT_NODE_HAS_STATUS(DT_ALIAS(peci_0), okay)
 	int ret;
-#endif
 
 	printk("PECI sample test\n");
 
@@ -186,10 +184,8 @@ void main(void)
 		monitor_temperature_func, NULL, NULL, NULL, PRIORITY,
 		K_INHERIT_PERMS, K_FOREVER);
 
-#if DT_NODE_HAS_STATUS(DT_ALIAS(peci_0), okay)
-	peci_dev = device_get_binding(DT_LABEL(DT_ALIAS(peci_0)));
-	if (!peci_dev) {
-		printk("Err: PECI device not found\n");
+	if (!device_is_ready(peci_dev)) {
+		printk("Err: PECI device is not ready\n");
 		return;
 	}
 
@@ -208,5 +204,4 @@ void main(void)
 	k_thread_start(&temp_id);
 
 	peci_initialized = true;
-#endif
 }

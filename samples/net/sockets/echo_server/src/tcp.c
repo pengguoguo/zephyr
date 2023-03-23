@@ -7,15 +7,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(net_echo_server_sample, LOG_LEVEL_DBG);
 
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 #include <errno.h>
 #include <stdio.h>
 
-#include <net/socket.h>
-#include <net/tls_credentials.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/net/tls_credentials.h>
 
 #include "common.h"
 #include "certificate.h"
@@ -138,14 +138,14 @@ static void handle_data(void *ptr1, void *ptr2, void *ptr3)
 		if (received == 0) {
 			/* Connection closed */
 			LOG_INF("TCP (%s): Connection closed", data->proto);
-			ret = 0;
 			break;
 		} else if (received < 0) {
 			/* Socket error */
 			LOG_ERR("TCP (%s): Connection error %d", data->proto,
 				errno);
-			ret = -errno;
 			break;
+		} else {
+			atomic_add(&data->tcp.bytes_received, received);
 		}
 
 		offset += received;
@@ -168,7 +168,6 @@ static void handle_data(void *ptr1, void *ptr2, void *ptr3)
 			if (ret < 0) {
 				LOG_ERR("TCP (%s): Failed to send, "
 					"closing socket", data->proto);
-				ret = 0;
 				break;
 			}
 
@@ -234,6 +233,8 @@ static int process_tcp(struct data *data)
 
 	LOG_INF("TCP (%s): Accepted connection", data->proto);
 
+#define MAX_NAME_LEN sizeof("tcp6[0]")
+
 #if defined(CONFIG_NET_IPV6)
 	if (client_addr.sin_family == AF_INET6) {
 		tcp6_handler_in_use[slot] = true;
@@ -248,6 +249,13 @@ static int process_tcp(struct data *data)
 			IS_ENABLED(CONFIG_USERSPACE) ? K_USER |
 						       K_INHERIT_PERMS : 0,
 			K_NO_WAIT);
+
+		if (IS_ENABLED(CONFIG_THREAD_NAME)) {
+			char name[MAX_NAME_LEN];
+
+			snprintk(name, sizeof(name), "tcp6[%d]", slot);
+			k_thread_name_set(&tcp6_handler_thread[slot], name);
+		}
 	}
 #endif
 
@@ -265,6 +273,13 @@ static int process_tcp(struct data *data)
 			IS_ENABLED(CONFIG_USERSPACE) ? K_USER |
 						       K_INHERIT_PERMS : 0,
 			K_NO_WAIT);
+
+		if (IS_ENABLED(CONFIG_THREAD_NAME)) {
+			char name[MAX_NAME_LEN];
+
+			snprintk(name, sizeof(name), "tcp4[%d]", slot);
+			k_thread_name_set(&tcp4_handler_thread[slot], name);
+		}
 	}
 #endif
 
@@ -323,6 +338,27 @@ static void process_tcp6(void)
 	quit();
 }
 
+static void print_stats(struct k_work *work)
+{
+	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
+	struct data *data = CONTAINER_OF(dwork, struct data, tcp.stats_print);
+	int total_received = atomic_get(&data->tcp.bytes_received);
+
+	if (total_received) {
+		if ((total_received / STATS_TIMER) < 1024) {
+			LOG_INF("%s TCP: Received %d B/sec", data->proto,
+				total_received / STATS_TIMER);
+		} else {
+			LOG_INF("%s TCP: Received %d KiB/sec", data->proto,
+				total_received / 1024 / STATS_TIMER);
+		}
+
+		atomic_set(&data->tcp.bytes_received, 0);
+	}
+
+	k_work_reschedule(&data->tcp.stats_print, K_SECONDS(STATS_TIMER));
+}
+
 void start_tcp(void)
 {
 	int i;
@@ -344,14 +380,14 @@ void start_tcp(void)
 	k_mem_domain_add_thread(&app_domain, tcp6_thread_id);
 
 	for (i = 0; i < CONFIG_NET_SAMPLE_NUM_HANDLERS; i++) {
-		k_mem_domain_add_thread(&app_domain, &tcp6_handler_thread[i]);
-
 		k_thread_access_grant(tcp6_thread_id, &tcp6_handler_thread[i]);
 		k_thread_access_grant(tcp6_thread_id, &tcp6_handler_stack[i]);
 	}
 #endif
 
+	k_work_init_delayable(&conf.ipv6.tcp.stats_print, print_stats);
 	k_thread_start(tcp6_thread_id);
+	k_work_reschedule(&conf.ipv6.tcp.stats_print, K_SECONDS(STATS_TIMER));
 #endif
 
 #if defined(CONFIG_NET_IPV4)
@@ -359,14 +395,14 @@ void start_tcp(void)
 	k_mem_domain_add_thread(&app_domain, tcp4_thread_id);
 
 	for (i = 0; i < CONFIG_NET_SAMPLE_NUM_HANDLERS; i++) {
-		k_mem_domain_add_thread(&app_domain, &tcp4_handler_thread[i]);
-
 		k_thread_access_grant(tcp4_thread_id, &tcp4_handler_thread[i]);
 		k_thread_access_grant(tcp4_thread_id, &tcp4_handler_stack[i]);
 	}
 #endif
 
+	k_work_init_delayable(&conf.ipv4.tcp.stats_print, print_stats);
 	k_thread_start(tcp4_thread_id);
+	k_work_reschedule(&conf.ipv4.tcp.stats_print, K_SECONDS(STATS_TIMER));
 #endif
 }
 

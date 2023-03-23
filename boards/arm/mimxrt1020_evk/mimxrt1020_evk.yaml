@@ -16,8 +16,13 @@ ram: 32768
 flash: 8192
 supported:
   - arduino_gpio
+  - arduino_serial
   - counter
+  - dma
   - gpio
   - i2c
   - netif:eth
+  - spi
   - usb_device
+  - adc
+  - sdhc

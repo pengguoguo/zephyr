@@ -6,22 +6,24 @@
 
 #define DT_DRV_COMPAT ams_iaqcore
 
-#include <device.h>
-#include <drivers/i2c.h>
-#include <kernel.h>
-#include <sys/byteorder.h>
-#include <sys/util.h>
-#include <drivers/sensor.h>
-#include <sys/__assert.h>
-#include <logging/log.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/logging/log.h>
 
 #include "iAQcore.h"
 
 LOG_MODULE_REGISTER(IAQ_CORE, CONFIG_SENSOR_LOG_LEVEL);
 
-static int iaqcore_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int iaqcore_sample_fetch(const struct device *dev,
+				enum sensor_channel chan)
 {
-	struct iaq_core_data *drv_data = dev->driver_data;
+	struct iaq_core_data *drv_data = dev->data;
+	const struct iaq_core_config *config = dev->config;
 	struct iaq_registers buf;
 	struct i2c_msg msg;
 	int ret, tries;
@@ -34,8 +36,7 @@ static int iaqcore_sample_fetch(struct device *dev, enum sensor_channel chan)
 
 	for (tries = 0; tries < CONFIG_IAQ_CORE_MAX_READ_RETRIES; tries++) {
 
-		ret = i2c_transfer(drv_data->i2c, &msg, 1,
-				   DT_INST_REG_ADDR(0));
+		ret = i2c_transfer_dt(&config->i2c, &msg, 1);
 		if (ret < 0) {
 			LOG_ERR("Failed to read registers data [%d].", ret);
 			return -EIO;
@@ -66,11 +67,11 @@ static int iaqcore_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return -EIO;
 }
 
-static int iaqcore_channel_get(struct device *dev,
+static int iaqcore_channel_get(const struct device *dev,
 			       enum sensor_channel chan,
 			       struct sensor_value *val)
 {
-	struct iaq_core_data *drv_data = dev->driver_data;
+	struct iaq_core_data *drv_data = dev->data;
 
 	switch (chan) {
 	case SENSOR_CHAN_CO2:
@@ -97,22 +98,27 @@ static const struct sensor_driver_api iaq_core_driver_api = {
 	.channel_get = iaqcore_channel_get,
 };
 
-static int iaq_core_init(struct device *dev)
+static int iaq_core_init(const struct device *dev)
 {
-	struct iaq_core_data *drv_data = dev->driver_data;
+	const struct iaq_core_config *config = dev->config;
 
-	drv_data->i2c = device_get_binding(DT_INST_BUS_LABEL(0));
-	if (drv_data->i2c == NULL) {
-		LOG_ERR("Failed to get pointer to %s device!",
-			    DT_INST_BUS_LABEL(0));
-		return -EINVAL;
+	if (!device_is_ready(config->i2c.bus)) {
+		LOG_ERR("Bus device is not ready");
+		return -ENODEV;
 	}
 
 	return 0;
 }
 
-static struct iaq_core_data iaq_core_driver;
+#define IAQ_CORE_DEFINE(inst)								\
+	static struct iaq_core_data iaq_core_data_##inst;				\
+											\
+	static const struct iaq_core_config iaq_core_config_##inst = {			\
+		.i2c = I2C_DT_SPEC_INST_GET(inst),					\
+	};										\
+											\
+	SENSOR_DEVICE_DT_INST_DEFINE(inst, iaq_core_init, NULL, &iaq_core_data_##inst,	\
+			      &iaq_core_config_##inst, POST_KERNEL,			\
+			      CONFIG_SENSOR_INIT_PRIORITY, &iaq_core_driver_api);	\
 
-DEVICE_AND_API_INIT(iaq_core, DT_INST_LABEL(0), iaq_core_init,
-		    &iaq_core_driver, NULL, POST_KERNEL,
-		    CONFIG_SENSOR_INIT_PRIORITY, &iaq_core_driver_api);
+DT_INST_FOREACH_STATUS_OKAY(IAQ_CORE_DEFINE)

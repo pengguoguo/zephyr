@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 #include <kernel_internal.h>
-#include <logging/log.h>
-LOG_MODULE_DECLARE(os);
+#include <zephyr/logging/log.h>
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
-FUNC_NORETURN void z_irq_spurious(void *unused)
+FUNC_NORETURN void z_irq_spurious(const void *unused)
 {
-	ulong_t mcause;
+	unsigned long mcause;
 
 	ARG_UNUSED(unused);
 
@@ -31,8 +31,8 @@ FUNC_NORETURN void z_irq_spurious(void *unused)
 
 #ifdef CONFIG_DYNAMIC_INTERRUPTS
 int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
-			     void (*routine)(void *parameter), void *parameter,
-			     uint32_t flags)
+			     void (*routine)(const void *parameter),
+			     const void *parameter, uint32_t flags)
 {
 	ARG_UNUSED(flags);
 

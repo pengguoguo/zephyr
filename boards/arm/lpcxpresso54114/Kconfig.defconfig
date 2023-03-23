@@ -9,28 +9,15 @@ config BOARD
 	default "lpcxpresso54114_m4" if BOARD_LPCXPRESSO54114_M4
 	default "lpcxpresso54114_m0" if BOARD_LPCXPRESSO54114_M0
 
-if PINMUX_MCUX_LPC
+# Place size restrictions on first image if dual core is enabled
+if SECOND_CORE_MCUX && BOARD_LPCXPRESSO54114_M4
 
-config PINMUX_MCUX_LPC_PORT0
-	default y
+# Workaround for not being able to have commas in macro arguments
+DT_CHOSEN_Z_CODE_PARTITION := zephyr,code-partition
 
-config PINMUX_MCUX_LPC_PORT1
-	default y
+config FLASH_LOAD_SIZE
+	default $(dt_chosen_reg_size_hex,$(DT_CHOSEN_Z_CODE_PARTITION))
 
-endif # PINMUX_MCUX_LPC
-
-if GPIO_MCUX_LPC
-
-config GPIO_MCUX_LPC_PORT0
-	default y
-
-config GPIO_MCUX_LPC_PORT1
-	default y
-
-endif # GPIO_MCUX_LPC
-
-config SPI_5
-	default y
-	depends on SPI
+endif # SECOND_CORE_MCUX && BOARD_LPCXPRESSO54114_M4
 
 endif # BOARD_LPCXPRESSO54114_M4 || BOARD_LPCXPRESSO54114_M0

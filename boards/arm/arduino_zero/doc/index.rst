@@ -10,8 +10,7 @@ The Arduino Zero is a maker-friendly development board with
 Atmel’s Embedded Debugger (EDBG), which provides a full
 debug interface without the need for additional hardware.
 
-.. image:: img/arduino_zero.png
-     :width: 500px
+.. image:: img/arduino_zero.jpg
      :align: center
      :alt: Arduino Zero
 
@@ -52,6 +51,8 @@ features:
 | SPI       | on-chip    | Serial Peripheral Interface ports        |
 +-----------+------------+------------------------------------------+
 | USB       | on-chip    | USB device                               |
++-----------+------------+------------------------------------------+
+| DAC       | on-chip    | Digital to analogue converter            |
 +-----------+------------+------------------------------------------+
 
 Other hardware features are not currently supported by Zephyr.
@@ -101,6 +102,12 @@ with a host PC.  See the :ref:`usb-samples` sample applications for
 more, such as the :ref:`usb_cdc-acm` sample which sets up a virtual
 serial port that echos characters back to the host PC.
 
+DAC
+===
+
+The SAMD21 MCU has a single channel DAC with 10 bits of resolution. On the
+Arduino Zero, the DAC is available on pin A0.
+
 Programming and Debugging
 *************************
 
@@ -145,7 +152,7 @@ Flashing
       :goals: flash
       :compact:
 
-   You should see "Hello World! arm" in your terminal.
+   You should see "Hello World! arduino_zero" in your terminal.
 
 References
 **********

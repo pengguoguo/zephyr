@@ -10,7 +10,7 @@
  * @{
  */
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 static ZTEST_DMEM unsigned char __aligned(4) data[] = "abcdefgh";
 static struct k_pipe pipe = {
@@ -20,11 +20,16 @@ static struct k_pipe pipe = {
 
 static struct k_pipe bufferless;
 
+static struct k_pipe bufferless1 = {
+	.buffer = data,
+	.size = 0,
+};
+
 /**
- * @brief Ensure that bufferless pipes return 0 bytes available
+ * @brief Pipes with no buffer or size 0 should return 0 bytes available
  *
  * Pipes can be created to be bufferless (i.e. @ref k_pipe.buffer is `NULL`
- * and @ref k_pipe.size is 0).
+ * or @ref k_pipe.size is 0).
  *
  * If either of those conditions is true, then @ref k_pipe_read_avail and
  * @ref k_pipe_write_avail should return 0.
@@ -35,7 +40,7 @@ static struct k_pipe bufferless;
  * simultaneously return 0 for a buffered pipe, but they will both return 0
  * for an unbuffered pipe.
  */
-void test_pipe_avail_no_buffer(void)
+ZTEST(pipe_api, test_pipe_avail_no_buffer)
 {
 	size_t r_avail;
 	size_t w_avail;
@@ -44,6 +49,12 @@ void test_pipe_avail_no_buffer(void)
 	zassert_equal(r_avail, 0, "read: expected: 0 actual: %u", r_avail);
 
 	w_avail = k_pipe_write_avail(&bufferless);
+	zassert_equal(w_avail, 0, "write: expected: 0 actual: %u", w_avail);
+
+	r_avail = k_pipe_read_avail(&bufferless1);
+	zassert_equal(r_avail, 0, "read: expected: 0 actual: %u", r_avail);
+
+	w_avail = k_pipe_write_avail(&bufferless1);
 	zassert_equal(w_avail, 0, "write: expected: 0 actual: %u", w_avail);
 }
 
@@ -69,7 +80,7 @@ void test_pipe_avail_no_buffer(void)
  *     w_avail = N - (w - r) = 5
  *     would overwrite: e f g h
  */
-void test_pipe_avail_r_lt_w(void)
+ZTEST(pipe_api, test_pipe_avail_r_lt_w)
 {
 	size_t r_avail;
 	size_t w_avail;
@@ -108,7 +119,7 @@ void test_pipe_avail_r_lt_w(void)
  *     w_avail = r - w = 3
  *     would overwrite: a b c d
  */
-void test_pipe_avail_w_lt_r(void)
+ZTEST(pipe_api, test_pipe_avail_w_lt_r)
 {
 	size_t r_avail;
 	size_t w_avail;
@@ -132,7 +143,7 @@ void test_pipe_avail_w_lt_r(void)
  * @ref k_pipe.bytes_used is zero.
  *
  * In this case, @ref k_pipe.bytes_used is relevant because the read and
- * write indeces are equal.
+ * write indices are equal.
  *
  *            r
  *            w
@@ -151,7 +162,7 @@ void test_pipe_avail_w_lt_r(void)
  *     w_avail = N - 0 = 8
  *     would overwrite: e f g h a b c d
  */
-void test_pipe_avail_r_eq_w_empty(void)
+ZTEST(pipe_api, test_pipe_avail_r_eq_w_empty)
 {
 	size_t r_avail;
 	size_t w_avail;
@@ -175,7 +186,7 @@ void test_pipe_avail_r_eq_w_empty(void)
  * @ref k_pipe.bytes_used is equal to @ref k_pipe.size.
  *
  * In this case, @ref k_pipe.bytes_used is relevant because the read and
- * write indeces are equal.
+ * write indices are equal.
  *
  *            r
  *            w
@@ -194,7 +205,7 @@ void test_pipe_avail_r_eq_w_empty(void)
  *     w_avail = N - 8 = 0
  *     would overwrite:
  */
-void test_pipe_avail_r_eq_w_full(void)
+ZTEST(pipe_api, test_pipe_avail_r_eq_w_full)
 {
 	size_t r_avail;
 	size_t w_avail;

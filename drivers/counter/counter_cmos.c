@@ -11,19 +11,21 @@
  * crossing clock domains (no pun intended). Use accordingly.
  */
 
-#include <drivers/counter.h>
-#include <device.h>
+#define DT_DRV_COMPAT motorola_mc146818
+
+#include <zephyr/drivers/counter.h>
+#include <zephyr/device.h>
 #include <soc.h>
 
 /* The "CMOS" device is accessed via an address latch and data port. */
 
-#define X86_CMOS_ADDR 0x70
-#define X86_CMOS_DATA 0x71
+#define X86_CMOS_ADDR (DT_INST_REG_ADDR_BY_IDX(0, 0))
+#define X86_CMOS_DATA (DT_INST_REG_ADDR_BY_IDX(0, 1))
 
 /*
  * A snapshot of the RTC state, or at least the state we're
  * interested in. This struct should not be modified without
- * serious consideraton, for two reasons:
+ * serious consideration, for two reasons:
  *
  *	1. Order of the element is important, and must correlate
  *	   with addrs[] and NR_BCD_VALS (see below), and
@@ -44,7 +46,7 @@ struct state {
 
 /*
  * If the clock is in BCD mode, the first NR_BCD_VALS
- * valies in 'struct state' are BCD-encoded.
+ * values in 'struct state' are BCD-encoded.
  */
 
 #define NR_BCD_VALS 6
@@ -128,7 +130,7 @@ static uint32_t hinnant(int y, int m, int d)
  * This function is long, but linear and easy to follow.
  */
 
-int get_value(struct device *dev, uint32_t *ticks)
+int get_value(const struct device *dev, uint32_t *ticks)
 {
 	struct state state, state2;
 	uint64_t *pun = (uint64_t *) &state;
@@ -154,14 +156,14 @@ int get_value(struct device *dev, uint32_t *ticks)
 	 * the HOUR_PM flag before we adjust for BCD.
 	 */
 
-	if (state.status_b & STATUS_B_24HR) {
+	if ((state.status_b & STATUS_B_24HR) != 0U) {
 		pm = false;
 	} else {
 		pm = ((state.hour & HOUR_PM) == HOUR_PM);
 		state.hour &= ~HOUR_PM;
 	}
 
-	if (!(state.status_b & STATUS_B_BIN)) {
+	if ((state.status_b & STATUS_B_BIN) == 0U) {
 		uint8_t *cp = (uint8_t *) &state;
 		int i;
 
@@ -192,7 +194,7 @@ int get_value(struct device *dev, uint32_t *ticks)
 	return 0;
 }
 
-static int init(struct device *dev)
+static int init(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
@@ -208,5 +210,5 @@ static const struct counter_driver_api api = {
 	.get_value = get_value
 };
 
-DEVICE_AND_API_INIT(counter_cmos, "CMOS", init, NULL, &info,
-		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &api);
+DEVICE_DT_INST_DEFINE(0, &init, NULL, NULL, &info,
+		      POST_KERNEL, CONFIG_COUNTER_INIT_PRIORITY, &api);

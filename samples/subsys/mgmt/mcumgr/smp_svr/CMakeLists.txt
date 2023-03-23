@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13.1)
+cmake_minimum_required(VERSION 3.20.0)
 # Top-level CMakeLists.txt for the skeleton application.
 #
 # Copyright (c) 2017 Open Source Foundries Limited
@@ -13,5 +13,4 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(smp_svr)
 
 target_sources(app PRIVATE src/main.c)
-target_sources_ifdef(CONFIG_MCUMGR_SMP_BT app PRIVATE src/bluetooth.c)
-target_sources_ifdef(CONFIG_MCUMGR_SMP_UDP app PRIVATE src/udp.c)
+target_sources_ifdef(CONFIG_MCUMGR_TRANSPORT_BT app PRIVATE src/bluetooth.c)

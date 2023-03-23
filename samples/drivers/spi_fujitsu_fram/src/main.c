@@ -5,10 +5,10 @@
  */
 
 #include <errno.h>
-#include <zephyr.h>
-#include <sys/printk.h>
-#include <device.h>
-#include <drivers/spi.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/spi.h>
 
 /**
  * @file Sample app using the Fujitsu MB85RS64V FRAM through SPI.
@@ -22,7 +22,8 @@
 
 static uint8_t data[MAX_USER_DATA_LENGTH], cmp_data[MAX_USER_DATA_LENGTH];
 
-static int mb85rs64v_access(struct device *spi, struct spi_config *spi_cfg,
+static int mb85rs64v_access(const struct device *spi,
+			    struct spi_config *spi_cfg,
 			    uint8_t cmd, uint16_t addr, void *data, size_t len)
 {
 	uint8_t access[3];
@@ -64,7 +65,8 @@ static int mb85rs64v_access(struct device *spi, struct spi_config *spi_cfg,
 }
 
 
-static int mb85rs64v_read_id(struct device *spi, struct spi_config *spi_cfg)
+static int mb85rs64v_read_id(const struct device *spi,
+			     struct spi_config *spi_cfg)
 {
 	uint8_t id[4];
 	int err;
@@ -95,7 +97,7 @@ static int mb85rs64v_read_id(struct device *spi, struct spi_config *spi_cfg)
 	return 0;
 }
 
-static int write_bytes(struct device *spi, struct spi_config *spi_cfg,
+static int write_bytes(const struct device *spi, struct spi_config *spi_cfg,
 		       uint16_t addr, uint8_t *data, uint32_t num_bytes)
 {
 	int err;
@@ -119,7 +121,7 @@ static int write_bytes(struct device *spi, struct spi_config *spi_cfg,
 	return 0;
 }
 
-static int read_bytes(struct device *spi, struct spi_config *spi_cfg,
+static int read_bytes(const struct device *spi, struct spi_config *spi_cfg,
 		      uint16_t addr, uint8_t *data, uint32_t num_bytes)
 {
 	int err;
@@ -137,15 +139,15 @@ static int read_bytes(struct device *spi, struct spi_config *spi_cfg,
 
 void main(void)
 {
-	struct device *spi;
-	struct spi_config spi_cfg;
+	const struct device *spi;
+	struct spi_config spi_cfg = {0};
 	int err;
 
 	printk("fujitsu FRAM example application\n");
 
-	spi = device_get_binding(DT_LABEL(DT_ALIAS(spi_1)));
-	if (!spi) {
-		printk("Could not find SPI driver\n");
+	spi = DEVICE_DT_GET(DT_ALIAS(spi_1));
+	if (!device_is_ready(spi)) {
+		printk("SPI device %s is not ready\n", spi->name);
 		return;
 	}
 
@@ -163,7 +165,7 @@ void main(void)
 	data[0] = 0xAE;
 	err = write_bytes(spi, &spi_cfg, 0x00, data, 1);
 	if (err) {
-		printk("Error writing to FRAM! errro code (%d)\n", err);
+		printk("Error writing to FRAM! error code (%d)\n", err);
 		return;
 	} else {
 		printk("Wrote 0xAE to address 0x00.\n");

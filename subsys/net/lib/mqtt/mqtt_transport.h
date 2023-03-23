@@ -12,7 +12,7 @@
 #ifndef MQTT_TRANSPORT_H_
 #define MQTT_TRANSPORT_H_
 
-#include <net/mqtt.h>
+#include <zephyr/net/mqtt.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -146,6 +146,17 @@ int mqtt_client_websocket_write_msg(struct mqtt_client *client,
 int mqtt_client_websocket_read(struct mqtt_client *client, uint8_t *data,
 			       uint32_t buflen, bool shall_block);
 int mqtt_client_websocket_disconnect(struct mqtt_client *client);
+#endif
+
+#if defined(CONFIG_MQTT_LIB_CUSTOM_TRANSPORT)
+int mqtt_client_custom_transport_connect(struct mqtt_client *client);
+int mqtt_client_custom_transport_write(struct mqtt_client *client, const uint8_t *data,
+				uint32_t datalen);
+int mqtt_client_custom_transport_write_msg(struct mqtt_client *client,
+				    const struct msghdr *message);
+int mqtt_client_custom_transport_read(struct mqtt_client *client, uint8_t *data,
+			       uint32_t buflen, bool shall_block);
+int mqtt_client_custom_transport_disconnect(struct mqtt_client *client);
 #endif
 
 #ifdef __cplusplus

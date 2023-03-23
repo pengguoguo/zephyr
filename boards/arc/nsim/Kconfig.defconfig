@@ -5,8 +5,4 @@ if BOARD_NSIM
 config BOARD
 	default "nsim"
 
-config UART_NSIM
-	default y
-	depends on SERIAL
-
 endif # BOARD_NSIM

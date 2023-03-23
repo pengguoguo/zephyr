@@ -4,37 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/adc.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/adc.h>
 #include <stdio.h>
+#include <math.h>
 
 #define LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
+/* Nominal RTD (PT100) resistance in ohms */
 #define RTD_NOMINAL_RESISTANCE 100
 
-static double sqrt(double value)
-{
-	double sqrt = value / 3;
-	int i;
+/* ADC resolution in bits */
+#define ADC_RESOLUTION 24U
 
-	if (value <= 0) {
-		return 0;
-	}
+/* ADC maximum value (taking sign bit into consideration) */
+#define ADC_MAX BIT_MASK(ADC_RESOLUTION - 1)
 
-	for (i = 0; i < 6; i++) {
-		sqrt = (sqrt + value / sqrt) / 2;
-	}
-
-	return sqrt;
-}
+/* Bottom resistor value in ohms */
+#define BOTTOM_RESISTANCE 2000
 
 static double rtd_temperature(int nom, double resistance)
 {
-	double a0 =  3.90802E-3;
-	double b0 = -0.58020E-6;
+	const double a0 =  3.90802E-3;
+	const double b0 = -0.58020E-6;
 	double temp;
 
 	temp = -nom * a0;
@@ -47,7 +42,7 @@ static double rtd_temperature(int nom, double resistance)
 
 void main(void)
 {
-	struct device *lmp90100;
+	const struct device *const lmp90100 = DEVICE_DT_GET_ONE(ti_lmp90100);
 	double resistance;
 	int32_t buffer;
 	int err;
@@ -65,14 +60,13 @@ void main(void)
 		.channels = BIT(0),
 		.buffer = &buffer,
 		.buffer_size = sizeof(buffer),
-		.resolution = 24,
+		.resolution = ADC_RESOLUTION,
 		.oversampling = 0,
 		.calibrate = 0
 	};
 
-	lmp90100 = device_get_binding(DT_LABEL(DT_INST(0, ti_lmp90100)));
-	if (!lmp90100) {
-		LOG_ERR("LMP90100 device not found");
+	if (!device_is_ready(lmp90100)) {
+		LOG_ERR("LMP90100 device not ready");
 		return;
 	}
 
@@ -87,7 +81,7 @@ void main(void)
 		if (err) {
 			LOG_ERR("failed to read ADC (err %d)", err);
 		} else {
-			resistance = (buffer / 8388608.0) * 2000;
+			resistance = (buffer / (double)ADC_MAX) * BOTTOM_RESISTANCE;
 			printf("R: %.02f ohm\n", resistance);
 			printf("T: %.02f degC\n",
 				rtd_temperature(RTD_NOMINAL_RESISTANCE,

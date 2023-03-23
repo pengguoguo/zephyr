@@ -6,9 +6,10 @@
 
 #ifndef _TEST_SYSCALLS_H_
 #define _TEST_SYSCALLS_H_
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 
 __syscall void test_arm_user_syscall(void);
+__syscall void test_arm_cpu_write_reg(void);
 
 #include <syscalls/test_syscalls.h>
 

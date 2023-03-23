@@ -6,27 +6,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define DT_DRV_COMPAT nxp_kw41z_ieee802154
+
 #define LOG_MODULE_NAME ieee802154_kw41z
 #define LOG_LEVEL CONFIG_IEEE802154_DRIVER_LOG_LEVEL
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
-#include <zephyr.h>
-#include <kernel.h>
-#include <device.h>
-#include <init.h>
-#include <irq.h>
-#include <net/ieee802154_radio.h>
-#include <net/net_if.h>
-#include <net/net_pkt.h>
-#include <sys/byteorder.h>
-#include <random/rand32.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/irq.h>
+#include <zephyr/net/ieee802154_radio.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/random/rand32.h>
 
 #include "fsl_xcvr.h"
 
 #if defined(CONFIG_NET_L2_OPENTHREAD)
-#include <net/openthread.h>
+#include <zephyr/net/openthread.h>
 #endif
 
 
@@ -68,7 +69,7 @@ int kw41_dbg_idx;
 		if (++kw41_dbg_idx == KW41_DBG_TRACE_SIZE) { \
 			kw41_dbg_idx = 0; \
 		} \
-	} while (0)
+	} while (false)
 
 #else
 
@@ -98,7 +99,7 @@ int kw41_dbg_idx;
 				ZLL_IRQSTS_TMR4MSK_MASK)
 
 /*
- * Clear channel assement types. Note that there is an extra one when
+ * Clear channel assessment types. Note that there is an extra one when
  * bit 26 is included for "No CCA before transmit" if we are handling
  * ACK frames but we will let the hardware handle that automatically.
  */
@@ -204,7 +205,7 @@ static inline void kw41z_wait_for_idle(void)
 
 static void kw41z_phy_abort(void)
 {
-	int key;
+	unsigned int key;
 
 	key = irq_lock();
 
@@ -328,7 +329,7 @@ static void kw41z_tmr3_set_timeout(uint32_t timeout)
 	ZLL->PHY_CTRL &= ~ZLL_PHY_CTRL_TMR3CMP_EN_MASK;
 	ZLL->T3CMP = timeout & ZLL_T3CMP_T3CMP_MASK;
 
-	/* aknowledge TMR3 IRQ */
+	/* acknowledge TMR3 IRQ */
 	irqsts  = ZLL->IRQSTS & BM_ZLL_IRQSTS_TMRxMSK;
 	irqsts |= ZLL_IRQSTS_TMR3IRQ_MASK;
 	ZLL->IRQSTS = irqsts;
@@ -350,13 +351,13 @@ static void kw41z_tmr3_disable(void)
 	/* mask TMR3 interrupt (do not change other IRQ status) */
 	irqsts  = ZLL->IRQSTS & BM_ZLL_IRQSTS_TMRxMSK;
 	irqsts |= ZLL_IRQSTS_TMR3MSK_MASK;
-	/* aknowledge TMR3 IRQ */
+	/* acknowledge TMR3 IRQ */
 	irqsts |= ZLL_IRQSTS_TMR3IRQ_MASK;
 
 	ZLL->IRQSTS = irqsts;
 }
 
-static enum ieee802154_hw_caps kw41z_get_capabilities(struct device *dev)
+static enum ieee802154_hw_caps kw41z_get_capabilities(const struct device *dev)
 {
 	return IEEE802154_HW_FCS |
 		IEEE802154_HW_2_4_GHZ |
@@ -364,9 +365,9 @@ static enum ieee802154_hw_caps kw41z_get_capabilities(struct device *dev)
 		IEEE802154_HW_TX_RX_ACK;
 }
 
-static int kw41z_cca(struct device *dev)
+static int kw41z_cca(const struct device *dev)
 {
-	struct kw41z_context *kw41z = dev->driver_data;
+	struct kw41z_context *kw41z = dev->data;
 
 	kw41z_phy_abort();
 
@@ -383,7 +384,7 @@ static int kw41z_cca(struct device *dev)
 	return kw41z->seq_retval;
 }
 
-static int kw41z_set_channel(struct device *dev, uint16_t channel)
+static int kw41z_set_channel(const struct device *dev, uint16_t channel)
 {
 	if (channel < 11 || channel > 26) {
 		return -EINVAL;
@@ -393,7 +394,7 @@ static int kw41z_set_channel(struct device *dev, uint16_t channel)
 	return 0;
 }
 
-static int kw41z_set_pan_id(struct device *dev, uint16_t pan_id)
+static int kw41z_set_pan_id(const struct device *dev, uint16_t pan_id)
 {
 	ZLL->MACSHORTADDRS0 = (ZLL->MACSHORTADDRS0 &
 			       ~ZLL_MACSHORTADDRS0_MACPANID0_MASK) |
@@ -401,7 +402,7 @@ static int kw41z_set_pan_id(struct device *dev, uint16_t pan_id)
 	return 0;
 }
 
-static int kw41z_set_short_addr(struct device *dev, uint16_t short_addr)
+static int kw41z_set_short_addr(const struct device *dev, uint16_t short_addr)
 {
 	ZLL->MACSHORTADDRS0 = (ZLL->MACSHORTADDRS0 &
 			       ~ZLL_MACSHORTADDRS0_MACSHORTADDRS0_MASK) |
@@ -409,7 +410,8 @@ static int kw41z_set_short_addr(struct device *dev, uint16_t short_addr)
 	return 0;
 }
 
-static int kw41z_set_ieee_addr(struct device *dev, const uint8_t *ieee_addr)
+static int kw41z_set_ieee_addr(const struct device *dev,
+			       const uint8_t *ieee_addr)
 {
 	uint32_t val;
 
@@ -422,7 +424,7 @@ static int kw41z_set_ieee_addr(struct device *dev, const uint8_t *ieee_addr)
 	return 0;
 }
 
-static int kw41z_filter(struct device *dev,
+static int kw41z_filter(const struct device *dev,
 			bool set,
 			enum ieee802154_filter_type type,
 			const struct ieee802154_filter *filter)
@@ -444,7 +446,7 @@ static int kw41z_filter(struct device *dev,
 	return -ENOTSUP;
 }
 
-static int kw41z_set_txpower(struct device *dev, int16_t dbm)
+static int kw41z_set_txpower(const struct device *dev, int16_t dbm)
 {
 	if (dbm < KW41Z_OUTPUT_POWER_MIN) {
 		LOG_INF("TX-power %d dBm below min of %d dBm, using %d dBm",
@@ -465,7 +467,7 @@ static int kw41z_set_txpower(struct device *dev, int16_t dbm)
 	return 0;
 }
 
-static int kw41z_start(struct device *dev)
+static int kw41z_start(const struct device *dev)
 {
 	irq_enable(Radio_1_IRQn);
 
@@ -475,7 +477,7 @@ static int kw41z_start(struct device *dev)
 	return 0;
 }
 
-static int kw41z_stop(struct device *dev)
+static int kw41z_stop(const struct device *dev)
 {
 	irq_disable(Radio_1_IRQn);
 
@@ -512,8 +514,8 @@ static inline void kw41z_rx(struct kw41z_context *kw41z, uint8_t len)
 	pkt_len = len - KW41Z_FCS_LENGTH;
 #endif
 
-	pkt = net_pkt_alloc_with_buffer(kw41z->iface, pkt_len,
-					AF_UNSPEC, 0, K_NO_WAIT);
+	pkt = net_pkt_rx_alloc_with_buffer(kw41z->iface, pkt_len,
+					   AF_UNSPEC, 0, K_NO_WAIT);
 	if (!pkt) {
 		LOG_ERR("No buf available");
 		goto out;
@@ -580,8 +582,8 @@ static void handle_ack(struct kw41z_context *kw41z, uint8_t seq_number)
 	struct net_pkt *ack_pkt;
 	uint8_t ack_psdu[ACK_FRAME_LEN];
 
-	ack_pkt = net_pkt_alloc_with_buffer(kw41z->iface, ACK_FRAME_LEN,
-					    AF_UNSPEC, 0, K_NO_WAIT);
+	ack_pkt = net_pkt_rx_alloc_with_buffer(kw41z->iface, ACK_FRAME_LEN,
+					       AF_UNSPEC, 0, K_NO_WAIT);
 	if (!ack_pkt) {
 		LOG_ERR("No free packet available.");
 		return;
@@ -612,14 +614,14 @@ out:
 	net_pkt_unref(ack_pkt);
 }
 
-static int kw41z_tx(struct device *dev, enum ieee802154_tx_mode mode,
+static int kw41z_tx(const struct device *dev, enum ieee802154_tx_mode mode,
 		    struct net_pkt *pkt, struct net_buf *frag)
 {
-	struct kw41z_context *kw41z = dev->driver_data;
+	struct kw41z_context *kw41z = dev->data;
 	uint8_t payload_len = frag->len;
 	uint32_t tx_timeout;
 	uint8_t xcvseq;
-	int key;
+	unsigned int key;
 
 	if (mode != IEEE802154_TX_MODE_DIRECT) {
 		NET_ERR("TX mode %d not supported", mode);
@@ -705,7 +707,7 @@ static int kw41z_tx(struct device *dev, enum ieee802154_tx_mode mode,
 		handle_ack(kw41z, frag->data[2]);
 	}
 
-	LOG_DBG("seq_retval: %d", kw41z->seq_retval);
+	LOG_DBG("seq_retval: %ld", kw41z->seq_retval);
 	return kw41z->seq_retval;
 }
 
@@ -924,9 +926,9 @@ static void kw41z_isr(int unused)
 	}
 }
 
-static inline uint8_t *get_mac(struct device *dev)
+static inline uint8_t *get_mac(const struct device *dev)
 {
-	struct kw41z_context *kw41z = dev->driver_data;
+	struct kw41z_context *kw41z = dev->data;
 
 	/*
 	 * The KW40Z has two 32-bit registers for the MAC address where
@@ -947,7 +949,7 @@ static inline uint8_t *get_mac(struct device *dev)
 
 	/*
 	 * Clear bit 0 to ensure it isn't a multicast address and set
-	 * bit 1 to indicate address is locally administrered and may
+	 * bit 1 to indicate address is locally administered and may
 	 * not be globally unique.
 	 */
 	kw41z->mac_addr[0] = (kw41z->mac_addr[0] & ~0x01) | 0x02;
@@ -955,9 +957,9 @@ static inline uint8_t *get_mac(struct device *dev)
 	return kw41z->mac_addr;
 }
 
-static int kw41z_init(struct device *dev)
+static int kw41z_init(const struct device *dev)
 {
-	struct kw41z_context *kw41z = dev->driver_data;
+	struct kw41z_context *kw41z = dev->data;
 	xcvrStatus_t xcvrStatus;
 
 	xcvrStatus = XCVR_Init(ZIGBEE_MODE, DR_500KBPS);
@@ -1001,7 +1003,7 @@ static int kw41z_init(struct device *dev)
 			       ZLL_RX_FRAME_FILTER_ACK_FT_MASK		|
 			       ZLL_RX_FRAME_FILTER_BEACON_FT_MASK;
 
-	/* Set prescaller to obtain 1 symbol (16us) timebase */
+	/* Set prescaler to obtain 1 symbol (16us) timebase */
 	ZLL->TMR_PRESCALE = 0x05;
 
 	kw41z_tmr3_disable();
@@ -1062,8 +1064,8 @@ static int kw41z_init(struct device *dev)
 
 static void kw41z_iface_init(struct net_if *iface)
 {
-	struct device *dev = net_if_get_device(iface);
-	struct kw41z_context *kw41z = dev->driver_data;
+	const struct device *dev = net_if_get_device(iface);
+	struct kw41z_context *kw41z = dev->data;
 	uint8_t *mac = get_mac(dev);
 
 #if defined(CONFIG_KW41_DBG_TRACE)
@@ -1075,7 +1077,8 @@ static void kw41z_iface_init(struct net_if *iface)
 	ieee802154_init(iface);
 }
 
-static int kw41z_configure(struct device *dev, enum ieee802154_config_type type,
+static int kw41z_configure(const struct device *dev,
+			   enum ieee802154_config_type type,
 			   const struct ieee802154_config *config)
 {
 	return 0;
@@ -1109,11 +1112,10 @@ static struct ieee802154_radio_api kw41z_radio_api = {
 
 #endif
 
-NET_DEVICE_INIT(
-	kw41z,                              /* Device Name */
-	CONFIG_IEEE802154_KW41Z_DRV_NAME,   /* Driver Name */
+NET_DEVICE_DT_INST_DEFINE(
+	0,
 	kw41z_init,                         /* Initialization Function */
-	device_pm_control_nop,              /* No PM API support */
+	NULL,              /* No PM API support */
 	&kw41z_context_data,                /* Context data */
 	NULL,                               /* Configuration info */
 	CONFIG_IEEE802154_KW41Z_INIT_PRIO,  /* Initial priority */

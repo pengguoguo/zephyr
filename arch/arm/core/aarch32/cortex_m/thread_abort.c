@@ -16,37 +16,38 @@
  * must queue the PendSV exception.
  */
 
-#include <kernel.h>
-#include <toolchain.h>
-#include <linker/sections.h>
+#include <zephyr/kernel.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/linker/sections.h>
 #include <ksched.h>
 #include <kswap.h>
-#include <wait_q.h>
-#include <sys/__assert.h>
-
-extern void z_thread_single_abort(struct k_thread *thread);
+#include <zephyr/wait_q.h>
+#include <zephyr/sys/__assert.h>
 
 void z_impl_k_thread_abort(k_tid_t thread)
 {
-	unsigned int key;
-
-	key = irq_lock();
-
-	__ASSERT(!(thread->base.user_options & K_ESSENTIAL),
-		 "essential thread aborted");
-
-	z_thread_single_abort(thread);
-	z_thread_monitor_exit(thread);
-
 	if (_current == thread) {
-		if ((SCB->ICSR & SCB_ICSR_VECTACTIVE_Msk) == 0) {
-			(void)z_swap_irqlock(key);
-			CODE_UNREACHABLE;
-		} else {
+		if (arch_is_in_isr()) {
+			/* ARM is unlike most arches in that this is true
+			 * even for non-peripheral interrupts, even though
+			 * for these types of faults there is not an implicit
+			 * reschedule on the way out. See #21923.
+			 *
+			 * We have to reschedule since the current thread
+			 * should no longer run after we return, so
+			 * Trigger PendSV, in case we are in one of the
+			 * situations where the isr check is true but there
+			 * is not an implicit scheduler invocation.
+			 */
 			SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+			/* Clear any system calls that may be pending
+			 * as they have a higher priority than the PendSV
+			 * handler and will check the stack of the thread
+			 * being aborted.
+			 */
+			SCB->SHCSR &= ~SCB_SHCSR_SVCALLPENDED_Msk;
 		}
 	}
 
-	/* The abort handler might have altered the ready queue. */
-	z_reschedule_irqlock(key);
+	z_thread_abort(thread);
 }

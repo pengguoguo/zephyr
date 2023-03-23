@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <zephyr.h>
-#include <ztest.h>
-#include <kernel.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
 
 /*
  * Test that meta-IRQs return to the cooperative thread they preempted.
@@ -18,7 +17,7 @@
  * afterwards.
  */
 
-#if defined(CONFIG_SMP) && CONFIG_MP_NUM_CPUS > 1
+#if defined(CONFIG_SMP) && CONFIG_MP_MAX_NUM_CPUS > 1
 #error Meta-IRQ test requires single-CPU operation
 #endif
 
@@ -29,6 +28,24 @@
 #if CONFIG_NUM_COOP_PRIORITIES < 2
 #error Need two cooperative priorities
 #endif
+
+
+#define STACKSIZE 1024
+#define DEFINE_PARTICIPANT_THREAD(id)                                       \
+		K_THREAD_STACK_DEFINE(thread_##id##_stack_area, STACKSIZE); \
+		struct k_thread thread_##id##_thread_data;                  \
+		k_tid_t thread_##id##_tid;
+
+#define PARTICIPANT_THREAD_OPTIONS (0)
+#define CREATE_PARTICIPANT_THREAD(id, pri, entry)                                      \
+		k_thread_create(&thread_##id##_thread_data, thread_##id##_stack_area,  \
+			K_THREAD_STACK_SIZEOF(thread_##id##_stack_area),               \
+			(k_thread_entry_t)entry,                                       \
+			NULL, NULL, NULL,                                              \
+			pri, PARTICIPANT_THREAD_OPTIONS, K_FOREVER);
+#define START_PARTICIPANT_THREAD(id) k_thread_start(&(thread_##id##_thread_data));
+#define JOIN_PARTICIPANT_THREAD(id) k_thread_join(&(thread_##id##_thread_data), K_FOREVER);
+
 
 K_SEM_DEFINE(metairq_sem, 0, 1);
 K_SEM_DEFINE(coop_sem1, 0, 1);
@@ -59,7 +76,7 @@ void metairq_thread(void)
 	printk("give sem1\n");
 	k_sem_give(&coop_sem1);
 
-	printk("metairq end\n");
+	printk("metairq end, should switch back to co-op thread2\n");
 
 	k_sem_give(&metairq_sem);
 }
@@ -69,7 +86,9 @@ void coop_thread1(void)
 {
 	int cnt1, cnt2;
 
+	printk("thread1 take sem\n");
 	k_sem_take(&coop_sem1, K_FOREVER);
+	printk("thread1 got sem\n");
 
 	/* Expect that low-priority thread has run to completion */
 	cnt1 = coop_cnt1;
@@ -77,7 +96,7 @@ void coop_thread1(void)
 	cnt2 = coop_cnt2;
 	zassert_equal(cnt2, LOOP_CNT, "Unexpected cnt2 at start: %d", cnt2);
 
-	printk("thread1\n");
+	printk("thread1 increments coop_cnt1\n");
 	coop_cnt1++;
 
 	/* Expect that both threads have run to completion */
@@ -94,7 +113,9 @@ void coop_thread2(void)
 {
 	int cnt1, cnt2;
 
+	printk("thread2 take sem\n");
 	k_sem_take(&coop_sem2, K_FOREVER);
+	printk("thread2 got sem\n");
 
 	/* Expect that this is run first */
 	cnt1 = coop_cnt1;
@@ -102,8 +123,14 @@ void coop_thread2(void)
 	cnt2 = coop_cnt2;
 	zassert_equal(cnt2, 0, "Unexpected cnt2 at start: %d", cnt2);
 
+	/* At some point before this loop has finished, the meta-irq thread
+	 * will have woken up and given the semaphore which thread1 was
+	 * waiting on. It then exits. We need to ensure that this thread
+	 * continues to run after that instead of scheduling thread 1
+	 * when the meta-irq exits.
+	 */
 	for (int i = 0; i < LOOP_CNT; i++) {
-		printk("thread2\n");
+		printk("thread2 loop iteration %d\n", i);
 		coop_cnt2++;
 		k_busy_wait(WAIT_MS * 1000);
 	}
@@ -119,18 +146,48 @@ void coop_thread2(void)
 	k_sem_give(&coop_sem2);
 }
 
-K_THREAD_DEFINE(metairq_thread_id, 1024,
-		metairq_thread, 0, 0, 0,
-		K_PRIO_COOP(0), 0, 0);
-K_THREAD_DEFINE(coop_thread1_id, 1024,
-		coop_thread1, 0, 0, 0,
-		K_PRIO_COOP(1), 0, 0);
-K_THREAD_DEFINE(coop_thread2_id, 1024,
-		coop_thread2, 0, 0, 0,
-		K_PRIO_COOP(2), 0, 0);
+DEFINE_PARTICIPANT_THREAD(metairq_thread_id);
+DEFINE_PARTICIPANT_THREAD(coop_thread1_id);
+DEFINE_PARTICIPANT_THREAD(coop_thread2_id);
 
-void test_preempt(void)
+void create_participant_threads(void)
 {
+	CREATE_PARTICIPANT_THREAD(metairq_thread_id, K_PRIO_COOP(0), metairq_thread);
+	CREATE_PARTICIPANT_THREAD(coop_thread1_id, K_PRIO_COOP(1), coop_thread1);
+	CREATE_PARTICIPANT_THREAD(coop_thread2_id, K_PRIO_COOP(2), coop_thread2);
+}
+
+void start_participant_threads(void)
+{
+	START_PARTICIPANT_THREAD(metairq_thread_id);
+	START_PARTICIPANT_THREAD(coop_thread1_id);
+	START_PARTICIPANT_THREAD(coop_thread2_id);
+}
+
+void join_participant_threads(void)
+{
+	JOIN_PARTICIPANT_THREAD(metairq_thread_id);
+	JOIN_PARTICIPANT_THREAD(coop_thread1_id);
+	JOIN_PARTICIPANT_THREAD(coop_thread2_id);
+}
+
+ZTEST(suite_preempt_metairq, test_preempt_metairq)
+{
+	create_participant_threads();
+	start_participant_threads();
+
+	/* This unit test function runs on the ztest thread when
+	 * CONFIG_MULTITHREADING=y.
+	 * The ztest thread has a priority of CONFIG_ZTEST_THREAD_PRIORITY=-1.
+	 * So it is cooperative, which cannot be preempted by the coop_thread1
+	 * and coop_thread2 created and started above.
+	 * This test requires coop_thread1/2 to wait on coop_sem1/2 before the
+	 * metairq thread starts.
+	 * Below sleep ensures the ztest thread relinquish the cpu and give
+	 * coop_thread1/2 a chance to run and wait on coop_sem1/2.
+	 */
+	k_msleep(10);
+
 	/* Kick off meta-IRQ */
 	k_sem_give(&metairq_sem);
 
@@ -138,11 +195,8 @@ void test_preempt(void)
 	k_sem_take(&coop_sem2, K_FOREVER);
 	k_sem_take(&coop_sem1, K_FOREVER);
 	k_sem_take(&metairq_sem, K_FOREVER);
+
+	join_participant_threads();
 }
 
-void test_main(void)
-{
-	ztest_test_suite(suite_preempt,
-			 ztest_unit_test(test_preempt));
-	ztest_run_test_suite(suite_preempt);
-}
+ZTEST_SUITE(suite_preempt_metairq, NULL, NULL, NULL, NULL, NULL);

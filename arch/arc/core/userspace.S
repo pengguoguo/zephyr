@@ -5,11 +5,11 @@
  */
 
 #include <offsets_short.h>
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <kernel_structs.h>
-#include <arch/cpu.h>
-#include <syscall.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/linker/sections.h>
+#include <zephyr/kernel_structs.h>
+#include <zephyr/arch/cpu.h>
+#include <zephyr/syscall.h>
 #include <swap_macros.h>
 #include <v2/irq.h>
 
@@ -52,11 +52,11 @@ GTEXT(arch_user_string_nlen)
 GTEXT(z_arc_user_string_nlen_fault_start)
 GTEXT(z_arc_user_string_nlen_fault_end)
 GTEXT(z_arc_user_string_nlen_fixup)
-/*
+
+/**
  * @brief Wrapper for z_thread_entry in the case of user thread
- * The init parameters are in privileged stack
  *
- * @return N/A
+ * The init parameters are in privileged stack
  */
 SECTION_FUNC(TEXT, z_user_thread_entry_wrapper)
 	seti _ARC_V2_INIT_IRQ_LOCK_KEY
@@ -174,14 +174,10 @@ _arc_go_to_user_space:
 
 	clear_scratch_regs
 
-	mov_s fp, 0
-	mov_s r29, 0
-	mov_s r30, 0
-	mov_s blink, 0
-
-#ifdef CONFIG_EXECUTION_BENCHMARKING
-	bl read_timer_end_of_userspace_enter
-#endif
+	mov fp, 0
+	mov r29, 0
+	mov r30, 0
+	mov blink, 0
 
 	rtie
 
@@ -218,8 +214,8 @@ SECTION_FUNC(TEXT, _arc_do_syscall)
 	/* save return value */
 	st_s r0, [sp, ___isf_t_r0_OFFSET]
 
-	mov_s r29, 0
-	mov_s r30, 0
+	mov r29, 0
+	mov r30, 0
 
 	/* through fake exception return, go back to the caller */
 	lr r0, [_ARC_V2_STATUS32]

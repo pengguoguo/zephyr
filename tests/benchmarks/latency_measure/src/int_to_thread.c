@@ -14,16 +14,15 @@
  * handler back to the interrupted thread.
  */
 
+#include <zephyr/kernel.h>
 #include "utils.h"
-#include "timing_info.h"
 
-#include <arch/cpu.h>
-#include <irq_offload.h>
+#include <zephyr/irq_offload.h>
 
 static volatile int flag_var;
 
-static uint32_t timestamp_start;
-static uint32_t timestamp_end;
+static timing_t timestamp_start;
+static timing_t timestamp_end;
 
 /**
  *
@@ -31,16 +30,13 @@ static uint32_t timestamp_end;
  *
  * The interrupt handler gets the second timestamp.
  *
- * @return N/A
  */
-static void latency_test_isr(void *unused)
+static void latency_test_isr(const void *unused)
 {
 	ARG_UNUSED(unused);
-
 	flag_var = 1;
 
-	TIMING_INFO_PRE_READ();
-	timestamp_start = TIMING_INFO_OS_GET_TIME();
+	timestamp_start = timing_counter_get();
 }
 
 /**
@@ -50,17 +46,15 @@ static void latency_test_isr(void *unused)
  * Function makes all the test preparations: registers the interrupt handler,
  * gets the first timestamp and invokes the software interrupt.
  *
- * @return N/A
  */
 static void make_int(void)
 {
 	flag_var = 0;
 	irq_offload(latency_test_isr, NULL);
 	if (flag_var != 1) {
-		PRINT_FORMAT(" Flag variable has not changed. FAILED\n");
+		printk(" Flag variable has not changed. FAILED\n");
 	} else {
-		TIMING_INFO_PRE_READ();
-		timestamp_end = TIMING_INFO_OS_GET_TIME();
+		timestamp_end = timing_counter_get();
 	}
 }
 
@@ -74,16 +68,13 @@ int int_to_thread(void)
 {
 	uint32_t diff;
 
-	PRINT_FORMAT(" 1 - Measure time to switch from ISR back to"
-		     " interrupted thread");
-	benchmark_timer_start();
+	timing_start();
 	TICK_SYNCH();
 	make_int();
 	if (flag_var == 1) {
-		diff = TIMING_INFO_GET_DELTA(timestamp_start, timestamp_end);
-		PRINT_FORMAT(" switching time is %u tcs = %u nsec",
-			     diff, CYCLES_TO_NS(diff));
+		diff = timing_cycles_get(&timestamp_start, &timestamp_end);
+		PRINT_STATS("Switch from ISR back to interrupted thread", diff);
 	}
-	benchmark_timer_stop();
+	timing_stop();
 	return 0;
 }

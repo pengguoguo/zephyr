@@ -11,10 +11,10 @@ toolchain:
 supported:
   - adc
   - counter
+  - dac
   - dma
   - gpio
   - hwinfo
-  - pinmux
   - pwm
   - spi
   - uart

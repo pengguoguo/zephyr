@@ -5,8 +5,7 @@
  */
 
 #include <arm/armv8-m.dtsi>
-#include <dt-bindings/i2c/i2c.h>
-#include <dt-bindings/gpio/gpio.h>
+#include "nrf_common.dtsi"
 
 / {
 	cpus {
@@ -29,6 +28,7 @@
 	};
 
 	chosen {
+		zephyr,entropy = &psa_rng;
 		zephyr,flash-controller = &flash_controller;
 	};
 
@@ -52,8 +52,12 @@
 			reg = <0x40031000 0x1000>;
 			interrupts = <49 5>;
 			status = "disabled";
-			label = "GPIOTE_1";
 		};
+	};
+
+	psa_rng: psa-rng {
+		compatible = "zephyr,psa-crypto-rng";
+		status = "okay";
 	};
 };
 

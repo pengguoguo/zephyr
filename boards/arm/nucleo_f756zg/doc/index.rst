@@ -45,9 +45,7 @@ Key Features
 - Arm* Mbed Enabled* compliant (only for some Nucleo part numbers)
 
 .. image:: img/nucleo_f756zg.jpg
-   :width: 720px
    :align: center
-   :height: 720px
    :alt: Nucleo F756ZG
 
 More information about the board can be found at the `Nucleo F756ZG website`_.
@@ -140,7 +138,7 @@ and a ST morpho connector. Board is configured as follows:
 - USB DP : PA12
 - I2C : PB8, PB9
 - PWM : PE13
-- SPI : PA4, PA5, PA6, PA7
+- SPI : PD14, PA5, PA6, PA7
 
 Note. The Arduino Uno v3 specified SPI device conflicts with the on-board ETH
 device on pin PA7.

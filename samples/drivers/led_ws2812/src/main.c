@@ -9,16 +9,16 @@
 #include <string.h>
 
 #define LOG_LEVEL 4
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
-#include <zephyr.h>
-#include <drivers/led_strip.h>
-#include <device.h>
-#include <drivers/spi.h>
-#include <sys/util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/led_strip.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/spi.h>
+#include <zephyr/sys/util.h>
 
-#define STRIP_LABEL		DT_LABEL(DT_ALIAS(led_strip))
+#define STRIP_NODE		DT_ALIAS(led_strip)
 #define STRIP_NUM_PIXELS	DT_PROP(DT_ALIAS(led_strip), chain_length)
 
 #define DELAY_TIME K_MSEC(50)
@@ -33,17 +33,17 @@ static const struct led_rgb colors[] = {
 
 struct led_rgb pixels[STRIP_NUM_PIXELS];
 
+static const struct device *const strip = DEVICE_DT_GET(STRIP_NODE);
+
 void main(void)
 {
-	struct device *strip;
 	size_t cursor = 0, color = 0;
 	int rc;
 
-	strip = device_get_binding(STRIP_LABEL);
-	if (strip) {
-		LOG_INF("Found LED strip device %s", STRIP_LABEL);
+	if (device_is_ready(strip)) {
+		LOG_INF("Found LED strip device %s", strip->name);
 	} else {
-		LOG_ERR("LED strip device %s not found", STRIP_LABEL);
+		LOG_ERR("LED strip device %s is not ready", strip->name);
 		return;
 	}
 

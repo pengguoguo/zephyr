@@ -11,9 +11,9 @@
  * Provide 64-bit time stamp API
  */
 
-#include <kernel.h>
-#include <toolchain.h>
-#include <kernel_structs.h>
+#include <zephyr/kernel.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/kernel_structs.h>
 
 /*
  * @brief Read 64-bit timestamp value
@@ -30,7 +30,7 @@ uint64_t z_tsc_read(void)
 	uint32_t count;
 
 	key = arch_irq_lock();
-	t = (uint64_t)z_tick_get();
+	t = (uint64_t)sys_clock_tick_get();
 	count = z_arc_v2_aux_reg_read(_ARC_V2_TMR0_COUNT);
 	arch_irq_unlock(key);
 	t *= k_ticks_to_cyc_floor64(1);

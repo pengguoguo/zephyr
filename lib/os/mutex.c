@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <sys/mutex.h>
-#include <syscall_handler.h>
-#include <kernel_structs.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/mutex.h>
+#include <zephyr/syscall_handler.h>
+#include <zephyr/kernel_structs.h>
 
 static struct k_mutex *get_k_mutex(struct sys_mutex *mutex)
 {
@@ -60,12 +60,7 @@ int z_impl_z_sys_mutex_kernel_unlock(struct sys_mutex *mutex)
 		return -EINVAL;
 	}
 
-	if (kernel_mutex->owner != _current) {
-		return -EPERM;
-	}
-
-	k_mutex_unlock(kernel_mutex);
-	return 0;
+	return k_mutex_unlock(kernel_mutex);
 }
 
 static inline int z_vrfy_z_sys_mutex_kernel_unlock(struct sys_mutex *mutex)

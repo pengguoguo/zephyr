@@ -4,26 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <errno.h>
+#include <string.h>
 #include "coverage.h"
 
-
-#ifdef CONFIG_X86
-#define MALLOC_MAX_HEAP_SIZE 32768
-#define MALLOC_MIN_BLOCK_SIZE 128
-#else
-#define MALLOC_MAX_HEAP_SIZE 16384
-#define MALLOC_MIN_BLOCK_SIZE 64
-#endif
-
-
-K_MEM_POOL_DEFINE(gcov_heap_mem_pool,
-		  MALLOC_MIN_BLOCK_SIZE,
-		  MALLOC_MAX_HEAP_SIZE, 1, 4);
-
+K_HEAP_DEFINE(gcov_heap, CONFIG_COVERAGE_GCOV_HEAP_SIZE);
 
 static struct gcov_info *gcov_info_head;
 
@@ -51,12 +39,9 @@ void __gcov_exit(void)
  * buff_write_u64 - Store 64 bit data on a buffer and return the size
  */
 
-#define MASK_32BIT (0xffffffffUL)
 static inline void buff_write_u64(void *buffer, size_t *off, uint64_t v)
 {
-	*((uint32_t *)((uint8_t *)buffer + *off) + 0) = (uint32_t)(v & MASK_32BIT);
-	*((uint32_t *)((uint8_t *)buffer + *off) + 1) = (uint32_t)((v >> 32) &
-							  MASK_32BIT);
+	memcpy((uint8_t *)buffer + *off, (uint8_t *)&v, sizeof(v));
 	*off = *off + sizeof(uint64_t);
 }
 
@@ -65,7 +50,7 @@ static inline void buff_write_u64(void *buffer, size_t *off, uint64_t v)
  */
 static inline void buff_write_u32(void *buffer, size_t *off, uint32_t v)
 {
-	*((uint32_t *)((uint8_t *)buffer + *off)) = v;
+	memcpy((uint8_t *)buffer + *off, (uint8_t *)&v, sizeof(v));
 	*off = *off + sizeof(uint32_t);
 }
 
@@ -75,8 +60,15 @@ size_t calculate_buff_size(struct gcov_info *info)
 	uint32_t iter;
 	uint32_t iter_1;
 	uint32_t iter_2;
-	/* few Fixed values at the start version, stamp and magic number. */
+
+	/* Few fixed values at the start: magic number,
+	 * version, stamp, and checksum.
+	 */
+#ifdef GCOV_12_FORMAT
+	uint32_t size = sizeof(uint32_t) * 4;
+#else
 	uint32_t size = sizeof(uint32_t) * 3;
+#endif
 
 	for (iter = 0U; iter < info->n_functions; iter++) {
 		/* space for TAG_FUNCTION and FUNCTION_LENGTH
@@ -139,6 +131,12 @@ size_t populate_buffer(uint8_t *buffer, struct gcov_info *info)
 		       &buffer_write_position,
 		       info->stamp);
 
+#ifdef GCOV_12_FORMAT
+	buff_write_u32(buffer,
+		       &buffer_write_position,
+		       info->checksum);
+#endif
+
 	for (iter_functions = 0U;
 	     iter_functions < info->n_functions;
 	     iter_functions++) {
@@ -180,9 +178,16 @@ size_t populate_buffer(uint8_t *buffer, struct gcov_info *info)
 				       &buffer_write_position,
 				       GCOV_TAG_FOR_COUNTER(iter_counts));
 
+#ifdef GCOV_12_FORMAT
+			/* GCOV 12 counts the length by bytes */
+			buff_write_u32(buffer,
+				       &buffer_write_position,
+				       counters_per_func->num * 2U * 4);
+#else
 			buff_write_u32(buffer,
 				       &buffer_write_position,
 				       counters_per_func->num * 2U);
+#endif
 
 			for (iter_counter_values = 0U;
 			     iter_counter_values < counters_per_func->num;
@@ -225,6 +230,7 @@ void gcov_coverage_dump(void)
 	uint8_t *buffer;
 	size_t size;
 	size_t written_size;
+	struct gcov_info *gcov_list_first = gcov_info_head;
 	struct gcov_info *gcov_list = gcov_info_head;
 
 	k_sched_lock();
@@ -233,7 +239,7 @@ void gcov_coverage_dump(void)
 
 		size = calculate_buff_size(gcov_list);
 
-		buffer = (uint8_t *) k_mem_pool_malloc(&gcov_heap_mem_pool, size);
+		buffer = k_heap_alloc(&gcov_heap, size, K_NO_WAIT);
 		if (!buffer) {
 			printk("No Mem available to continue dump\n");
 			goto coverage_dump_end;
@@ -247,8 +253,11 @@ void gcov_coverage_dump(void)
 
 		dump_on_console(gcov_list->filename, buffer, size);
 
-		k_free(buffer);
+		k_heap_free(&gcov_heap, buffer);
 		gcov_list = gcov_list->next;
+		if (gcov_list_first == gcov_list) {
+			goto coverage_dump_end;
+		}
 	}
 coverage_dump_end:
 	printk("\nGCOV_COVERAGE_DUMP_END\n");
@@ -260,9 +269,9 @@ coverage_dump_end:
 /* Initialize the gcov by calling the required constructors */
 void gcov_static_init(void)
 {
-	extern uint32_t __init_array_start, __init_array_end;
-	uint32_t func_pointer_start = (uint32_t) &__init_array_start;
-	uint32_t func_pointer_end = (uint32_t) &__init_array_end;
+	extern uintptr_t __init_array_start, __init_array_end;
+	uintptr_t func_pointer_start = (uintptr_t) &__init_array_start;
+	uintptr_t func_pointer_end = (uintptr_t) &__init_array_end;
 
 	while (func_pointer_start < func_pointer_end) {
 		void (**p)(void);

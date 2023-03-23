@@ -4,26 +4,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_dns_resolve_client_sample, LOG_LEVEL_DBG);
 
-#include <zephyr.h>
-#include <linker/sections.h>
+#include <zephyr/kernel.h>
+#include <zephyr/linker/sections.h>
 #include <errno.h>
 #include <stdio.h>
 
-#include <net/net_core.h>
-#include <net/net_if.h>
-#include <net/net_mgmt.h>
-#include <net/dns_resolve.h>
+#include <zephyr/net/net_core.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/dns_resolve.h>
 
 #if defined(CONFIG_MDNS_RESOLVER)
 #if defined(CONFIG_NET_IPV4)
-static struct k_delayed_work mdns_ipv4_timer;
+static struct k_work_delayable mdns_ipv4_timer;
 static void do_mdns_ipv4_lookup(struct k_work *work);
 #endif
 #if defined(CONFIG_NET_IPV6)
-static struct k_delayed_work mdns_ipv6_timer;
+static struct k_work_delayable mdns_ipv6_timer;
 static void do_mdns_ipv6_lookup(struct k_work *work);
 #endif
 #endif
@@ -75,8 +75,8 @@ void dns_result_cb(enum dns_resolve_status status,
 
 	LOG_INF("%s %s address: %s", user_data ? (char *)user_data : "<null>",
 		hr_family,
-		log_strdup(net_addr_ntop(info->ai_family, addr,
-					 hr_addr, sizeof(hr_addr))));
+		net_addr_ntop(info->ai_family, addr,
+					 hr_addr, sizeof(hr_addr)));
 }
 
 void mdns_result_cb(enum dns_resolve_status status,
@@ -124,13 +124,13 @@ void mdns_result_cb(enum dns_resolve_status status,
 
 	LOG_INF("%s %s address: %s", user_data ? (char *)user_data : "<null>",
 		hr_family,
-		log_strdup(net_addr_ntop(info->ai_family, addr,
-					 hr_addr, sizeof(hr_addr))));
+		net_addr_ntop(info->ai_family, addr,
+					 hr_addr, sizeof(hr_addr)));
 }
 
 #if defined(CONFIG_NET_DHCPV4)
 static struct net_mgmt_event_callback mgmt4_cb;
-static struct k_delayed_work ipv4_timer;
+static struct k_work_delayable ipv4_timer;
 
 static void do_ipv4_lookup(struct k_work *work)
 {
@@ -172,19 +172,19 @@ static void ipv4_addr_add_handler(struct net_mgmt_event_callback *cb,
 		}
 
 		LOG_INF("IPv4 address: %s",
-			log_strdup(net_addr_ntop(AF_INET,
+			net_addr_ntop(AF_INET,
 						 &if_addr->address.in_addr,
-						 hr_addr, NET_IPV4_ADDR_LEN)));
+						 hr_addr, NET_IPV4_ADDR_LEN));
 		LOG_INF("Lease time: %u seconds",
 			 iface->config.dhcpv4.lease_time);
 		LOG_INF("Subnet: %s",
-			log_strdup(net_addr_ntop(AF_INET,
+			net_addr_ntop(AF_INET,
 					       &iface->config.ip.ipv4->netmask,
-					       hr_addr, NET_IPV4_ADDR_LEN)));
+					       hr_addr, NET_IPV4_ADDR_LEN));
 		LOG_INF("Router: %s",
-			log_strdup(net_addr_ntop(AF_INET,
+			net_addr_ntop(AF_INET,
 					       &iface->config.ip.ipv4->gw,
-					       hr_addr, NET_IPV4_ADDR_LEN)));
+					       hr_addr, NET_IPV4_ADDR_LEN));
 		break;
 	}
 
@@ -192,12 +192,12 @@ static void ipv4_addr_add_handler(struct net_mgmt_event_callback *cb,
 	 * management event thread stack is very small by default.
 	 * So run it from work queue instead.
 	 */
-	k_delayed_work_init(&ipv4_timer, do_ipv4_lookup);
-	k_delayed_work_submit(&ipv4_timer, K_NO_WAIT);
+	k_work_init_delayable(&ipv4_timer, do_ipv4_lookup);
+	k_work_reschedule(&ipv4_timer, K_NO_WAIT);
 
 #if defined(CONFIG_MDNS_RESOLVER)
-	k_delayed_work_init(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
-	k_delayed_work_submit(&mdns_ipv4_timer, K_NO_WAIT);
+	k_work_init_delayable(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
+	k_work_reschedule(&mdns_ipv4_timer, K_NO_WAIT);
 #endif
 }
 
@@ -274,8 +274,8 @@ static void setup_ipv4(struct net_if *iface)
 	do_ipv4_lookup();
 
 #if defined(CONFIG_MDNS_RESOLVER) && defined(CONFIG_NET_IPV4)
-	k_delayed_work_init(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
-	k_delayed_work_submit(&mdns_ipv4_timer, K_NO_WAIT);
+	k_work_init_delayable(&mdns_ipv4_timer, do_mdns_ipv4_lookup);
+	k_work_reschedule(&mdns_ipv4_timer, K_NO_WAIT);
 #endif
 }
 
@@ -316,8 +316,8 @@ static void setup_ipv6(struct net_if *iface)
 	do_ipv6_lookup();
 
 #if defined(CONFIG_MDNS_RESOLVER) && defined(CONFIG_NET_IPV6)
-	k_delayed_work_init(&mdns_ipv6_timer, do_mdns_ipv6_lookup);
-	k_delayed_work_submit(&mdns_ipv6_timer, K_NO_WAIT);
+	k_work_init_delayable(&mdns_ipv6_timer, do_mdns_ipv6_lookup);
+	k_work_reschedule(&mdns_ipv6_timer, K_NO_WAIT);
 #endif
 }
 

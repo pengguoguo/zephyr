@@ -3,17 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 #include <string.h>
-#include <arch/x86/memmap.h>
-#include <linker/linker-defs.h>
+#include <zephyr/arch/x86/memmap.h>
+#include <zephyr/linker/linker-defs.h>
 #include <kernel_arch_data.h>
 
 struct x86_memmap_exclusion x86_memmap_exclusions[] = {
 #ifdef CONFIG_X86_64
 	{ "locore", _locore_start, _locore_end },
 #endif
-	{ "rom", _image_rom_start, _image_rom_end },
+#ifdef CONFIG_XIP
+	{ "rom", __rom_region_start, __rom_region_end },
+#endif
 	{ "ram", _image_ram_start, _image_ram_end },
 #ifdef CONFIG_USERSPACE
 	{ "app_smem", _app_smem_start, _app_smem_end },

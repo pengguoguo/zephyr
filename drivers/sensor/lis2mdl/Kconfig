@@ -3,7 +3,10 @@
 
 menuconfig LIS2MDL
 	bool "LIS2MDL Magnetometer"
-	depends on (I2C && HAS_DTS_I2C) || SPI
+	default y
+	depends on DT_HAS_ST_LIS2MDL_ENABLED
+	select I2C if $(dt_compat_on_bus,$(DT_COMPAT_ST_LIS2MDL),i2c)
+	select SPI if $(dt_compat_on_bus,$(DT_COMPAT_ST_LIS2MDL),spi)
 	select HAS_STMEMSC
 	select USE_STDC_LIS2MDL
 	help
@@ -52,9 +55,5 @@ config LIS2MDL_THREAD_STACK_SIZE
 config LIS2MDL_MAG_ODR_RUNTIME
 	bool "Set magnetometer sampling frequency (ODR) at runtime (default: 10 Hz)"
 	default y
-
-config LIS2MDL_SPI_FULL_DUPLEX
-	bool "Enable SPI 4wire mode (separated MISO and MOSI lines)"
-	depends on SPI
 
 endif # LIS2MDL

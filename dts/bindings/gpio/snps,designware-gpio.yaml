@@ -8,22 +8,11 @@ compatible: "snps,designware-gpio"
 include: [gpio-controller.yaml, base.yaml]
 
 properties:
-    reg:
-      required: true
+  reg:
+    required: true
 
-    bits:
-      type: int
-      description: gpio bits
-      required: true
-
-    interrupts:
-      required: true
-
-    label:
-      required: true
-
-    "#gpio-cells":
-      const: 2
+  "#gpio-cells":
+    const: 2
 
 gpio-cells:
   - pin

@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/gpio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
 
 #include <driverlib/cpu.h>
 
-#define GPIO_PORT DT_LABEL(DT_NODELABEL(gpio0))
+#define GPIO_PORT DT_NODELABEL(gpio0)
 #define DIO8_PIN  8
 #define DIO9_PIN  9
 #define DIO10_PIN 10
@@ -21,7 +21,8 @@
 /*
  *  ======== CC1352R1_LAUNCHXL_sendExtFlashByte ========
  */
-void CC1352R1_LAUNCHXL_sendExtFlashByte(struct device *dev, uint8_t byte)
+void CC1352R1_LAUNCHXL_sendExtFlashByte(const struct device *dev,
+					uint8_t byte)
 {
 	uint8_t i;
 
@@ -56,7 +57,7 @@ void CC1352R1_LAUNCHXL_sendExtFlashByte(struct device *dev, uint8_t byte)
 /*
  *  ======== CC1352R1_LAUNCHXL_wakeUpExtFlash ========
  */
-void CC1352R1_LAUNCHXL_wakeUpExtFlash(struct device *dev)
+void CC1352R1_LAUNCHXL_wakeUpExtFlash(const struct device *dev)
 {
 	/*
 	 *  To wake up we need to toggle the chip select at
@@ -77,10 +78,16 @@ void CC1352R1_LAUNCHXL_wakeUpExtFlash(struct device *dev)
  */
 void CC1352R1_LAUNCHXL_shutDownExtFlash(void)
 {
-	struct device *dev;
+	const struct device *dev;
 	uint8_t extFlashShutdown = 0xB9;
 
-	dev = device_get_binding(GPIO_PORT);
+	dev = DEVICE_DT_GET(GPIO_PORT);
+
+	if (!device_is_ready(dev)) {
+		printk("%s: device not ready.\n", dev->name);
+		return;
+	}
+
 	/* Set SPI Flash CS pin as output */
 	gpio_pin_configure(dev, DIO20_PIN, GPIO_OUTPUT);
 	/* Set SPI Flash CLK pin as output */

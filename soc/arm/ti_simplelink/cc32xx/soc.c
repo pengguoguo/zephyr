@@ -4,15 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <soc.h>
 #include <driverlib/rom.h>
 #include <driverlib/rom_map.h>
 #include <driverlib/prcm.h>
 
-static int ti_cc32xx_init(struct device *arg)
+/* Overrides the weak ARM implementation */
+void sys_arch_reboot(int type)
+{
+	MAP_PRCMMCUReset(!!type);
+}
+
+static int ti_cc32xx_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 

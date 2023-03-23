@@ -5,9 +5,9 @@
 
 #include <errno.h>
 #include <string.h>
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 
-#include <settings/settings.h>
+#include <zephyr/settings/settings.h>
 #include "settings_priv.h"
 
 struct read_cb_arg {
@@ -47,6 +47,10 @@ int settings_runtime_get(const char *name, void *data, size_t len)
 	ch = settings_parse_and_lookup(name, &name_key);
 	if (!ch) {
 		return -EINVAL;
+	}
+
+	if (!ch->h_get) {
+		return -ENOTSUP;
 	}
 
 	return ch->h_get(name_key, data, len);

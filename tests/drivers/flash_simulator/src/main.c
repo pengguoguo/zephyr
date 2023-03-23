@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <drivers/flash.h>
-#include <device.h>
+#include <zephyr/ztest.h>
+#include <zephyr/drivers/flash.h>
+#include <zephyr/device.h>
 
 /* configuration derived from DT */
 #ifdef CONFIG_ARCH_POSIX
@@ -32,7 +32,7 @@
 		(((((((0xff & pat) << 8) | (0xff & pat)) << 8) | \
 		   (0xff & pat)) << 8) | (0xff & pat))
 
-static struct device *flash_dev;
+static const struct device *const flash_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller));
 static uint8_t test_read_buf[TEST_SIM_FLASH_SIZE];
 
 static uint32_t p32_inc;
@@ -71,16 +71,22 @@ static void test_check_pattern32(off_t start, uint32_t (*pattern_gen)(void),
 	}
 }
 
-static void test_int(void)
+/* Get access to the device and erase it ready for testing*/
+static void test_init(void)
 {
-	int rc;
+	zassert_true(device_is_ready(flash_dev),
+		     "Simulated flash device not ready");
+}
+
+ZTEST(flash_sim_api, test_read)
+{
 	off_t i;
+	int rc;
 
-	flash_dev =
-		device_get_binding(DT_CHOSEN_ZEPHYR_FLASH_CONTROLLER_LABEL);
+	rc = flash_erase(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
+			 FLASH_SIMULATOR_FLASH_SIZE);
+	zassert_equal(0, rc, "flash_erase should succeed");
 
-	zassert_true(flash_dev != NULL,
-		     "Simulated flash driver was not found!");
 
 	rc = flash_read(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
 			test_read_buf, sizeof(test_read_buf));
@@ -100,9 +106,12 @@ static void test_write_read(void)
 	uint32_t val32 = 0, r_val32;
 	int rc;
 
+	rc = flash_erase(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
+			 FLASH_SIMULATOR_FLASH_SIZE);
+	zassert_equal(0, rc, "flash_erase should succeed");
+
+
 	for (off = 0; off < TEST_SIM_FLASH_SIZE; off += 4) {
-		rc = flash_write_protection_set(flash_dev, false);
-		zassert_equal(0, rc, NULL);
 		rc = flash_write(flash_dev, FLASH_SIMULATOR_BASE_OFFSET +
 					    off,
 				 &val32, sizeof(val32));
@@ -155,29 +164,17 @@ static void test_erase(void)
 			     FLASH_SIMULATOR_ERASE_UNIT*2);
 }
 
-static void test_access(void)
+ZTEST(flash_sim_api, test_write_read_erase)
 {
-	uint32_t data[2] = {0};
-	int rc;
-
-	rc = flash_write_protection_set(flash_dev, true);
-	zassert_equal(0, rc, NULL);
-
-	rc = flash_write(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
-				 data, sizeof(data));
-	zassert_equal(-EACCES, rc, "Unexpected error code (%d)", rc);
-
-	rc = flash_erase(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
-			 FLASH_SIMULATOR_ERASE_UNIT);
-	zassert_equal(-EACCES, rc, "Unexpected error code (%d)", rc);
+	test_write_read();
+	test_erase();
 }
 
-static void test_out_of_bounds(void)
+
+ZTEST(flash_sim_api, test_out_of_bounds)
 {
 	int rc;
 	uint8_t data[8] = {0};
-
-	rc = flash_write_protection_set(flash_dev, false);
 
 	rc = flash_write(flash_dev, FLASH_SIMULATOR_BASE_OFFSET - 4,
 				 data, 4);
@@ -230,7 +227,7 @@ static void test_out_of_bounds(void)
 	zassert_equal(-EINVAL, rc, "Unexpected error code (%d)", rc);
 }
 
-static void test_align(void)
+ZTEST(flash_sim_api, test_align)
 {
 	int rc;
 	uint8_t data[4] = {0};
@@ -258,7 +255,7 @@ static void test_align(void)
 	zassert_equal(-EINVAL, rc, "Unexpected error code (%d)", rc);
 }
 
-static void test_double_write(void)
+ZTEST(flash_sim_api, test_double_write)
 {
 	int rc;
 	/* Test checks behaviour of write when attempting to double write
@@ -271,18 +268,18 @@ static void test_double_write(void)
 
 	rc = flash_erase(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
 			 FLASH_SIMULATOR_ERASE_UNIT);
-	zassert_equal(0, rc, "flash_erase should succedd");
+	zassert_equal(0, rc, "flash_erase should succeed");
 
 	rc = flash_write(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
 				 &data, sizeof(data));
-	zassert_equal(0, rc, "flash_write should succedd");
+	zassert_equal(0, rc, "flash_write should succeed");
 
 	rc = flash_write(flash_dev, FLASH_SIMULATOR_BASE_OFFSET,
 				 &data, sizeof(data));
 	zassert_equal(-EIO, rc, "Unexpected error code (%d)", rc);
 }
 
-static void test_get_erase_value(void)
+ZTEST(flash_sim_api, test_get_erase_value)
 {
 	const struct flash_parameters *fp = flash_get_parameters(flash_dev);
 
@@ -291,17 +288,31 @@ static void test_get_erase_value(void)
 		      FLASH_SIMULATOR_ERASE_VALUE);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(flash_sim_api,
-			 ztest_unit_test(test_int),
-			 ztest_unit_test(test_get_erase_value),
-			 ztest_unit_test(test_write_read),
-			 ztest_unit_test(test_erase),
-			 ztest_unit_test(test_access),
-			 ztest_unit_test(test_out_of_bounds),
-			 ztest_unit_test(test_align),
-			 ztest_unit_test(test_double_write));
+#include <zephyr/drivers/flash/flash_simulator.h>
 
-	ztest_run_test_suite(flash_sim_api);
+ZTEST(flash_sim_api, test_get_mock)
+{
+#ifdef CONFIG_ARCH_POSIX
+	ztest_test_skip();
+#else
+	size_t mock_size;
+	void *mock_ptr;
+
+	mock_ptr = flash_simulator_get_memory(flash_dev, &mock_size);
+
+	zassert_true(mock_ptr != NULL,
+		     "Expected mock_flash address, got NULL.");
+	zassert_equal(mock_size, FLASH_SIMULATOR_FLASH_SIZE,
+		     "Expected mock_flash size %d, got %d",
+		      FLASH_SIMULATOR_FLASH_SIZE, mock_size);
+#endif
 }
+
+void *flash_sim_setup(void)
+{
+	test_init();
+
+	return NULL;
+}
+
+ZTEST_SUITE(flash_sim_api, NULL, flash_sim_setup, NULL, NULL, NULL);

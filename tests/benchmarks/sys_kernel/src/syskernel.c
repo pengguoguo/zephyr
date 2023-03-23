@@ -6,8 +6,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <tc_util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/tc_util.h>
 
 #include "syskernel.h"
 
@@ -38,13 +38,12 @@ uint32_t number_of_loops;
  *
  * Routine does necessary preparations for the test to start
  *
- * @return N/A
  */
 void begin_test(void)
 {
 	/*
 	 * Invoke bench_test_start in order to be able to use
-	 * tCheck static variable.
+	 * timestamp_check static variable.
 	 */
 	bench_test_start();
 }
@@ -61,7 +60,7 @@ void begin_test(void)
 int check_result(int i, uint32_t t)
 {
 	/*
-	 * bench_test_end checks tCheck static variable.
+	 * bench_test_end checks timestamp_check static variable.
 	 * bench_test_start modifies it
 	 */
 	if (bench_test_end() != 0) {
@@ -88,26 +87,12 @@ int check_result(int i, uint32_t t)
 	return 1;
 }
 
-
-/**
- *
- * @brief Check for a key press
- *
- * @return 1 when a keyboard key is pressed, or 0 if no keyboard support
- */
-int kbhit(void)
-{
-	return 0;
-}
-
-
 /**
  *
  * @brief Prepares the test output
  *
  * @param continuously   Run test till the user presses the key.
  *
- * @return N/A
  */
 
 void init_output(int *continuously)
@@ -125,7 +110,6 @@ void init_output(int *continuously)
  *
  * @brief Close output for the test
  *
- * @return N/A
  */
 void output_close(void)
 {
@@ -135,7 +119,6 @@ void output_close(void)
  *
  * @brief Perform all selected benchmarks
  *
- * @return N/A
  */
 void main(void)
 {
@@ -144,14 +127,14 @@ void main(void)
 
 	number_of_loops = NUMBER_OF_LOOPS;
 
-	/* The following code is needed to make the benchmakring run on
+	/* The following code is needed to make the benchmarking run on
 	 * slower platforms.
 	 */
-	uint64_t time_stamp = z_tick_get();
+	uint64_t time_stamp = sys_clock_tick_get();
 
 	k_sleep(K_MSEC(1));
 
-	uint64_t time_stamp_2 = z_tick_get();
+	uint64_t time_stamp_2 = sys_clock_tick_get();
 
 	if (time_stamp_2 - time_stamp > 1) {
 		number_of_loops = 10U;
@@ -178,10 +161,11 @@ void main(void)
 		test_result += lifo_test();
 		test_result += fifo_test();
 		test_result += stack_test();
+		test_result += mem_slab_test();
 
 		if (test_result) {
-			/* sema/lifo/fifo/stack account for 12 tests in total */
-			if (test_result == 12) {
+			/* sema/lifo/fifo/stack/mem_slab account for 14 tests in total */
+			if (test_result == 14) {
 				fprintf(output_file, sz_module_result_fmt,
 					sz_success);
 			} else {
@@ -193,7 +177,7 @@ void main(void)
 		}
 		TC_PRINT_RUNID;
 
-	} while (continuously && !kbhit());
+	} while (continuously);
 
 	output_close();
 }

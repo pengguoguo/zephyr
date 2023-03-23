@@ -5,7 +5,7 @@
  */
 
 #include <mem.h>
-#include <st/l0/stm32l011.dtsi>
+#include <st/l0/stm32l010.dtsi>
 
 / {
 	sram0: memory@20000000 {
@@ -17,6 +17,10 @@
 			flash0: flash@8000000 {
 				reg = <0x08000000 DT_SIZE_K(16)>;
 			};
+		};
+
+		adc1: adc@40012400 {
+			temp-channel = <18>;
 		};
 	};
 };

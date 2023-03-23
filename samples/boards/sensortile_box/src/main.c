@@ -4,14 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <sys/printk.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/printk.h>
 
-#include <drivers/gpio.h>
-#include <drivers/led.h>
-#include <drivers/i2c.h>
-#include <drivers/spi.h>
-#include <drivers/sensor.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/led.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
 
 #include <stdio.h>
 
@@ -21,8 +23,8 @@
 #ifdef CONFIG_LPS22HH_TRIGGER
 static int lps22hh_trig_cnt;
 
-static void lps22hh_trigger_handler(struct device *dev,
-				    struct sensor_trigger *trig)
+static void lps22hh_trigger_handler(const struct device *dev,
+				    const struct sensor_trigger *trig)
 {
 	sensor_sample_fetch_chan(dev, SENSOR_CHAN_PRESS);
 	lps22hh_trig_cnt++;
@@ -32,8 +34,8 @@ static void lps22hh_trigger_handler(struct device *dev,
 #ifdef CONFIG_LIS2DW12_TRIGGER
 static int lis2dw12_trig_cnt;
 
-static void lis2dw12_trigger_handler(struct device *dev,
-				    struct sensor_trigger *trig)
+static void lis2dw12_trigger_handler(const struct device *dev,
+				     const struct sensor_trigger *trig)
 {
 	sensor_sample_fetch_chan(dev, SENSOR_CHAN_ACCEL_XYZ);
 	lis2dw12_trig_cnt++;
@@ -45,22 +47,22 @@ static int lsm6dso_acc_trig_cnt;
 static int lsm6dso_gyr_trig_cnt;
 static int lsm6dso_temp_trig_cnt;
 
-static void lsm6dso_acc_trig_handler(struct device *dev,
-				    struct sensor_trigger *trig)
+static void lsm6dso_acc_trig_handler(const struct device *dev,
+				     const struct sensor_trigger *trig)
 {
 	sensor_sample_fetch_chan(dev, SENSOR_CHAN_ACCEL_XYZ);
 	lsm6dso_acc_trig_cnt++;
 }
 
-static void lsm6dso_gyr_trig_handler(struct device *dev,
-				    struct sensor_trigger *trig)
+static void lsm6dso_gyr_trig_handler(const struct device *dev,
+				     const struct sensor_trigger *trig)
 {
 	sensor_sample_fetch_chan(dev, SENSOR_CHAN_GYRO_XYZ);
 	lsm6dso_gyr_trig_cnt++;
 }
 
-static void lsm6dso_temp_trig_handler(struct device *dev,
-				    struct sensor_trigger *trig)
+static void lsm6dso_temp_trig_handler(const struct device *dev,
+				      const struct sensor_trigger *trig)
 {
 	sensor_sample_fetch_chan(dev, SENSOR_CHAN_DIE_TEMP);
 	lsm6dso_temp_trig_cnt++;
@@ -70,8 +72,8 @@ static void lsm6dso_temp_trig_handler(struct device *dev,
 #ifdef CONFIG_STTS751_TRIGGER
 static int stts751_trig_cnt;
 
-static void stts751_trigger_handler(struct device *dev,
-				       struct sensor_trigger *trig)
+static void stts751_trigger_handler(const struct device *dev,
+				    const struct sensor_trigger *trig)
 {
 	stts751_trig_cnt++;
 }
@@ -80,15 +82,15 @@ static void stts751_trigger_handler(struct device *dev,
 #ifdef CONFIG_IIS3DHHC_TRIGGER
 static int iis3dhhc_trig_cnt;
 
-static void iis3dhhc_trigger_handler(struct device *dev,
-				     struct sensor_trigger *trig)
+static void iis3dhhc_trigger_handler(const struct device *dev,
+				     const struct sensor_trigger *trig)
 {
 	sensor_sample_fetch_chan(dev, SENSOR_CHAN_ACCEL_XYZ);
 	iis3dhhc_trig_cnt++;
 }
 #endif
 
-static void lps22hh_config(struct device *lps22hh)
+static void lps22hh_config(const struct device *lps22hh)
 {
 	struct sensor_value odr_attr;
 
@@ -111,7 +113,7 @@ static void lps22hh_config(struct device *lps22hh)
 #endif
 }
 
-static void lis2dw12_config(struct device *lis2dw12)
+static void lis2dw12_config(const struct device *lis2dw12)
 {
 	struct sensor_value odr_attr, fs_attr;
 
@@ -142,7 +144,7 @@ static void lis2dw12_config(struct device *lis2dw12)
 #endif
 }
 
-static void lsm6dso_config(struct device *lsm6dso)
+static void lsm6dso_config(const struct device *lsm6dso)
 {
 	struct sensor_value odr_attr, fs_attr;
 
@@ -199,7 +201,7 @@ static void lsm6dso_config(struct device *lsm6dso)
 #endif
 }
 
-static void stts751_config(struct device *stts751)
+static void stts751_config(const struct device *stts751)
 {
 	struct sensor_value odr_attr;
 
@@ -222,7 +224,7 @@ static void stts751_config(struct device *stts751)
 #endif
 }
 
-static void iis3dhhc_config(struct device *iis3dhhc)
+static void iis3dhhc_config(const struct device *iis3dhhc)
 {
 	struct sensor_value odr_attr;
 
@@ -247,73 +249,81 @@ static void iis3dhhc_config(struct device *iis3dhhc)
 
 void main(void)
 {
-	static struct device *led0, *led1;
+	static const struct gpio_dt_spec led0_gpio = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+	static const struct gpio_dt_spec led1_gpio = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
+	const struct device *const dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 	int i, on = 1;
 	int cnt = 1;
+	uint32_t dtr = 0;
 
-	led0 = device_get_binding(DT_GPIO_LABEL(DT_ALIAS(led0), gpios));
-	gpio_pin_configure(led0, DT_GPIO_PIN(DT_ALIAS(led0), gpios),
-			   GPIO_OUTPUT_ACTIVE |
-			   DT_GPIO_FLAGS(DT_ALIAS(led0), gpios));
+	/* Application must enable USB by itself */
+	if (!device_is_ready(dev) || usb_enable(NULL)) {
+		return;
+	}
 
-	led1 = device_get_binding(DT_GPIO_LABEL(DT_ALIAS(led1), gpios));
-	gpio_pin_configure(led1, DT_GPIO_PIN(DT_ALIAS(led1), gpios),
-			   GPIO_OUTPUT_INACTIVE |
-			   DT_GPIO_FLAGS(DT_ALIAS(led1), gpios));
+	/* Poll if the DTR flag was set, optional */
+	while (!dtr) {
+		uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+	}
+
+	if (!device_is_ready(led0_gpio.port)) {
+		printk("%s: device not ready.\n", led0_gpio.port->name);
+		return;
+	}
+	gpio_pin_configure_dt(&led0_gpio, GPIO_OUTPUT_ACTIVE);
+
+	if (!device_is_ready(led1_gpio.port)) {
+		printk("%s: device not ready.\n", led1_gpio.port->name);
+		return;
+	}
+	gpio_pin_configure_dt(&led1_gpio, GPIO_OUTPUT_INACTIVE);
 
 	for (i = 0; i < 6; i++) {
-		gpio_pin_set(led0, DT_GPIO_PIN(DT_ALIAS(led0), gpios), on);
-		gpio_pin_set(led1, DT_GPIO_PIN(DT_ALIAS(led1), gpios), !on);
+		gpio_pin_set_dt(&led0_gpio, on);
+		gpio_pin_set_dt(&led1_gpio, !on);
 		k_sleep(K_MSEC(100));
 		on = (on == 1) ? 0 : 1;
 	}
 
-	gpio_pin_set(led0, DT_GPIO_PIN(DT_ALIAS(led0), gpios), 0);
-	gpio_pin_set(led1, DT_GPIO_PIN(DT_ALIAS(led1), gpios), 1);
+	gpio_pin_set_dt(&led0_gpio, 0);
+	gpio_pin_set_dt(&led1_gpio, 1);
 
 	printk("SensorTile.box test!!\n");
 
-	struct device *hts221 = device_get_binding(DT_LABEL(DT_INST(0, st_hts221)));
-	struct device *lis2dw12 = device_get_binding(DT_LABEL(DT_INST(0, st_lis2dw12)));
-	struct device *lps22hh = device_get_binding(DT_LABEL(DT_INST(0, st_lps22hh)));
-	struct device *lsm6dso = device_get_binding(DT_LABEL(DT_INST(0, st_lsm6dso)));
-	struct device *stts751 = device_get_binding(DT_LABEL(DT_INST(0, st_stts751)));
-	struct device *iis3dhhc = device_get_binding(DT_LABEL(DT_INST(0, st_iis3dhhc)));
-	struct device *lis2mdl = device_get_binding(DT_LABEL(DT_INST(0, st_lis2mdl)));
+	const struct device *const hts221 = DEVICE_DT_GET_ONE(st_hts221);
+	const struct device *const lis2dw12 = DEVICE_DT_GET_ONE(st_lis2dw12);
+	const struct device *const lps22hh = DEVICE_DT_GET_ONE(st_lps22hh);
+	const struct device *const lsm6dso = DEVICE_DT_GET_ONE(st_lsm6dso);
+	const struct device *const stts751 = DEVICE_DT_GET_ONE(st_stts751);
+	const struct device *const iis3dhhc = DEVICE_DT_GET_ONE(st_iis3dhhc);
+	const struct device *const lis2mdl = DEVICE_DT_GET_ONE(st_lis2mdl);
 
-	if (!hts221) {
-		printk("Could not get pointer to %s sensor\n",
-			DT_LABEL(DT_INST(0, st_hts221)));
+	if (!device_is_ready(hts221)) {
+		printk("%s: device not ready.\n", hts221->name);
 		return;
 	}
-
-	if (!lis2dw12) {
-		printf("Could not get LIS2DW12 device\n");
+	if (!device_is_ready(lis2dw12)) {
+		printk("%s: device not ready.\n", lis2dw12->name);
 		return;
 	}
-
-	if (lps22hh == NULL) {
-		printf("Could not get LPS22HH device\n");
+	if (!device_is_ready(lps22hh)) {
+		printk("%s: device not ready.\n", lps22hh->name);
 		return;
 	}
-
-	if (lsm6dso == NULL) {
-		printf("Could not get LSM6DSO device\n");
+	if (!device_is_ready(lsm6dso)) {
+		printk("%s: device not ready.\n", lsm6dso->name);
 		return;
 	}
-
-	if (stts751 == NULL) {
-		printf("Could not get STTS751 device\n");
+	if (!device_is_ready(stts751)) {
+		printk("%s: device not ready.\n", stts751->name);
 		return;
 	}
-
-	if (iis3dhhc == NULL) {
-		printf("Could not get IIS3DHHC device\n");
+	if (!device_is_ready(iis3dhhc)) {
+		printk("%s: device not ready.\n", iis3dhhc->name);
 		return;
 	}
-
-	if (lis2mdl == NULL) {
-		printf("Could not get LIS2MDL device\n");
+	if (!device_is_ready(lis2mdl)) {
+		printk("%s: device not ready.\n", lis2mdl->name);
 		return;
 	}
 

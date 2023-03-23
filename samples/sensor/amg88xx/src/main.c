@@ -4,17 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/sensor.h>
-#include <sys/printk.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/printk.h>
 
 static struct sensor_value temp_value[64];
 
 #ifdef CONFIG_AMG88XX_TRIGGER
 K_SEM_DEFINE(sem, 0, 1);
 
-static void trigger_handler(struct device *dev, struct sensor_trigger *trigger)
+static void trigger_handler(const struct device *dev,
+			    const struct sensor_trigger *trigger)
 {
 	ARG_UNUSED(dev);
 	ARG_UNUSED(trigger);
@@ -50,11 +51,10 @@ void print_buffer(void *ptr, size_t l)
 void main(void)
 {
 	int ret;
-	struct device *dev = device_get_binding(
-				DT_LABEL(DT_INST(0, panasonic_amg88xx)));
+	const struct device *const dev = DEVICE_DT_GET_ONE(panasonic_amg88xx);
 
-	if (dev == NULL) {
-		printk("Could not get AMG88XX device\n");
+	if (!device_is_ready(dev)) {
+		printk("sensor: device not ready.\n");
 		return;
 	}
 

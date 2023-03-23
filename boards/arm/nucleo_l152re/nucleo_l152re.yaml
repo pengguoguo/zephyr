@@ -15,5 +15,9 @@ supported:
   - i2c
   - uart
   - watchdog
+  - counter
   - adc
   - dac
+  - pwm
+  - dma
+  - nvs

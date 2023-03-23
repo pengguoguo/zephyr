@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <drivers/entropy.h>
-#include <sys/atomic.h>
+#include <zephyr/drivers/entropy.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 #include <soc.h>
 #include <hal/nrf_rng.h>
+#include <zephyr/irq.h>
 
 #define DT_DRV_COMPAT	nordic_nrf_rng
 
@@ -96,9 +98,6 @@ struct entropy_nrf5_dev_data {
 };
 
 static struct entropy_nrf5_dev_data entropy_nrf5_data;
-
-#define DEV_DATA(dev) \
-	((struct entropy_nrf5_dev_data *)(dev)->driver_data)
 
 static int random_byte_get(void)
 {
@@ -204,7 +203,7 @@ static void rng_pool_init(struct rng_pool *rngp, uint16_t size, uint8_t threshol
 	rngp->threshold	  = threshold;
 }
 
-static void isr(void *arg)
+static void isr(const void *arg)
 {
 	int byte, ret;
 
@@ -227,10 +226,11 @@ static void isr(void *arg)
 	}
 }
 
-static int entropy_nrf5_get_entropy(struct device *device, uint8_t *buf, uint16_t len)
+static int entropy_nrf5_get_entropy(const struct device *dev, uint8_t *buf,
+				    uint16_t len)
 {
 	/* Check if this API is called on correct driver instance. */
-	__ASSERT_NO_MSG(&entropy_nrf5_data == DEV_DATA(device));
+	__ASSERT_NO_MSG(&entropy_nrf5_data == dev->data);
 
 	while (len) {
 		uint16_t bytes;
@@ -253,13 +253,14 @@ static int entropy_nrf5_get_entropy(struct device *device, uint8_t *buf, uint16_
 	return 0;
 }
 
-static int entropy_nrf5_get_entropy_isr(struct device *dev, uint8_t *buf, uint16_t len,
+static int entropy_nrf5_get_entropy_isr(const struct device *dev,
+					uint8_t *buf, uint16_t len,
 					uint32_t flags)
 {
 	uint16_t cnt = len;
 
 	/* Check if this API is called on correct driver instance. */
-	__ASSERT_NO_MSG(&entropy_nrf5_data == DEV_DATA(dev));
+	__ASSERT_NO_MSG(&entropy_nrf5_data == dev->data);
 
 	if (likely((flags & ENTROPY_BUSYWAIT) == 0U)) {
 		return rng_pool_get((struct rng_pool *)(entropy_nrf5_data.isr),
@@ -290,18 +291,7 @@ static int entropy_nrf5_get_entropy_isr(struct device *dev, uint8_t *buf, uint16
 
 			while (!nrf_rng_event_check(NRF_RNG,
 						    NRF_RNG_EVENT_VALRDY)) {
-				/*
-				 * To guarantee waking up from the event, the
-				 * SEV-On-Pend feature must be enabled (enabled
-				 * during ARCH initialization).
-				 *
-				 * DSB is recommended by spec before WFE (to
-				 * guarantee completion of memory transactions)
-				 */
-				__DSB();
-				__WFE();
-				__SEV();
-				__WFE();
+				k_cpu_atomic_idle(irq_lock());
 			}
 
 			byte = random_byte_get();
@@ -322,22 +312,23 @@ static int entropy_nrf5_get_entropy_isr(struct device *dev, uint8_t *buf, uint16
 	return cnt;
 }
 
-static int entropy_nrf5_init(struct device *device);
+static int entropy_nrf5_init(const struct device *dev);
 
 static const struct entropy_driver_api entropy_nrf5_api_funcs = {
 	.get_entropy = entropy_nrf5_get_entropy,
 	.get_entropy_isr = entropy_nrf5_get_entropy_isr
 };
 
-DEVICE_AND_API_INIT(entropy_nrf5, DT_INST_LABEL(0),
-		    entropy_nrf5_init, &entropy_nrf5_data, NULL,
-		    PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+DEVICE_DT_INST_DEFINE(0,
+		    entropy_nrf5_init, NULL,
+		    &entropy_nrf5_data, NULL,
+		    PRE_KERNEL_1, CONFIG_ENTROPY_INIT_PRIORITY,
 		    &entropy_nrf5_api_funcs);
 
-static int entropy_nrf5_init(struct device *device)
+static int entropy_nrf5_init(const struct device *dev)
 {
 	/* Check if this API is called on correct driver instance. */
-	__ASSERT_NO_MSG(&entropy_nrf5_data == DEV_DATA(device));
+	__ASSERT_NO_MSG(&entropy_nrf5_data == dev->data);
 
 	/* Locking semaphore initialized to 1 (unlocked) */
 	k_sem_init(&entropy_nrf5_data.sem_lock, 1, 1);

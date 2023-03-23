@@ -5,80 +5,41 @@
  */
 
 #include <string.h>
-#include <device.h>
-#include <sys/atomic.h>
-#include <syscall_handler.h>
+#include <zephyr/device.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/kobject.h>
+#include <zephyr/syscall_handler.h>
 
-extern const struct init_entry __init_start[];
-extern const struct init_entry __init_PRE_KERNEL_1_start[];
-extern const struct init_entry __init_PRE_KERNEL_2_start[];
-extern const struct init_entry __init_POST_KERNEL_start[];
-extern const struct init_entry __init_APPLICATION_start[];
-extern const struct init_entry __init_end[];
+extern const struct device __device_start[];
+extern const struct device __device_end[];
 
-#ifdef CONFIG_SMP
-extern const struct init_entry __init_SMP_start[];
-#endif
-
-extern struct device __device_start[];
-extern struct device __device_end[];
-
-#ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-extern uint32_t __device_busy_start[];
-extern uint32_t __device_busy_end[];
-#define DEVICE_BUSY_SIZE (__device_busy_end - __device_busy_start)
-#endif
 
 /**
- * @brief Execute all the init entry initialization functions at a given level
+ * @brief Initialize state for all static devices.
  *
- * @details Invokes the initialization routine for each init entry object
- * created by the INIT_ENTRY_DEFINE() macro using the specified level.
- * The linker script places the init entry objects in memory in the order
- * they need to be invoked, with symbols indicating where one level leaves
- * off and the next one begins.
- *
- * @param level init level to run.
+ * The state object is always zero-initialized, but this may not be
+ * sufficient.
  */
-void z_sys_init_run_level(int32_t level)
+void z_device_state_init(void)
 {
-	static const struct init_entry *levels[] = {
-		__init_PRE_KERNEL_1_start,
-		__init_PRE_KERNEL_2_start,
-		__init_POST_KERNEL_start,
-		__init_APPLICATION_start,
-#ifdef CONFIG_SMP
-		__init_SMP_start,
-#endif
-		/* End marker */
-		__init_end,
-	};
-	const struct init_entry *entry;
+	const struct device *dev = __device_start;
 
-	for (entry = levels[level]; entry < levels[level+1]; entry++) {
-		struct device *dev = entry->dev;
-		int retval;
-
-		if (dev != NULL) {
-			z_object_init(dev);
-		}
-
-		retval = entry->init(dev);
-		if (retval != 0) {
-			if (dev) {
-				/* Initialization failed. Clear the API struct
-				 * so that device_get_binding() will not succeed
-				 * for it.
-				 */
-				dev->driver_api = NULL;
-			}
-		}
+	while (dev < __device_end) {
+		z_object_init(dev);
+		++dev;
 	}
 }
 
-struct device *z_impl_device_get_binding(const char *name)
+const struct device *z_impl_device_get_binding(const char *name)
 {
-	struct device *dev;
+	const struct device *dev;
+
+	/* A null string identifies no device.  So does an empty
+	 * string.
+	 */
+	if ((name == NULL) || (name[0] == '\0')) {
+		return NULL;
+	}
 
 	/* Split the search into two loops: in the common scenario, where
 	 * device names are stored in ROM (and are referenced by the user
@@ -86,13 +47,13 @@ struct device *z_impl_device_get_binding(const char *name)
 	 * performed. Reserve string comparisons for a fallback.
 	 */
 	for (dev = __device_start; dev != __device_end; dev++) {
-		if (z_device_ready(dev) && (dev->name == name)) {
+		if (z_device_is_ready(dev) && (dev->name == name)) {
 			return dev;
 		}
 	}
 
 	for (dev = __device_start; dev != __device_end; dev++) {
-		if (z_device_ready(dev) && (strcmp(name, dev->name) == 0)) {
+		if (z_device_is_ready(dev) && (strcmp(name, dev->name) == 0)) {
 			return dev;
 		}
 	}
@@ -101,75 +62,82 @@ struct device *z_impl_device_get_binding(const char *name)
 }
 
 #ifdef CONFIG_USERSPACE
-static inline struct device *z_vrfy_device_get_binding(const char *name)
+static inline const struct device *z_vrfy_device_get_binding(const char *name)
 {
 	char name_copy[Z_DEVICE_MAX_NAME_LEN];
 
 	if (z_user_string_copy(name_copy, (char *)name, sizeof(name_copy))
 	    != 0) {
-		return 0;
+		return NULL;
 	}
 
 	return z_impl_device_get_binding(name_copy);
 }
 #include <syscalls/device_get_binding_mrsh.c>
+
+static inline bool z_vrfy_device_is_ready(const struct device *dev)
+{
+	Z_OOPS(Z_SYSCALL_OBJ_INIT(dev, K_OBJ_ANY));
+
+	return z_impl_device_is_ready(dev);
+}
+#include <syscalls/device_is_ready_mrsh.c>
 #endif /* CONFIG_USERSPACE */
 
-size_t z_device_get_all_static(struct device **devices)
+size_t z_device_get_all_static(struct device const **devices)
 {
 	*devices = __device_start;
 	return __device_end - __device_start;
 }
 
-#ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-int device_pm_control_nop(struct device *unused_device,
-		       uint32_t unused_ctrl_command,
-		       void *unused_context,
-		       device_pm_cb cb,
-		       void *unused_arg)
+bool z_device_is_ready(const struct device *dev)
 {
-	return -ENOTSUP;
+	/*
+	 * if an invalid device pointer is passed as argument, this call
+	 * reports the `device` as not ready for usage.
+	 */
+	if (dev == NULL) {
+		return false;
+	}
+
+	return dev->state->initialized && (dev->state->init_res == 0U);
 }
 
-int device_any_busy_check(void)
+static int device_visitor(const device_handle_t *handles,
+			   size_t handle_count,
+			   device_visitor_callback_t visitor_cb,
+			   void *context)
 {
-	int i = 0;
+	/* Iterate over fixed devices */
+	for (size_t i = 0; i < handle_count; ++i) {
+		device_handle_t dh = handles[i];
+		const struct device *rdev = device_from_handle(dh);
+		int rc = visitor_cb(rdev, context);
 
-	for (i = 0; i < DEVICE_BUSY_SIZE; i++) {
-		if (__device_busy_start[i] != 0U) {
-			return -EBUSY;
+		if (rc < 0) {
+			return rc;
 		}
 	}
-	return 0;
+
+	return handle_count;
 }
 
-int device_busy_check(struct device *chk_dev)
+int device_required_foreach(const struct device *dev,
+			    device_visitor_callback_t visitor_cb,
+			    void *context)
 {
-	if (atomic_test_bit((const atomic_t *)__device_busy_start,
-			    (chk_dev - __device_start))) {
-		return -EBUSY;
-	}
-	return 0;
+	size_t handle_count = 0;
+	const device_handle_t *handles = device_required_handles_get(dev, &handle_count);
+
+	return device_visitor(handles, handle_count, visitor_cb, context);
 }
 
-#endif
-
-void device_busy_set(struct device *busy_dev)
+int device_supported_foreach(const struct device *dev,
+			     device_visitor_callback_t visitor_cb,
+			     void *context)
 {
-#ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-	atomic_set_bit((atomic_t *) __device_busy_start,
-		       (busy_dev - __device_start));
-#else
-	ARG_UNUSED(busy_dev);
-#endif
-}
+	size_t handle_count = 0;
+	const device_handle_t *handles = device_supported_handles_get(dev, &handle_count);
 
-void device_busy_clear(struct device *busy_dev)
-{
-#ifdef CONFIG_DEVICE_POWER_MANAGEMENT
-	atomic_clear_bit((atomic_t *) __device_busy_start,
-			 (busy_dev - __device_start));
-#else
-	ARG_UNUSED(busy_dev);
-#endif
+	return device_visitor(handles, handle_count, visitor_cb, context);
 }

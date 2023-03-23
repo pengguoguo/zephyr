@@ -4,15 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <device.h>
-#include <init.h>
-#include <kernel.h>
-#include <drivers/pinmux.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <soc.h>
-#include <sys/sys_io.h>
-#include <gpio/gpio_cmsdk_ahb.h>
-
-#include "pinmux/pinmux.h"
+#include <zephyr/sys/sys_io.h>
+#include <zephyr/drivers/gpio/gpio_cmsdk_ahb.h>
 
 /**
  * @brief Pinmux driver for ARM MPS2 AN385 Board
@@ -155,7 +152,7 @@ static void arm_mps2_pinmux_defaults(void)
 	CMSDK_AHB_GPIO2_DEV->altfuncset = gpio_2;
 }
 
-static int arm_mps2_pinmux_init(struct device *port)
+static int arm_mps2_pinmux_init(const struct device *port)
 {
 	ARG_UNUSED(port);
 

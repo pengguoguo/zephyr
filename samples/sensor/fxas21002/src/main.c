@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
 
 K_SEM_DEFINE(sem, 0, 1);	/* starts off "not available" */
 
-static void trigger_handler(struct device *dev, struct sensor_trigger *trigger)
+static void trigger_handler(const struct device *dev,
+			    const struct sensor_trigger *trigger)
 {
 	k_sem_give(&sem);
 }
@@ -18,9 +19,9 @@ static void trigger_handler(struct device *dev, struct sensor_trigger *trigger)
 void main(void)
 {
 	struct sensor_value gyro[3];
-	struct device *dev = device_get_binding(DT_LABEL(DT_INST(0, nxp_fxas21002)));
+	const struct device *const dev = DEVICE_DT_GET_ANY(nxp_fxas21002);
 
-	if (dev == NULL) {
+	if (dev == NULL || !device_is_ready(dev)) {
 		printf("Could not get fxas21002 device\n");
 		return;
 	}

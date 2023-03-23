@@ -13,26 +13,20 @@
  * This module contains functions for manipulation of the d-cache.
  */
 
-#include <kernel.h>
-#include <arch/cpu.h>
-#include <sys/util.h>
-#include <toolchain.h>
-#include <cache.h>
-#include <linker/linker-defs.h>
-#include <arch/arc/v2/aux_regs.h>
+#include <zephyr/kernel.h>
+#include <zephyr/arch/cpu.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/cache.h>
+#include <zephyr/linker/linker-defs.h>
+#include <zephyr/arch/arc/v2/aux_regs.h>
 #include <kernel_internal.h>
-#include <sys/__assert.h>
-#include <init.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/init.h>
 #include <stdbool.h>
 
-#if (CONFIG_CACHE_LINE_SIZE == 0) && !defined(CONFIG_CACHE_LINE_SIZE_DETECT)
-#error Cannot use this implementation with a cache line size of 0
-#endif
-
-#if defined(CONFIG_CACHE_LINE_SIZE_DETECT)
-#define DCACHE_LINE_SIZE sys_cache_line_size
-#else
-#define DCACHE_LINE_SIZE CONFIG_CACHE_LINE_SIZE
+#if defined(CONFIG_DCACHE_LINE_SIZE_DETECT)
+size_t sys_cache_line_size;
 #endif
 
 #define DC_CTRL_DC_ENABLE            0x0  /* enable d-cache */
@@ -45,7 +39,6 @@
 #define DC_CTRL_DIRECT_ACCESS        0x0  /* direct access mode  */
 #define DC_CTRL_INDIRECT_ACCESS      0x20 /* indirect access mode */
 #define DC_CTRL_OP_SUCCEEDED         0x4  /* d-cache operation succeeded */
-
 
 static bool dcache_available(void)
 {
@@ -62,47 +55,38 @@ static void dcache_dc_ctrl(uint32_t dcache_en_mask)
 	}
 }
 
-static void dcache_enable(void)
+void arch_dcache_enable(void)
 {
 	dcache_dc_ctrl(DC_CTRL_DC_ENABLE);
 }
 
-
-/**
- *
- * @brief Flush multiple d-cache lines to memory
- *
- * No alignment is required for either <start_addr> or <size>, but since
- * dcache_flush_mlines() iterates on the d-cache lines, a cache line
- * alignment for both is optimal.
- *
- * The d-cache line size is specified either via the CONFIG_CACHE_LINE_SIZE
- * kconfig option or it is detected at runtime.
- *
- * @param start_addr the pointer to start the multi-line flush
- * @param size the number of bytes that are to be flushed
- *
- * @return N/A
- */
-static void dcache_flush_mlines(uint32_t start_addr, uint32_t size)
+void arch_dcache_disable(void)
 {
-	uint32_t end_addr;
+	/* nothing */
+}
+
+int arch_dcache_flush_range(void *start_addr_ptr, size_t size)
+{
+	size_t line_size = sys_cache_data_line_size_get();
+	uintptr_t start_addr = (uintptr_t)start_addr_ptr;
+	uintptr_t end_addr;
 	unsigned int key;
 
-	if (!dcache_available() || (size == 0U)) {
-		return;
+	if (!dcache_available() || (size == 0U) || line_size == 0U) {
+		return -ENOTSUP;
 	}
 
-	end_addr = start_addr + size - 1;
-	start_addr &= (uint32_t)(~(DCACHE_LINE_SIZE - 1));
+	end_addr = start_addr + size;
+
+	start_addr = ROUND_DOWN(start_addr, line_size);
 
 	key = arch_irq_lock(); /* --enter critical section-- */
 
 	do {
 		z_arc_v2_aux_reg_write(_ARC_V2_DC_FLDL, start_addr);
-		__asm__ volatile("nop_s");
-		__asm__ volatile("nop_s");
-		__asm__ volatile("nop_s");
+		__builtin_arc_nop();
+		__builtin_arc_nop();
+		__builtin_arc_nop();
 		/* wait for flush completion */
 		do {
 			if ((z_arc_v2_aux_reg_read(_ARC_V2_DC_CTRL) &
@@ -110,39 +94,62 @@ static void dcache_flush_mlines(uint32_t start_addr, uint32_t size)
 				break;
 			}
 		} while (1);
-		start_addr += DCACHE_LINE_SIZE;
-	} while (start_addr <= end_addr);
+		start_addr += line_size;
+	} while (start_addr < end_addr);
 
 	arch_irq_unlock(key); /* --exit critical section-- */
 
+	return 0;
 }
 
-
-/**
- *
- * @brief Flush d-cache lines to main memory
- *
- * No alignment is required for either <virt> or <size>, but since
- * sys_cache_flush() iterates on the d-cache lines, a d-cache line alignment for
- * both is optimal.
- *
- * The d-cache line size is specified either via the CONFIG_CACHE_LINE_SIZE
- * kconfig option or it is detected at runtime.
- *
- * @param start_addr the pointer to start the multi-line flush
- * @param size the number of bytes that are to be flushed
- *
- * @return N/A
- */
-
-void sys_cache_flush(vaddr_t start_addr, size_t size)
+int arch_dcache_invd_range(void *start_addr_ptr, size_t size)
 {
-	dcache_flush_mlines((uint32_t)start_addr, (uint32_t)size);
+	size_t line_size = sys_cache_data_line_size_get();
+	uintptr_t start_addr = (uintptr_t)start_addr_ptr;
+	uintptr_t end_addr;
+	unsigned int key;
+
+	if (!dcache_available() || (size == 0U) || line_size == 0U) {
+		return -ENOTSUP;
+	}
+	end_addr = start_addr + size;
+	start_addr = ROUND_DOWN(start_addr, line_size);
+
+	key = arch_irq_lock(); /* -enter critical section- */
+
+	do {
+		z_arc_v2_aux_reg_write(_ARC_V2_DC_IVDL, start_addr);
+		__builtin_arc_nop();
+		__builtin_arc_nop();
+		__builtin_arc_nop();
+		start_addr += line_size;
+	} while (start_addr < end_addr);
+	irq_unlock(key); /* -exit critical section- */
+
+	return 0;
 }
 
+int arch_dcache_flush_and_invd_range(void *start_addr_ptr, size_t size)
+{
+	return -ENOTSUP;
+}
 
-#if defined(CONFIG_CACHE_LINE_SIZE_DETECT)
-size_t sys_cache_line_size;
+int arch_dcache_flush_all(void)
+{
+	return -ENOTSUP;
+}
+
+int arch_dcache_invd_all(void)
+{
+	return -ENOTSUP;
+}
+
+int arch_dcache_flush_and_invd_all(void)
+{
+	return -ENOTSUP;
+}
+
+#if defined(CONFIG_DCACHE_LINE_SIZE_DETECT)
 static void init_dcache_line_size(void)
 {
 	uint32_t val;
@@ -153,15 +160,69 @@ static void init_dcache_line_size(void)
 	val *= 16U;
 	sys_cache_line_size = (size_t) val;
 }
+
+size_t arch_dcache_line_size_get(void)
+{
+	return sys_cache_line_size;
+}
 #endif
 
-static int init_dcache(struct device *unused)
+void arch_icache_enable(void)
+{
+	/* nothing */
+}
+
+void arch_icache_disable(void)
+{
+	/* nothing */
+}
+
+int arch_icache_flush_all(void)
+{
+	return -ENOTSUP;
+}
+
+int arch_icache_invd_all(void)
+{
+	return -ENOTSUP;
+}
+
+int arch_icache_flush_and_invd_all(void)
+{
+	return -ENOTSUP;
+}
+
+int arch_icache_flush_range(void *addr, size_t size)
+{
+	ARG_UNUSED(addr);
+	ARG_UNUSED(size);
+
+	return -ENOTSUP;
+}
+
+int arch_icache_invd_range(void *addr, size_t size)
+{
+	ARG_UNUSED(addr);
+	ARG_UNUSED(size);
+
+	return -ENOTSUP;
+}
+
+int arch_icache_flush_and_invd_range(void *addr, size_t size)
+{
+	ARG_UNUSED(addr);
+	ARG_UNUSED(size);
+
+	return -ENOTSUP;
+}
+
+static int init_dcache(const struct device *unused)
 {
 	ARG_UNUSED(unused);
 
-	dcache_enable();
+	arch_dcache_enable();
 
-#if defined(CONFIG_CACHE_LINE_SIZE_DETECT)
+#if defined(CONFIG_DCACHE_LINE_SIZE_DETECT)
 	init_dcache_line_size();
 #endif
 

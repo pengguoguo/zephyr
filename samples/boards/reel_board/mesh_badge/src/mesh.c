@@ -4,15 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 #include <string.h>
-#include <sys/printk.h>
+#include <zephyr/sys/printk.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/mesh.h>
-#include <bluetooth/hci.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/mesh.h>
+#include <zephyr/bluetooth/hci.h>
 
-#include <drivers/sensor.h>
+#include <zephyr/drivers/sensor.h>
 
 #include "mesh.h"
 #include "board.h"
@@ -66,24 +66,97 @@ static struct led_onoff_state led_onoff_state[] = {
 	{ .dev_id = 0 },
 };
 
-static void heartbeat(uint8_t hops, uint16_t feat)
+static void heartbeat(const struct bt_mesh_hb_sub *sub, uint8_t hops,
+		      uint16_t feat)
 {
 	board_show_text("Heartbeat Received", false, K_SECONDS(2));
 }
 
-static struct bt_mesh_cfg_srv cfg_srv = {
-	.relay = BT_MESH_RELAY_ENABLED,
-	.beacon = BT_MESH_BEACON_DISABLED,
-	.default_ttl = DEFAULT_TTL,
+BT_MESH_HB_CB_DEFINE(hb_cb) = {
+	.recv = heartbeat,
+};
 
-	/* 3 transmissions with 20ms interval */
-	.net_transmit = BT_MESH_TRANSMIT(2, 20),
-	.relay_retransmit = BT_MESH_TRANSMIT(3, 20),
+static void show_mesh_status(bool mesh_started_ok, int addr)
+{
+	if (!mesh_started_ok) {
+		board_show_text("Starting Mesh Failed", false, K_SECONDS(2));
+	} else {
+		char buf[32];
 
-	.hb_sub.func = heartbeat,
+		snprintk(buf, sizeof(buf), "Mesh Started\nAddr: 0x%04x", addr);
+		board_show_text(buf, false, K_SECONDS(4));
+	}
+}
+
+static void cfg_cli_app_key_status_cb(struct bt_mesh_cfg_cli *cli, uint16_t
+				addr, uint8_t status, uint16_t net_idx,
+				uint16_t app_idx)
+{
+	struct bt_mesh_cfg_cli_mod_pub pub = {
+		.addr = GROUP_ADDR,
+		.app_idx = APP_IDX,
+		.ttl = DEFAULT_TTL,
+		.period = BT_MESH_PUB_PERIOD_SEC(10),
+	};
+	int err;
+
+	/* Bind to vendor model */
+	err = bt_mesh_cfg_cli_mod_app_bind_vnd(NET_IDX, addr, addr, APP_IDX,
+				MOD_LF, BT_COMP_ID_LF, NULL);
+	if (err) {
+		printk("Failed to bind to vendor model (err %d)\n", err);
+		goto end;
+	}
+
+	err = bt_mesh_cfg_cli_mod_app_bind(NET_IDX, addr, addr, APP_IDX,
+				BT_MESH_MODEL_ID_GEN_ONOFF_SRV, NULL);
+	if (err) {
+		printk("Failed to bind to vendor model (err %d)\n", err);
+		goto end;
+	}
+
+	err = bt_mesh_cfg_cli_mod_app_bind(NET_IDX, addr, addr, APP_IDX,
+				BT_MESH_MODEL_ID_SENSOR_SRV, NULL);
+	if (err) {
+		printk("Failed to bind to vendor model (err %d)\n", err);
+		goto end;
+	}
+
+	/* Bind to Health model */
+	err = bt_mesh_cfg_cli_mod_app_bind(NET_IDX, addr, addr, APP_IDX,
+				BT_MESH_MODEL_ID_HEALTH_SRV, NULL);
+	if (err) {
+		printk("Failed to bind to Health Server (err %d)\n", err);
+		goto end;
+	}
+
+	/* Add model subscription */
+	err = bt_mesh_cfg_cli_mod_sub_add_vnd(NET_IDX, addr, addr, GROUP_ADDR,
+				MOD_LF, BT_COMP_ID_LF, NULL);
+	if (err) {
+		printk("Failed to add subscription (err %d)\n", err);
+		goto end;
+	}
+
+	err = bt_mesh_cfg_cli_mod_pub_set_vnd(NET_IDX, addr, addr, MOD_LF,
+				BT_COMP_ID_LF, &pub, NULL);
+	if (err) {
+		printk("Failed to set publication (err %d)\n", err);
+		goto end;
+	}
+
+	printk("Configuration complete\n");
+
+end:
+	show_mesh_status(err == 0, addr);
+}
+
+static const struct bt_mesh_cfg_cli_cb cfg_cli_cb = {
+	.app_key_status = cfg_cli_app_key_status_cb,
 };
 
 static struct bt_mesh_cfg_cli cfg_cli = {
+	.cb = &cfg_cli_cb,
 };
 
 static void attention_on(struct bt_mesh_model *model)
@@ -106,9 +179,9 @@ static struct bt_mesh_health_srv health_srv = {
 };
 
 /* Generic OnOff Server message handlers */
-static void gen_onoff_get(struct bt_mesh_model *model,
-			  struct bt_mesh_msg_ctx *ctx,
-			  struct net_buf_simple *buf)
+static int gen_onoff_get(struct bt_mesh_model *model,
+			 struct bt_mesh_msg_ctx *ctx,
+			 struct net_buf_simple *buf)
 {
 	NET_BUF_SIMPLE_DEFINE(msg, 2 + 1 + 4);
 	struct led_onoff_state *state = model->user_data;
@@ -121,11 +194,13 @@ static void gen_onoff_get(struct bt_mesh_model *model,
 	if (bt_mesh_model_send(model, ctx, &msg, NULL, NULL)) {
 		printk("Unable to send On Off Status response\n");
 	}
+
+	return 0;
 }
 
-static void gen_onoff_set_unack(struct bt_mesh_model *model,
-				struct bt_mesh_msg_ctx *ctx,
-				struct net_buf_simple *buf)
+static int gen_onoff_set_unack(struct bt_mesh_model *model,
+			       struct bt_mesh_msg_ctx *ctx,
+			       struct net_buf_simple *buf)
 {
 	struct net_buf_simple *msg = model->pub->msg;
 	struct led_onoff_state *state = model->user_data;
@@ -139,7 +214,7 @@ static void gen_onoff_set_unack(struct bt_mesh_model *model,
 	if (onoff > STATE_ON) {
 		printk("Wrong state received\n");
 
-		return;
+		return 0;
 	}
 
 	now = k_uptime_get();
@@ -159,7 +234,7 @@ static void gen_onoff_set_unack(struct bt_mesh_model *model,
 	if (set_led_state(state->dev_id, onoff)) {
 		printk("Failed to set led state\n");
 
-		return;
+		return 0;
 	}
 
 	/*
@@ -184,21 +259,26 @@ static void gen_onoff_set_unack(struct bt_mesh_model *model,
 			printk("bt_mesh_model_publish err %d\n", err);
 		}
 	}
+
+	return 0;
 }
 
-static void gen_onoff_set(struct bt_mesh_model *model,
-			  struct bt_mesh_msg_ctx *ctx,
-			  struct net_buf_simple *buf)
+static int gen_onoff_set(struct bt_mesh_model *model,
+			 struct bt_mesh_msg_ctx *ctx,
+			 struct net_buf_simple *buf)
 {
-	gen_onoff_set_unack(model, ctx, buf);
-	gen_onoff_get(model, ctx, buf);
+	(void)gen_onoff_set_unack(model, ctx, buf);
+	(void)gen_onoff_get(model, ctx, buf);
+
+	return 0;
 }
 
-static void sensor_desc_get(struct bt_mesh_model *model,
-			    struct bt_mesh_msg_ctx *ctx,
-			    struct net_buf_simple *buf)
+static int sensor_desc_get(struct bt_mesh_model *model,
+			   struct bt_mesh_msg_ctx *ctx,
+			   struct net_buf_simple *buf)
 {
 	/* TODO */
+	return 0;
 }
 
 static void sens_temperature_celsius_fill(struct net_buf_simple *msg)
@@ -253,9 +333,8 @@ static void sensor_create_status(uint16_t id, struct net_buf_simple *msg)
 	}
 }
 
-static void sensor_get(struct bt_mesh_model *model,
-		       struct bt_mesh_msg_ctx *ctx,
-		       struct net_buf_simple *buf)
+static int sensor_get(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
+		      struct net_buf_simple *buf)
 {
 	NET_BUF_SIMPLE_DEFINE(msg, 1 + MAX_SENS_STATUS_LEN + 4);
 	uint16_t sensor_id;
@@ -266,20 +345,24 @@ static void sensor_get(struct bt_mesh_model *model,
 	if (bt_mesh_model_send(model, ctx, &msg, NULL, NULL)) {
 		printk("Unable to send Sensor get status response\n");
 	}
+
+	return 0;
 }
 
-static void sensor_col_get(struct bt_mesh_model *model,
-			   struct bt_mesh_msg_ctx *ctx,
-			   struct net_buf_simple *buf)
+static int sensor_col_get(struct bt_mesh_model *model,
+			  struct bt_mesh_msg_ctx *ctx,
+			  struct net_buf_simple *buf)
 {
 	/* TODO */
+	return 0;
 }
 
-static void sensor_series_get(struct bt_mesh_model *model,
-			      struct bt_mesh_msg_ctx *ctx,
-			      struct net_buf_simple *buf)
+static int sensor_series_get(struct bt_mesh_model *model,
+			     struct bt_mesh_msg_ctx *ctx,
+			     struct net_buf_simple *buf)
 {
 	/* TODO */
+	return 0;
 }
 
 /* Definitions of models publication context (Start) */
@@ -288,22 +371,22 @@ BT_MESH_MODEL_PUB_DEFINE(gen_onoff_srv_pub_root, NULL, 2 + 3);
 
 /* Mapping of message handlers for Generic OnOff Server (0x1000) */
 static const struct bt_mesh_model_op gen_onoff_srv_op[] = {
-	{ BT_MESH_MODEL_OP_GEN_ONOFF_GET, 0, gen_onoff_get },
-	{ BT_MESH_MODEL_OP_GEN_ONOFF_SET, 2, gen_onoff_set },
-	{ BT_MESH_MODEL_OP_GEN_ONOFF_SET_UNACK, 2, gen_onoff_set_unack },
+	{ BT_MESH_MODEL_OP_GEN_ONOFF_GET,       BT_MESH_LEN_EXACT(0), gen_onoff_get },
+	{ BT_MESH_MODEL_OP_GEN_ONOFF_SET,       BT_MESH_LEN_MIN(2),   gen_onoff_set },
+	{ BT_MESH_MODEL_OP_GEN_ONOFF_SET_UNACK, BT_MESH_LEN_MIN(2),   gen_onoff_set_unack },
 	BT_MESH_MODEL_OP_END,
 };
 
 /* Mapping of message handlers for Sensor Server (0x1100) */
 static const struct bt_mesh_model_op sensor_srv_op[] = {
-	{ BT_MESH_MODEL_OP_SENS_DESC_GET, 0, sensor_desc_get },
-	{ BT_MESH_MODEL_OP_SENS_GET, 0, sensor_get },
-	{ BT_MESH_MODEL_OP_SENS_COL_GET, 2, sensor_col_get },
-	{ BT_MESH_MODEL_OP_SENS_SERIES_GET, 2, sensor_series_get },
+	{ BT_MESH_MODEL_OP_SENS_DESC_GET,   BT_MESH_LEN_EXACT(0), sensor_desc_get },
+	{ BT_MESH_MODEL_OP_SENS_GET,        BT_MESH_LEN_EXACT(2), sensor_get },
+	{ BT_MESH_MODEL_OP_SENS_COL_GET,    BT_MESH_LEN_EXACT(2), sensor_col_get },
+	{ BT_MESH_MODEL_OP_SENS_SERIES_GET, BT_MESH_LEN_EXACT(2), sensor_series_get },
 };
 
 static struct bt_mesh_model root_models[] = {
-	BT_MESH_MODEL_CFG_SRV(&cfg_srv),
+	BT_MESH_MODEL_CFG_SRV,
 	BT_MESH_MODEL_CFG_CLI(&cfg_cli),
 	BT_MESH_MODEL_HEALTH_SRV(&health_srv, &health_pub),
 	BT_MESH_MODEL(BT_MESH_MODEL_ID_GEN_ONOFF_SRV,
@@ -313,9 +396,8 @@ static struct bt_mesh_model root_models[] = {
 		      sensor_srv_op, NULL, NULL),
 };
 
-static void vnd_hello(struct bt_mesh_model *model,
-		      struct bt_mesh_msg_ctx *ctx,
-		      struct net_buf_simple *buf)
+static int vnd_hello(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
+		     struct net_buf_simple *buf)
 {
 	char str[32];
 	size_t len;
@@ -324,7 +406,7 @@ static void vnd_hello(struct bt_mesh_model *model,
 
 	if (ctx->addr == bt_mesh_model_elem(model)->addr) {
 		printk("Ignoring message from self\n");
-		return;
+		return 0;
 	}
 
 	len = MIN(buf->len, HELLO_MAX);
@@ -337,11 +419,12 @@ static void vnd_hello(struct bt_mesh_model *model,
 	board_show_text(str, false, K_SECONDS(3));
 
 	board_blink_leds();
+
+	return 0;
 }
 
-static void vnd_baduser(struct bt_mesh_model *model,
-			struct bt_mesh_msg_ctx *ctx,
-			struct net_buf_simple *buf)
+static int vnd_baduser(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
+		       struct net_buf_simple *buf)
 {
 	char str[32];
 	size_t len;
@@ -350,7 +433,7 @@ static void vnd_baduser(struct bt_mesh_model *model,
 
 	if (ctx->addr == bt_mesh_model_elem(model)->addr) {
 		printk("Ignoring message from self\n");
-		return;
+		return 0;
 	}
 
 	len = MIN(buf->len, HELLO_MAX);
@@ -361,17 +444,19 @@ static void vnd_baduser(struct bt_mesh_model *model,
 	board_show_text(str, false, K_SECONDS(3));
 
 	board_blink_leds();
+
+	return 0;
 }
 
-static void vnd_heartbeat(struct bt_mesh_model *model,
-			  struct bt_mesh_msg_ctx *ctx,
-			  struct net_buf_simple *buf)
+static int vnd_heartbeat(struct bt_mesh_model *model,
+			 struct bt_mesh_msg_ctx *ctx,
+			 struct net_buf_simple *buf)
 {
 	uint8_t init_ttl, hops;
 
 	/* Ignore messages from self */
 	if (ctx->addr == bt_mesh_model_elem(model)->addr) {
-		return;
+		return 0;
 	}
 
 	init_ttl = net_buf_simple_pull_u8(buf);
@@ -381,12 +466,14 @@ static void vnd_heartbeat(struct bt_mesh_model *model,
 	       hops, hops == 1U ? "" : "s");
 
 	board_add_heartbeat(ctx->addr, hops);
+
+	return 0;
 }
 
 static const struct bt_mesh_model_op vnd_ops[] = {
-	{ OP_VND_HELLO, 1, vnd_hello },
-	{ OP_VND_HEARTBEAT, 1, vnd_heartbeat },
-	{ OP_VND_BADUSER, 1, vnd_baduser },
+	{ OP_VND_HELLO,     BT_MESH_LEN_MIN(1), vnd_hello },
+	{ OP_VND_HEARTBEAT, BT_MESH_LEN_MIN(1), vnd_heartbeat },
+	{ OP_VND_BADUSER,   BT_MESH_LEN_MIN(1), vnd_baduser },
 	BT_MESH_MODEL_OP_END,
 };
 
@@ -497,12 +584,6 @@ static int provision_and_configure(void)
 		0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
 		0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
 	};
-	struct bt_mesh_cfg_mod_pub pub = {
-		.addr = GROUP_ADDR,
-		.app_idx = APP_IDX,
-		.ttl = DEFAULT_TTL,
-		.period = BT_MESH_PUB_PERIOD_SEC(10),
-	};
 	uint8_t dev_key[16];
 	uint16_t addr;
 	int err;
@@ -522,8 +603,7 @@ static int provision_and_configure(void)
 	/* Make sure it's a unicast address (highest bit unset) */
 	addr &= ~0x8000;
 
-	err = bt_mesh_provision(net_key, NET_IDX, FLAGS, IV_INDEX, addr,
-				dev_key);
+	err = bt_mesh_provision(net_key, NET_IDX, FLAGS, IV_INDEX, addr, dev_key);
 	if (err) {
 		return err;
 	}
@@ -531,30 +611,12 @@ static int provision_and_configure(void)
 	printk("Configuring...\n");
 
 	/* Add Application Key */
-	bt_mesh_cfg_app_key_add(NET_IDX, addr, NET_IDX, APP_IDX, app_key, NULL);
-
-	/* Bind to vendor model */
-	bt_mesh_cfg_mod_app_bind_vnd(NET_IDX, addr, addr, APP_IDX,
-				     MOD_LF, BT_COMP_ID_LF, NULL);
-
-	bt_mesh_cfg_mod_app_bind(NET_IDX, addr, addr, APP_IDX,
-				 BT_MESH_MODEL_ID_GEN_ONOFF_SRV, NULL);
-
-	bt_mesh_cfg_mod_app_bind(NET_IDX, addr, addr, APP_IDX,
-				 BT_MESH_MODEL_ID_SENSOR_SRV, NULL);
-
-	/* Bind to Health model */
-	bt_mesh_cfg_mod_app_bind(NET_IDX, addr, addr, APP_IDX,
-				 BT_MESH_MODEL_ID_HEALTH_SRV, NULL);
-
-	/* Add model subscription */
-	bt_mesh_cfg_mod_sub_add_vnd(NET_IDX, addr, addr, GROUP_ADDR,
-				    MOD_LF, BT_COMP_ID_LF, NULL);
-
-	bt_mesh_cfg_mod_pub_set_vnd(NET_IDX, addr, addr, MOD_LF, BT_COMP_ID_LF,
-				    &pub, NULL);
-
-	printk("Configuration complete\n");
+	err = bt_mesh_cfg_cli_app_key_add(NET_IDX, addr, NET_IDX, APP_IDX,
+				app_key, NULL);
+	if (err) {
+		printk("Failed to add application key (err %d)\n", err);
+		return err;
+	}
 
 	return addr;
 }
@@ -565,14 +627,7 @@ static void start_mesh(struct k_work *work)
 
 	err = provision_and_configure();
 	if (err < 0) {
-		board_show_text("Starting Mesh Failed", false,
-				K_SECONDS(2));
-	} else {
-		char buf[32];
-
-		snprintk(buf, sizeof(buf),
-			 "Mesh Started\nAddr: 0x%04x", err);
-		board_show_text(buf, false, K_SECONDS(4));
+		printk("Provisioning failed (err %d)\n", err);
 	}
 }
 

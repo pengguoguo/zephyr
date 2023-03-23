@@ -4,8 +4,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-identifier: lpcxpresso55s69_cpu0
-name: NXP LPCXpresso55S69
+identifier: lpcxpresso55s69_cpu1
+name: NXP LPCXpresso55S69 (CPU1)
 type: mcu
 arch: arm
 ram: 64

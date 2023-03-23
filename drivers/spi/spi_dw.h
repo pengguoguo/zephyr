@@ -10,7 +10,7 @@
 #define ZEPHYR_DRIVERS_SPI_SPI_DW_H_
 
 #include <string.h>
-#include <drivers/spi.h>
+#include <zephyr/drivers/spi.h>
 
 #include "spi_context.h"
 
@@ -24,18 +24,11 @@ typedef void (*spi_dw_config_t)(void);
 struct spi_dw_config {
 	uint32_t regs;
 	uint32_t clock_frequency;
-#ifdef CONFIG_CLOCK_CONTROL
-	const char *clock_name;
-	void *clock_data;
-#endif /* CONFIG_CLOCK_CONTROL */
 	spi_dw_config_t config_func;
 	uint8_t op_modes;
 };
 
 struct spi_dw_data {
-#ifdef CONFIG_CLOCK_CONTROL
-	struct device *clock;
-#endif /* CONFIG_CLOCK_CONTROL */
 	struct spi_context ctx;
 	uint8_t dfs;	/* dfs in bytes: 1,2 or 4 */
 	uint8_t fifo_diff;	/* cannot be bigger than FIFO depth */
@@ -104,11 +97,7 @@ struct spi_dw_data {
 #define DW_SPI_CTRLR0_SLV_OE_BIT	(10)
 #define DW_SPI_CTRLR0_SLV_OE		BIT(DW_SPI_CTRLR0_SLV_OE_BIT)
 
-#ifdef CONFIG_SOC_INTEL_S1000
-#define DW_SPI_CTRLR0_TMOD_SHIFT	(10)
-#else
 #define DW_SPI_CTRLR0_TMOD_SHIFT	(8)
-#endif
 
 #define DW_SPI_CTRLR0_TMOD_TX_RX	(0)
 #define DW_SPI_CTRLR0_TMOD_TX		(1 << DW_SPI_CTRLR0_TMOD_SHIFT)
@@ -119,7 +108,7 @@ struct spi_dw_data {
 #define DW_SPI_CTRLR0_DFS_16(__bpw)	((__bpw) - 1)
 #define DW_SPI_CTRLR0_DFS_32(__bpw)	(((__bpw) - 1) << 16)
 
-#if defined(CONFIG_ARC) || defined(CONFIG_SOC_INTEL_S1000)
+#if defined(CONFIG_ARC)
 #define DW_SPI_CTRLR0_DFS		DW_SPI_CTRLR0_DFS_16
 #else
 #define DW_SPI_CTRLR0_DFS		DW_SPI_CTRLR0_DFS_32
@@ -226,58 +215,6 @@ DEFINE_SET_BIT_OP(ssienr, DW_SPI_REG_SSIENR, DW_SPI_SSIENR_SSIEN_BIT)
 DEFINE_CLEAR_BIT_OP(ssienr, DW_SPI_REG_SSIENR, DW_SPI_SSIENR_SSIEN_BIT)
 DEFINE_TEST_BIT_OP(ssienr, DW_SPI_REG_SSIENR, DW_SPI_SSIENR_SSIEN_BIT)
 DEFINE_TEST_BIT_OP(sr_busy, DW_SPI_REG_SR, DW_SPI_SR_BUSY_BIT)
-
-#ifdef CONFIG_CLOCK_CONTROL
-
-static inline int clock_config(struct device *dev)
-{
-	const struct spi_dw_config *info = dev->config_info;
-	struct spi_dw_data *spi = dev->driver_data;
-
-	if (!info->clock_name || strlen(info->clock_name) == 0) {
-		spi->clock = NULL;
-		return 0;
-	}
-
-	spi->clock = device_get_binding(info->clock_name);
-	if (!spi->clock) {
-		return -ENODEV;
-	}
-
-	return 0;
-}
-
-static inline void clock_on(struct device *dev)
-{
-	struct spi_dw_data *spi = dev->driver_data;
-
-	if (spi->clock) {
-		const struct spi_dw_config *info = dev->config_info;
-
-		clock_control_on(spi->clock, info->clock_data);
-	}
-
-	extra_clock_on(dev);
-}
-
-static inline void clock_off(struct device *dev)
-{
-	struct spi_dw_data *spi = dev->driver_data;
-
-	if (spi->clock) {
-		const struct spi_dw_config *info = dev->config_info;
-
-		clock_control_off(spi->clock, info->clock_data);
-	}
-
-	extra_clock_off(dev);
-}
-
-#else /* CONFIG_CLOCK_CONTROL */
-#define clock_config(...)
-#define clock_on(...)
-#define clock_off(...)
-#endif /* CONFIG_CLOCK_CONTROL */
 
 #ifdef __cplusplus
 }

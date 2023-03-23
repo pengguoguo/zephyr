@@ -15,7 +15,7 @@
 #ifndef ZEPHYR_ARCH_ARC_INCLUDE_V2_IRQ_H_
 #define ZEPHYR_ARCH_ARC_INCLUDE_V2_IRQ_H_
 
-#include <arch/cpu.h>
+#include <zephyr/arch/cpu.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,7 +54,9 @@ extern "C" {
 static ALWAYS_INLINE void z_irq_setup(void)
 {
 	uint32_t aux_irq_ctrl_value = (
+#ifdef CONFIG_ARC_HAS_ZOL
 		_ARC_V2_AUX_IRQ_CTRL_LOOP_REGS | /* save lp_xxx registers */
+#endif /* CONFIG_ARC_HAS_ZOL */
 #ifdef CONFIG_CODE_DENSITY
 		_ARC_V2_AUX_IRQ_CTRL_LP | /* save code density registers */
 #endif

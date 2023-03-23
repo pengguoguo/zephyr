@@ -30,7 +30,6 @@ processor, a set of environmental sensors, a pushbutton, and two RGB LEDs.
 * :abbr:`WDT (Watchdog Timer)`
 
 .. figure:: img/thingy52_nrf52832.jpg
-     :width: 442px
      :align: center
      :alt: nRF52 Thingy:52
 
@@ -40,9 +39,6 @@ More information about the board can be found at the `nRF52 DK website`_. The
 `Nordic Semiconductor Infocenter`_ contains the processor's information and the
 datasheet.
 
-.. note::
-
-   In previous Zephyr releases this board was named *nrf52_pca20020*.
 
 Hardware
 ********
@@ -143,7 +139,7 @@ Internal I2C Bus
 ----------------
 
 The internal I2C bus (I2C_0) is not routed to any of the external connectors,
-but most of the on-board devices are accessed trough it. The following pins
+but most of the on-board devices are accessed through it. The following pins
 have been assigned to the bus:
 
 +---------+---------+

@@ -14,15 +14,14 @@
  * global variable.)
  */
 
-#include <kernel.h>
-#include <arch/cpu.h>
-#include <kernel_structs.h>
-#include <sys/__assert.h>
-#include <sys/printk.h>
-#include <irq.h>
-#include <tracing/tracing.h>
+#include <zephyr/kernel.h>
+#include <zephyr/arch/cpu.h>
+#include <zephyr/kernel_structs.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/irq.h>
+#include <zephyr/tracing/tracing.h>
 #include <kswap.h>
-#include <arch/x86/ia32/segmentation.h>
+#include <zephyr/arch/x86/ia32/segmentation.h>
 
 extern void z_SpuriousIntHandler(void *handler);
 extern void z_SpuriousIntNoErrCodeHandler(void *handler);
@@ -38,6 +37,7 @@ void *__attribute__((section(".spurNoErrIsr")))
 	MK_ISR_NAME(z_SpuriousIntNoErrCodeHandler) =
 		&z_SpuriousIntNoErrCodeHandler;
 
+__pinned_func
 void arch_isr_direct_footer_swap(unsigned int key)
 {
 	(void)z_swap_irqlock(key);
@@ -56,9 +56,9 @@ extern unsigned int z_interrupt_vectors_allocated[];
 
 struct dyn_irq_info {
 	/** IRQ handler */
-	void (*handler)(void *param);
+	void (*handler)(const void *param);
 	/** Parameter to pass to the handler */
-	void *param;
+	const void *param;
 };
 
 /*
@@ -67,7 +67,10 @@ struct dyn_irq_info {
  * which is used by common_dynamic_handler() to fetch the appropriate
  * information out of this much smaller table
  */
+__pinned_bss
 static struct dyn_irq_info dyn_irq_list[CONFIG_X86_DYNAMIC_IRQ_STUBS];
+
+__pinned_bss
 static unsigned int next_irq_stub;
 
 /* Memory address pointing to where in ROM the code for the dynamic stubs are.
@@ -167,6 +170,7 @@ static unsigned int priority_to_free_vector(unsigned int requested_priority)
  * @param stub_idx Stub number to fetch the corresponding stub function
  * @return Pointer to the stub code to install into the IDT
  */
+__pinned_func
 static void *get_dynamic_stub(int stub_idx)
 {
 	uint32_t offset;
@@ -188,7 +192,7 @@ extern const struct pseudo_descriptor z_x86_idt;
 
 static void idt_vector_install(int vector, void *irq_handler)
 {
-	int key;
+	unsigned int key;
 
 	key = irq_lock();
 	z_init_irq_gate(&z_x86_idt.entries[vector], CODE_SEG,
@@ -197,8 +201,8 @@ static void idt_vector_install(int vector, void *irq_handler)
 }
 
 int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
-		void (*routine)(void *parameter), void *parameter,
-		uint32_t flags)
+			     void (*routine)(const void *parameter),
+			     const void *parameter, uint32_t flags)
 {
 	int vector, stub_idx, key;
 
@@ -233,6 +237,7 @@ int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
  *
  * @param stub_idx Index into the dyn_irq_list array
  */
+__pinned_func
 void z_x86_dynamic_irq_handler(uint8_t stub_idx)
 {
 	dyn_irq_list[stub_idx].handler(dyn_irq_list[stub_idx].param);

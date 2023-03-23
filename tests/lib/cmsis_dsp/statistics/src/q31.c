@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2020 Stephanos Ioannidis <root@stephanos.io>
- * Copyright (C) 2010-2020 ARM Limited or its affiliates. All rights reserved.
+ * Copyright (c) 2021 Stephanos Ioannidis <root@stephanos.io>
+ * Copyright (C) 2010-2021 ARM Limited or its affiliates. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-#include <zephyr.h>
+#include <zephyr/ztest.h>
+#include <zephyr/kernel.h>
 #include <stdlib.h>
 #include <arm_math.h>
 #include "../../common/test_common.h"
@@ -34,9 +34,9 @@ static void test_arm_max_q31(
 		ASSERT_MSG_INCORRECT_COMP_RESULT);
 }
 
-DEFINE_TEST_VARIANT3(arm_max_q31, 3, in_com1, 0, 3);
-DEFINE_TEST_VARIANT3(arm_max_q31, 8, in_com1, 1, 8);
-DEFINE_TEST_VARIANT3(arm_max_q31, 11, in_com1, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_max_q31, 3, in_com1, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_max_q31, 8, in_com1, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_max_q31, 11, in_com1, 2, 11);
 
 static void test_arm_min_q31(
 	const q31_t *input1, int ref_index, size_t length)
@@ -55,9 +55,51 @@ static void test_arm_min_q31(
 		ASSERT_MSG_INCORRECT_COMP_RESULT);
 }
 
-DEFINE_TEST_VARIANT3(arm_min_q31, 3, in_com1, 0, 3);
-DEFINE_TEST_VARIANT3(arm_min_q31, 8, in_com1, 1, 8);
-DEFINE_TEST_VARIANT3(arm_min_q31, 11, in_com1, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_min_q31, 3, in_com1, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_min_q31, 8, in_com1, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_min_q31, 11, in_com1, 2, 11);
+
+static void test_arm_absmax_q31(
+	const q31_t *input1, int ref_index, size_t length)
+{
+	q31_t val;
+	uint32_t index;
+
+	/* Run test function */
+	arm_absmax_q31(input1, length, &val, &index);
+
+	/* Validate output */
+	zassert_equal(val, ref_absmax_val[ref_index],
+		ASSERT_MSG_INCORRECT_COMP_RESULT);
+
+	zassert_equal(index, ref_absmax_idx[ref_index],
+		ASSERT_MSG_INCORRECT_COMP_RESULT);
+}
+
+DEFINE_TEST_VARIANT3(statistics_q31, arm_absmax_q31, 3, in_absminmax, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_absmax_q31, 8, in_absminmax, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_absmax_q31, 11, in_absminmax, 2, 11);
+
+static void test_arm_absmin_q31(
+	const q31_t *input1, int ref_index, size_t length)
+{
+	q31_t val;
+	uint32_t index;
+
+	/* Run test function */
+	arm_absmin_q31(input1, length, &val, &index);
+
+	/* Validate output */
+	zassert_equal(val, ref_absmin_val[ref_index],
+		ASSERT_MSG_INCORRECT_COMP_RESULT);
+
+	zassert_equal(index, ref_absmin_idx[ref_index],
+		ASSERT_MSG_INCORRECT_COMP_RESULT);
+}
+
+DEFINE_TEST_VARIANT3(statistics_q31, arm_absmin_q31, 3, in_absminmax, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_absmin_q31, 8, in_absminmax, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_absmin_q31, 11, in_absminmax, 2, 11);
 
 static void test_arm_mean_q31(
 	const q31_t *input1, int ref_index, size_t length)
@@ -88,9 +130,9 @@ static void test_arm_mean_q31(
 	free(output);
 }
 
-DEFINE_TEST_VARIANT3(arm_mean_q31, 3, in_com2, 0, 3);
-DEFINE_TEST_VARIANT3(arm_mean_q31, 8, in_com2, 1, 8);
-DEFINE_TEST_VARIANT3(arm_mean_q31, 11, in_com2, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_mean_q31, 3, in_com2, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_mean_q31, 8, in_com2, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_mean_q31, 11, in_com2, 2, 11);
 
 static void test_arm_power_q31(
 	const q31_t *input1, int ref_index, size_t length)
@@ -121,9 +163,9 @@ static void test_arm_power_q31(
 	free(output);
 }
 
-DEFINE_TEST_VARIANT3(arm_power_q31, 3, in_com1, 0, 3);
-DEFINE_TEST_VARIANT3(arm_power_q31, 8, in_com1, 1, 8);
-DEFINE_TEST_VARIANT3(arm_power_q31, 11, in_com1, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_power_q31, 3, in_com1, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_power_q31, 8, in_com1, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_power_q31, 11, in_com1, 2, 11);
 
 static void test_arm_rms_q31(
 	const q31_t *input1, int ref_index, size_t length)
@@ -154,9 +196,9 @@ static void test_arm_rms_q31(
 	free(output);
 }
 
-DEFINE_TEST_VARIANT3(arm_rms_q31, 3, in_com1, 0, 3);
-DEFINE_TEST_VARIANT3(arm_rms_q31, 8, in_com1, 1, 8);
-DEFINE_TEST_VARIANT3(arm_rms_q31, 11, in_com1, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_rms_q31, 3, in_com1, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_rms_q31, 8, in_com1, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_rms_q31, 11, in_com1, 2, 11);
 
 static void test_arm_std_q31(
 	const q31_t *input1, int ref_index, size_t length)
@@ -187,9 +229,9 @@ static void test_arm_std_q31(
 	free(output);
 }
 
-DEFINE_TEST_VARIANT3(arm_std_q31, 3, in_com1, 0, 3);
-DEFINE_TEST_VARIANT3(arm_std_q31, 8, in_com1, 1, 8);
-DEFINE_TEST_VARIANT3(arm_std_q31, 11, in_com1, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_std_q31, 3, in_com1, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_std_q31, 8, in_com1, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_std_q31, 11, in_com1, 2, 11);
 
 static void test_arm_var_q31(
 	const q31_t *input1, int ref_index, size_t length)
@@ -220,35 +262,8 @@ static void test_arm_var_q31(
 	free(output);
 }
 
-DEFINE_TEST_VARIANT3(arm_var_q31, 3, in_com1, 0, 3);
-DEFINE_TEST_VARIANT3(arm_var_q31, 8, in_com1, 1, 8);
-DEFINE_TEST_VARIANT3(arm_var_q31, 11, in_com1, 2, 11);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_var_q31, 3, in_com1, 0, 3);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_var_q31, 8, in_com1, 1, 8);
+DEFINE_TEST_VARIANT3(statistics_q31, arm_var_q31, 11, in_com1, 2, 11);
 
-void test_statistics_q31(void)
-{
-	ztest_test_suite(statistics_q31,
-		ztest_unit_test(test_arm_max_q31_3),
-		ztest_unit_test(test_arm_max_q31_8),
-		ztest_unit_test(test_arm_max_q31_11),
-		ztest_unit_test(test_arm_min_q31_3),
-		ztest_unit_test(test_arm_min_q31_8),
-		ztest_unit_test(test_arm_min_q31_11),
-		ztest_unit_test(test_arm_mean_q31_3),
-		ztest_unit_test(test_arm_mean_q31_8),
-		ztest_unit_test(test_arm_mean_q31_11),
-		ztest_unit_test(test_arm_power_q31_3),
-		ztest_unit_test(test_arm_power_q31_8),
-		ztest_unit_test(test_arm_power_q31_11),
-		ztest_unit_test(test_arm_rms_q31_3),
-		ztest_unit_test(test_arm_rms_q31_8),
-		ztest_unit_test(test_arm_rms_q31_11),
-		ztest_unit_test(test_arm_std_q31_3),
-		ztest_unit_test(test_arm_std_q31_8),
-		ztest_unit_test(test_arm_std_q31_11),
-		ztest_unit_test(test_arm_var_q31_3),
-		ztest_unit_test(test_arm_var_q31_8),
-		ztest_unit_test(test_arm_var_q31_11)
-		);
-
-	ztest_run_test_suite(statistics_q31);
-}
+ZTEST_SUITE(statistics_q31, NULL, NULL, NULL, NULL, NULL);

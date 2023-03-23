@@ -6,8 +6,8 @@
  */
 
 #include <stdbool.h>
-#include <sys/dlist.h>
-#include <sys/mempool_base.h>
+#include <zephyr/sys/dlist.h>
+#include <zephyr/sys/util.h>
 
 #include "hal/cntr.h"
 
@@ -16,27 +16,22 @@
 
 #include "ticker/ticker.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_hal_ticker
-#include "common/log.h"
+#include "ll_sw/lll.h"
+
 #include "hal/debug.h"
 
-#if defined(CONFIG_BT_LL_SW_SPLIT)
-#include "ll_sw/lll.h"
 #define TICKER_MAYFLY_CALL_ID_ISR     TICKER_USER_ID_LLL
 #define TICKER_MAYFLY_CALL_ID_TRIGGER TICKER_USER_ID_ULL_HIGH
 #define TICKER_MAYFLY_CALL_ID_WORKER  TICKER_USER_ID_ULL_HIGH
 #define TICKER_MAYFLY_CALL_ID_JOB     TICKER_USER_ID_ULL_LOW
 #define TICKER_MAYFLY_CALL_ID_PROGRAM TICKER_USER_ID_THREAD
+
 static uint8_t const caller_id_lut[] = {
 	TICKER_CALL_ID_ISR,
 	TICKER_CALL_ID_WORKER,
 	TICKER_CALL_ID_JOB,
 	TICKER_CALL_ID_PROGRAM
 };
-#else
-#error Unknown LL variant.
-#endif
 
 uint8_t hal_ticker_instance0_caller_id_get(uint8_t user_id)
 {
@@ -58,7 +53,6 @@ void hal_ticker_instance0_sched(uint8_t caller_id, uint8_t callee_id, uint8_t ch
 	 * schedule.
 	 */
 	switch (caller_id) {
-#if defined(CONFIG_BT_LL_SW_SPLIT)
 	case TICKER_CALL_ID_ISR:
 		switch (callee_id) {
 		case TICKER_CALL_ID_JOB:
@@ -82,7 +76,6 @@ void hal_ticker_instance0_sched(uint8_t caller_id, uint8_t callee_id, uint8_t ch
 			break;
 		}
 		break;
-#endif /* CONFIG_BT_LL_SW_SPLIT */
 
 	case TICKER_CALL_ID_TRIGGER:
 		switch (callee_id) {

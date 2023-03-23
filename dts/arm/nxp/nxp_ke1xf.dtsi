@@ -1,38 +1,18 @@
 /*
- * Copyright (c) 2019 Vestas Wind Systems A/S
+ * Copyright (c) 2019-2021 Vestas Wind Systems A/S
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <arm/armv7-m.dtsi>
-#include <dt-bindings/clock/kinetis_pcc.h>
-#include <dt-bindings/clock/kinetis_scg.h>
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/clock/kinetis_pcc.h>
+#include <zephyr/dt-bindings/clock/kinetis_scg.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/i2c/i2c.h>
 
 / {
 	aliases {
 		watchdog0 = &wdog;
-		uart-0 = &lpuart0;
-		uart-1 = &lpuart1;
-		uart-2 = &lpuart2;
-		i2c-0 = &lpi2c0;
-		i2c-1 = &lpi2c1;
-		spi-0 = &lpspi0;
-		spi-1 = &lpspi1;
-		pinmux-a = &porta;
-		pinmux-b = &portb;
-		pinmux-c = &portc;
-		pinmux-d = &portd;
-		pinmux-e = &porte;
-		gpio-a = &gpioa;
-		gpio-b = &gpiob;
-		gpio-c = &gpioc;
-		gpio-d = &gpiod;
-		gpio-e = &gpioe;
-		adc-0 = &adc0;
-		adc-1 = &adc1;
-		adc-2 = &adc2;
 	};
 
 	chosen {
@@ -43,10 +23,35 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		cpu@0 {
+		cpu0: cpu@0 {
 			device_type = "cpu";
 			compatible = "arm,cortex-m4f";
 			reg = <0>;
+		};
+	};
+
+	power-states {
+		idle: idle {
+			compatible = "zephyr,power-state";
+			power-state-name = "runtime-idle";
+		};
+
+		stop: stop {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0>;
+		};
+
+		pstop1: pstop1 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <1>;
+		};
+
+		pstop2: pstop2 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <2>;
 		};
 	};
 
@@ -58,7 +63,6 @@
 		vtemp25 = <740500>;
 		sensor-slope-cold = <1564>;
 		sensor-slope-hot = <1564>;
-		label = "TEMP0";
 		status = "disabled";
 	};
 
@@ -70,7 +74,6 @@
 		vtemp25 = <740500>;
 		sensor-slope-cold = <1564>;
 		sensor-slope-hot = <1564>;
-		label = "TEMP1";
 		status = "disabled";
 	};
 
@@ -82,11 +85,31 @@
 		vtemp25 = <740500>;
 		sensor-slope-cold = <1564>;
 		sensor-slope-hot = <1564>;
-		label = "TEMP2";
 		status = "disabled";
 	};
 
+	/* Dummy pinctrl node, filled with pin mux options at board level */
+	pinctrl: pinctrl {
+		compatible = "nxp,kinetis-pinctrl";
+		status = "okay";
+	};
+
 	soc {
+		edma: dma-controller@40008000 {
+			compatible = "nxp,mcux-edma";
+			dma-channels = <16>;
+			dma-requests = <64>;
+			nxp,mem2mem;
+			reg = <0x40008000 0x1000>, <0x40021000 0x1000>;
+			interrupts = <0 0>, <1 0>, <2 0>, <3 0>,
+				     <4 0>, <5 0>, <6 0>, <7 0>,
+				     <8 0>, <9 0>, <10 0>, <11 0>,
+				     <12 0>, <13 0>, <14 0>, <15 0>,
+				     <16 0>;
+			status = "disabled";
+			#dma-cells = <2>;
+		};
+
 		mpu: mpu@4000d000 {
 			compatible = "nxp,kinetis-mpu";
 			reg = <0x4000d000 0x1000>;
@@ -96,19 +119,133 @@
 		sim: sim@40048000 {
 			compatible = "nxp,kinetis-ke1xf-sim";
 			reg = <0x40048000 0x1000>;
-			label = "SIM";
 		};
 
 		scg: scg@40064000 {
 			compatible = "nxp,kinetis-scg";
 			reg = <0x40064000 0x1000>;
-			label = "SCG";
 			#clock-cells = <1>;
+
+			sosc_clk: sosc_clk {
+				compatible = "fixed-clock";
+				status = "disabled";
+				#clock-cells = <0>;
+			};
+
+			sirc_clk: sirc_clk {
+				compatible = "fixed-clock";
+				clock-frequency = <8000000>;
+				#clock-cells = <0>;
+			};
+
+			firc_clk: firc_clk {
+				compatible = "fixed-clock";
+				clock-frequency = <48000000>;
+				#clock-cells = <0>;
+			};
+
+			pll: pll {
+				compatible = "fixed-factor-clock";
+				clocks = <&sosc_clk>;
+				clock-div = <1>;
+				clock-mult = <16>;
+				#clock-cells = <0>;
+			};
+
+			spll_clk: spll_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&pll>;
+				clock-div = <2>;
+				#clock-cells = <0>;
+			};
+
+			core_clk: core_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&firc_clk>;
+				clock-div = <1>;
+				#clock-cells = <0>;
+			};
+
+			bus_clk: bus_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&core_clk>;
+				clock-div = <1>;
+				#clock-cells = <0>;
+			};
+
+			slow_clk: slow_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&core_clk>;
+				clock-div = <2>;
+				#clock-cells = <0>;
+			};
+
+			clkout_clk: clkout_clk {
+				compatible = "fixed-factor-clock";
+				status = "disabled";
+				clocks = <&firc_clk>;
+				#clock-cells = <0>;
+			};
+
+			splldiv1_clk: splldiv1_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&spll_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			splldiv2_clk: splldiv2_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&spll_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			sircdiv1_clk: sircdiv1_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&sirc_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			sircdiv2_clk: sircdiv2_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&sirc_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			fircdiv1_clk: fircdiv1_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&firc_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			fircdiv2_clk: fircdiv2_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&firc_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			soscdiv1_clk: soscdiv1_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&sosc_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
+
+			soscdiv2_clk: soscdiv2_clk {
+				compatible = "fixed-factor-clock";
+				clocks = <&sosc_clk>;
+				clock-div = <0>;
+				#clock-cells = <0>;
+			};
 		};
 
 		pmc: pmc@4007d000 {
 			reg = <0x4007d000 0x1000>;
-			label = "PMC";
 
 			lpo: lpo128k {
 			/* LPO clock */
@@ -121,7 +258,6 @@
 		pcc: pcc@40065000 {
 			compatible = "nxp,kinetis-pcc";
 			reg = <0x40065000 0x1000>;
-			label = "PCC";
 			#clock-cells = <2>;
 		};
 
@@ -132,7 +268,6 @@
 			interrupt-names = "alarm", "seconds";
 			clock-frequency = <32768>;
 			prescaler = <32768>;
-			label = "RTC_0";
 		};
 
 		dac0: dac@4003f000 {
@@ -142,7 +277,6 @@
 			clocks = <&scg KINETIS_SCG_BUS_CLK>;
 			voltage-reference = <1>;
 			buffered;
-			label = "DAC_0";
 			status = "disabled";
 			#io-channel-cells = <1>;
 		};
@@ -154,7 +288,6 @@
 			clock-frequency = <128000>;
 			prescaler = <1>;
 			clk-source = <1>;
-			label = "LPTMR_0";
 		};
 
 		wdog: watchdog@40052000 {
@@ -164,12 +297,21 @@
 			clocks = <&lpo>;
 			clk-source = <1>;
 			clk-divider = <256>;
-			label = "WDT_0";
+		};
+
+		pwt: pwt@40056000 {
+			compatible = "nxp,kinetis-pwt";
+			reg = <0x40056000 0x1000>;
+			interrupts = <29 0>;
+			clocks = <&scg KINETIS_SCG_BUS_CLK>;
+			prescaler = <1>;
+			status = "disabled";
+
+			#pwm-cells = <3>;
 		};
 
 		ftfe: flash-controller@40020000 {
 			compatible = "nxp,kinetis-ftfe";
-			label = "FLASH_CTRL";
 			reg = <0x40020000 0x1000>;
 			interrupts = <18 0>, <19 0>;
 			interrupt-names = "command-complete", "read-collision";
@@ -184,7 +326,8 @@
 			interrupts = <31 0>, <32 0>;
 			interrupt-names = "transmit", "receive";
 			clocks = <&pcc 0x1a8 KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "UART_0";
+			dmas = <&edma 1 2>, <&edma 2 3>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 
@@ -194,7 +337,8 @@
 			interrupts = <33 0>, <34 0>;
 			interrupt-names = "transmit", "receive";
 			clocks = <&pcc 0x1ac KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "UART_1";
+			dmas = <&edma 3 4>, <&edma 4 5>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 
@@ -204,7 +348,8 @@
 			interrupts = <35 0>, <36 0>;
 			interrupt-names = "transmit", "receive";
 			clocks = <&pcc 0x1b0 KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "UART_2";
+			dmas = <&edma 5 6>, <&edma 5 7>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 
@@ -216,7 +361,6 @@
 			reg = <0x40066000 0x1000>;
 			interrupts = <24 0>;
 			clocks = <&pcc 0x198 KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "I2C_0";
 			status = "disabled";
 		};
 
@@ -228,7 +372,6 @@
 			reg = <0x40067000 0x1000>;
 			interrupts = <25 0>;
 			clocks = <&pcc 0x19c KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "I2C_1";
 			status = "disabled";
 		};
 
@@ -237,7 +380,6 @@
 			reg = <0x4002c000 0x1000>;
 			interrupts = <26 0>;
 			clocks = <&pcc 0xb0 KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "SPI_0";
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -248,7 +390,6 @@
 			reg = <0x4002d000 0x1000>;
 			interrupts = <27 0>;
 			clocks = <&pcc 0xb4 KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "SPI_1";
 			status = "disabled";
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -262,14 +403,9 @@
 					  "mb-0-15";
 			clocks = <&scg KINETIS_SCG_BUS_CLK>;
 			clk-source = <1>;
-			label = "CAN_0";
 			sjw = <1>;
-			prop-seg = <1>;
-			phase-seg1 = <3>;
-			phase-seg2 = <2>;
+			sample-point = <875>;
 			status = "disabled";
-			#address-cells = <1>;
-			#size-cells = <0>;
 		};
 
 		flexcan1: can@40025000 {
@@ -280,14 +416,9 @@
 					  "mb-0-15";
 			clocks = <&scg KINETIS_SCG_BUS_CLK>;
 			clk-source = <1>;
-			label = "CAN_1";
 			sjw = <1>;
-			prop-seg = <1>;
-			phase-seg1 = <3>;
-			phase-seg2 = <2>;
+			sample-point = <875>;
 			status = "disabled";
-			#address-cells = <1>;
-			#size-cells = <0>;
 		};
 
 		porta: pinmux@40049000 {
@@ -325,7 +456,6 @@
 			status = "disabled";
 			reg = <0x400ff000 0x40>;
 			interrupts = <59 2>;
-			label = "GPIO_0";
 			gpio-controller;
 			#gpio-cells = <2>;
 			nxp,kinetis-port = <&porta>;
@@ -336,7 +466,6 @@
 			status = "disabled";
 			reg = <0x400ff040 0x40>;
 			interrupts = <60 2>;
-			label = "GPIO_1";
 			gpio-controller;
 			#gpio-cells = <2>;
 			nxp,kinetis-port = <&portb>;
@@ -347,7 +476,6 @@
 			status = "disabled";
 			reg = <0x400ff080 0x40>;
 			interrupts = <61 2>;
-			label = "GPIO_2";
 			gpio-controller;
 			#gpio-cells = <2>;
 			nxp,kinetis-port = <&portc>;
@@ -358,7 +486,6 @@
 			status = "disabled";
 			reg = <0x400ff0c0 0x40>;
 			interrupts = <62 2>;
-			label = "GPIO_3";
 			gpio-controller;
 			#gpio-cells = <2>;
 			nxp,kinetis-port = <&portd>;
@@ -369,7 +496,6 @@
 			status = "disabled";
 			reg = <0x400ff100 0x40>;
 			interrupts = <63 2>;
-			label = "GPIO_4";
 			gpio-controller;
 			#gpio-cells = <2>;
 			nxp,kinetis-port = <&porte>;
@@ -380,7 +506,6 @@
 			reg = <0x4003b000 0x1000>;
 			interrupts = <39 0>;
 			clocks = <&pcc 0xec KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "ADC_0";
 			clk-source = <0>;
 			clk-divider = <1>;
 			status = "disabled";
@@ -392,7 +517,6 @@
 			reg = <0x40027000 0x1000>;
 			interrupts = <73 0>;
 			clocks = <&pcc 0x9c KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "ADC_1";
 			clk-source = <0>;
 			clk-divider = <1>;
 			status = "disabled";
@@ -404,7 +528,6 @@
 			reg = <0x4003c000 0x1000>;
 			interrupts = <74 0>;
 			clocks = <&pcc 0xf0 KINETIS_PCC_SRC_FIRC_ASYNC>;
-			label = "ADC_2";
 			clk-source = <0>;
 			clk-divider = <1>;
 			status = "disabled";
@@ -417,7 +540,6 @@
 			interrupts = <42 0>;
 			clocks = <&pcc 0xe0 KINETIS_PCC_SRC_FIRC_ASYNC>;
 			prescaler = <16>;
-			label = "FTM_0";
 			status = "disabled";
 		};
 
@@ -427,7 +549,6 @@
 			interrupts = <43 0>;
 			clocks = <&pcc 0xe4 KINETIS_PCC_SRC_FIRC_ASYNC>;
 			prescaler = <16>;
-			label = "FTM_1";
 			status = "disabled";
 		};
 
@@ -437,7 +558,6 @@
 			interrupts = <44 0>;
 			clocks = <&pcc 0xe8 KINETIS_PCC_SRC_FIRC_ASYNC>;
 			prescaler = <16>;
-			label = "FTM_2";
 			status = "disabled";
 		};
 
@@ -447,8 +567,34 @@
 			interrupts = <71 0>;
 			clocks = <&pcc 0x98 KINETIS_PCC_SRC_FIRC_ASYNC>;
 			prescaler = <16>;
-			label = "FTM_3";
 			status = "disabled";
+		};
+
+		cmp0: cmp@40073000 {
+			compatible = "nxp,kinetis-acmp";
+			reg = <0x40073000 0x1000>;
+			interrupts = <40 0>;
+			clocks = <&scg KINETIS_SCG_BUS_CLK>;
+			status = "disabled";
+			#io-channel-cells = <2>;
+		};
+
+		cmp1: cmp@40074000 {
+			compatible = "nxp,kinetis-acmp";
+			reg = <0x40074000 0x1000>;
+			interrupts = <41 0>;
+			clocks = <&scg KINETIS_SCG_BUS_CLK>;
+			status = "disabled";
+			#io-channel-cells = <2>;
+		};
+
+		cmp2: cmp@40075000 {
+			compatible = "nxp,kinetis-acmp";
+			reg = <0x40075000 0x1000>;
+			interrupts = <70 0>;
+			clocks = <&scg KINETIS_SCG_BUS_CLK>;
+			status = "disabled";
+			#io-channel-cells = <2>;
 		};
 	};
 };

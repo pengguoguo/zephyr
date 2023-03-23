@@ -16,8 +16,12 @@ supported:
   - i2c
   - nvs
   - spi
+  - counter
   - watchdog
   - adc
+  - dac
+  - dma
+  - pwm
 testing:
   ignore_tags:
     - net

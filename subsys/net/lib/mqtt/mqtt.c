@@ -9,10 +9,10 @@
  * @brief MQTT Client API Implementation.
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_mqtt, CONFIG_MQTT_LOG_LEVEL);
 
-#include <net/mqtt.h>
+#include <zephyr/net/mqtt.h>
 
 #include "mqtt_transport.h"
 #include "mqtt_internal.h"
@@ -35,31 +35,6 @@ static void tx_buf_init(struct mqtt_client *client, struct buf_ctx *buf)
 	buf->end = client->tx_buf + client->tx_buf_size;
 }
 
-/**@brief Notifies disconnection event to the application.
- *
- * @param[in] client Identifies the client for which the procedure is requested.
- * @param[in] result Reason for disconnection.
- */
-static void disconnect_event_notify(struct mqtt_client *client, int result)
-{
-	struct mqtt_evt evt;
-
-	/* Determine appropriate event to generate. */
-	if (MQTT_HAS_STATE(client, MQTT_STATE_CONNECTED)) {
-		evt.type = MQTT_EVT_DISCONNECT;
-		evt.result = result;
-	} else {
-		evt.type = MQTT_EVT_CONNACK;
-		evt.result = -ECONNREFUSED;
-	}
-
-	/* Notify application. */
-	event_notify(client, &evt);
-
-	/* Reset internal state. */
-	client_reset(client);
-}
-
 void event_notify(struct mqtt_client *client, const struct mqtt_evt *evt)
 {
 	if (client->evt_cb != NULL) {
@@ -71,16 +46,28 @@ void event_notify(struct mqtt_client *client, const struct mqtt_evt *evt)
 	}
 }
 
-static void client_disconnect(struct mqtt_client *client, int result)
+static void client_disconnect(struct mqtt_client *client, int result,
+			      bool notify)
 {
 	int err_code;
 
 	err_code = mqtt_transport_disconnect(client);
 	if (err_code < 0) {
-		MQTT_ERR("Failed to disconnect transport!");
+		NET_ERR("Failed to disconnect transport!");
 	}
 
-	disconnect_event_notify(client, result);
+	/* Reset internal state. */
+	client_reset(client);
+
+	if (notify) {
+		struct mqtt_evt evt = {
+			.type = MQTT_EVT_DISCONNECT,
+			.result = result,
+		};
+
+		/* Notify application. */
+		event_notify(client, &evt);
+	}
 }
 
 static int client_connect(struct mqtt_client *client)
@@ -113,12 +100,12 @@ static int client_connect(struct mqtt_client *client)
 	/* Reset the unanswered ping count for a new connection */
 	client->unacked_ping = 0;
 
-	MQTT_TRC("Connect completed");
+	NET_INFO("Connect completed");
 
 	return 0;
 
 error:
-	client_disconnect(client, err_code);
+	client_disconnect(client, err_code, false);
 	return err_code;
 }
 
@@ -132,7 +119,7 @@ static int client_read(struct mqtt_client *client)
 
 	err_code = mqtt_handle_rx(client);
 	if (err_code < 0) {
-		client_disconnect(client, err_code);
+		client_disconnect(client, err_code, true);
 	}
 
 	return err_code;
@@ -143,17 +130,17 @@ static int client_write(struct mqtt_client *client, const uint8_t *data,
 {
 	int err_code;
 
-	MQTT_TRC("[%p]: Transport writing %d bytes.", client, datalen);
+	NET_DBG("[%p]: Transport writing %d bytes.", client, datalen);
 
 	err_code = mqtt_transport_write(client, data, datalen);
 	if (err_code < 0) {
-		MQTT_TRC("Transport write failed, err_code = %d, "
+		NET_ERR("Transport write failed, err_code = %d, "
 			 "closing connection", err_code);
-		client_disconnect(client, err_code);
+		client_disconnect(client, err_code, true);
 		return err_code;
 	}
 
-	MQTT_TRC("[%p]: Transport write complete.", client);
+	NET_DBG("[%p]: Transport write complete.", client);
 	client->internal.last_activity = mqtt_sys_tick_in_ms_get();
 
 	return 0;
@@ -164,17 +151,17 @@ static int client_write_msg(struct mqtt_client *client,
 {
 	int err_code;
 
-	MQTT_TRC("[%p]: Transport writing message.", client);
+	NET_DBG("[%p]: Transport writing message.", client);
 
 	err_code = mqtt_transport_write_msg(client, message);
 	if (err_code < 0) {
-		MQTT_TRC("Transport write failed, err_code = %d, "
+		NET_ERR("Transport write failed, err_code = %d, "
 			 "closing connection", err_code);
-		client_disconnect(client, err_code);
+		client_disconnect(client, err_code, true);
 		return err_code;
 	}
 
-	MQTT_TRC("[%p]: Transport write complete.", client);
+	NET_DBG("[%p]: Transport write complete.", client);
 	client->internal.last_activity = mqtt_sys_tick_in_ms_get();
 
 	return 0;
@@ -260,7 +247,7 @@ int mqtt_publish(struct mqtt_client *client,
 	NULL_PARAM_CHECK(client);
 	NULL_PARAM_CHECK(param);
 
-	MQTT_TRC("[CID %p]:[State 0x%02x]: >> Topic size 0x%08x, "
+	NET_DBG("[CID %p]:[State 0x%02x]: >> Topic size 0x%08x, "
 		 "Data size 0x%08x", client, client->internal.state,
 		 param->message.topic.topic.size,
 		 param->message.payload.len);
@@ -292,7 +279,7 @@ int mqtt_publish(struct mqtt_client *client,
 	err_code = client_write_msg(client, &msg);
 
 error:
-	MQTT_TRC("[CID %p]:[State 0x%02x]: << result 0x%08x",
+	NET_DBG("[CID %p]:[State 0x%02x]: << result 0x%08x",
 			 client, client->internal.state, err_code);
 
 	mqtt_mutex_unlock(client);
@@ -309,7 +296,7 @@ int mqtt_publish_qos1_ack(struct mqtt_client *client,
 	NULL_PARAM_CHECK(client);
 	NULL_PARAM_CHECK(param);
 
-	MQTT_TRC("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
+	NET_DBG("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
 		 client, client->internal.state, param->message_id);
 
 	mqtt_mutex_lock(client);
@@ -329,7 +316,7 @@ int mqtt_publish_qos1_ack(struct mqtt_client *client,
 	err_code = client_write(client, packet.cur, packet.end - packet.cur);
 
 error:
-	MQTT_TRC("[CID %p]:[State 0x%02x]: << result 0x%08x",
+	NET_DBG("[CID %p]:[State 0x%02x]: << result 0x%08x",
 		 client, client->internal.state, err_code);
 
 	mqtt_mutex_unlock(client);
@@ -346,7 +333,7 @@ int mqtt_publish_qos2_receive(struct mqtt_client *client,
 	NULL_PARAM_CHECK(client);
 	NULL_PARAM_CHECK(param);
 
-	MQTT_TRC("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
+	NET_DBG("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
 		 client, client->internal.state, param->message_id);
 
 	mqtt_mutex_lock(client);
@@ -366,7 +353,7 @@ int mqtt_publish_qos2_receive(struct mqtt_client *client,
 	err_code = client_write(client, packet.cur, packet.end - packet.cur);
 
 error:
-	MQTT_TRC("[CID %p]:[State 0x%02x]: << result 0x%08x",
+	NET_DBG("[CID %p]:[State 0x%02x]: << result 0x%08x",
 		 client, client->internal.state, err_code);
 
 	mqtt_mutex_unlock(client);
@@ -383,7 +370,7 @@ int mqtt_publish_qos2_release(struct mqtt_client *client,
 	NULL_PARAM_CHECK(client);
 	NULL_PARAM_CHECK(param);
 
-	MQTT_TRC("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
+	NET_DBG("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
 		 client, client->internal.state, param->message_id);
 
 	mqtt_mutex_lock(client);
@@ -403,7 +390,7 @@ int mqtt_publish_qos2_release(struct mqtt_client *client,
 	err_code = client_write(client, packet.cur, packet.end - packet.cur);
 
 error:
-	MQTT_TRC("[CID %p]:[State 0x%02x]: << result 0x%08x",
+	NET_DBG("[CID %p]:[State 0x%02x]: << result 0x%08x",
 		 client, client->internal.state, err_code);
 
 	mqtt_mutex_unlock(client);
@@ -420,7 +407,7 @@ int mqtt_publish_qos2_complete(struct mqtt_client *client,
 	NULL_PARAM_CHECK(client);
 	NULL_PARAM_CHECK(param);
 
-	MQTT_TRC("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
+	NET_DBG("[CID %p]:[State 0x%02x]: >> Message id 0x%04x",
 		 client, client->internal.state, param->message_id);
 
 	mqtt_mutex_lock(client);
@@ -443,7 +430,7 @@ int mqtt_publish_qos2_complete(struct mqtt_client *client,
 	}
 
 error:
-	MQTT_TRC("[CID %p]:[State 0x%02x]: << result 0x%08x",
+	NET_DBG("[CID %p]:[State 0x%02x]: << result 0x%08x",
 		 client, client->internal.state, err_code);
 
 	mqtt_mutex_unlock(client);
@@ -477,7 +464,7 @@ int mqtt_disconnect(struct mqtt_client *client)
 		goto error;
 	}
 
-	client_disconnect(client, 0);
+	client_disconnect(client, 0, true);
 
 error:
 	mqtt_mutex_unlock(client);
@@ -494,7 +481,7 @@ int mqtt_subscribe(struct mqtt_client *client,
 	NULL_PARAM_CHECK(client);
 	NULL_PARAM_CHECK(param);
 
-	MQTT_TRC("[CID %p]:[State 0x%02x]: >> message id 0x%04x "
+	NET_DBG("[CID %p]:[State 0x%02x]: >> message id 0x%04x "
 		 "topic count 0x%04x", client, client->internal.state,
 		 param->message_id, param->list_count);
 
@@ -515,7 +502,7 @@ int mqtt_subscribe(struct mqtt_client *client,
 	err_code = client_write(client, packet.cur, packet.end - packet.cur);
 
 error:
-	MQTT_TRC("[CID %p]:[State 0x%02x]: << result 0x%08x",
+	NET_DBG("[CID %p]:[State 0x%02x]: << result 0x%08x",
 		 client, client->internal.state, err_code);
 
 	mqtt_mutex_unlock(client);
@@ -578,7 +565,7 @@ int mqtt_ping(struct mqtt_client *client)
 	err_code = client_write(client, packet.cur, packet.end - packet.cur);
 
 	if (client->unacked_ping >= INT8_MAX) {
-		MQTT_TRC("PING count overflow!");
+		NET_WARN("PING count overflow!");
 	} else {
 		client->unacked_ping++;
 	}
@@ -591,12 +578,12 @@ error:
 
 int mqtt_abort(struct mqtt_client *client)
 {
-	mqtt_mutex_lock(client);
-
 	NULL_PARAM_CHECK(client);
 
+	mqtt_mutex_lock(client);
+
 	if (client->internal.state != MQTT_STATE_IDLE) {
-		client_disconnect(client, -ECONNABORTED);
+		client_disconnect(client, -ECONNABORTED, true);
 	}
 
 	mqtt_mutex_unlock(client);
@@ -631,7 +618,7 @@ int mqtt_live(struct mqtt_client *client)
 	}
 }
 
-uint32_t mqtt_keepalive_time_left(const struct mqtt_client *client)
+int mqtt_keepalive_time_left(const struct mqtt_client *client)
 {
 	uint32_t elapsed_time = mqtt_elapsed_time_in_ms_get(
 					client->internal.last_activity);
@@ -639,7 +626,7 @@ uint32_t mqtt_keepalive_time_left(const struct mqtt_client *client)
 
 	if (client->keepalive == 0) {
 		/* Keep alive not enabled. */
-		return UINT32_MAX;
+		return -1;
 	}
 
 	if (keepalive_ms <= elapsed_time) {
@@ -657,12 +644,12 @@ int mqtt_input(struct mqtt_client *client)
 
 	mqtt_mutex_lock(client);
 
-	MQTT_TRC("state:0x%08x", client->internal.state);
+	NET_DBG("state:0x%08x", client->internal.state);
 
 	if (MQTT_HAS_STATE(client, MQTT_STATE_TCP_CONNECTED)) {
 		err_code = client_read(client);
 	} else {
-		err_code = -EACCES;
+		err_code = -ENOTCONN;
 	}
 
 	mqtt_mutex_unlock(client);
@@ -698,7 +685,7 @@ static int read_publish_payload(struct mqtt_client *client, void *buffer,
 			ret = -ENOTCONN;
 		}
 
-		client_disconnect(client, ret);
+		client_disconnect(client, ret, true);
 		goto exit;
 	}
 

@@ -5,10 +5,10 @@
 
 #include <zephyr/types.h>
 #include <stdio.h>
-#include <arch/xtensa/xtensa_api.h>
-#include <kernel_arch_data.h>
-#include <sys/__assert.h>
-/*
+#include <zephyr/arch/xtensa/irq.h>
+#include <zephyr/sys/__assert.h>
+
+/**
  * @internal
  *
  * @brief Set an interrupt's priority
@@ -23,10 +23,7 @@
  * Valid values are from 1 to 6. Interrupts of priority 1 are not masked when
  * interrupts are locked system-wide, so care must be taken when using them.
  * ISR installed with priority 0 interrupts cannot make kernel calls.
- *
- * @return N/A
  */
-
 void z_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
 {
 	__ASSERT(prio < XCHAL_EXCM_LEVEL + 1,
@@ -40,8 +37,8 @@ void z_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
 #ifdef CONFIG_DYNAMIC_INTERRUPTS
 #ifndef CONFIG_MULTI_LEVEL_INTERRUPTS
 int z_arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
-			       void (*routine)(void *parameter),
-			       void *parameter, uint32_t flags)
+			       void (*routine)(const void *parameter),
+			       const void *parameter, uint32_t flags)
 {
 	ARG_UNUSED(flags);
 	ARG_UNUSED(priority);
@@ -51,8 +48,8 @@ int z_arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
 }
 #else /* !CONFIG_MULTI_LEVEL_INTERRUPTS */
 int z_arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
-			       void (*routine)(void *parameter),
-			       void *parameter, uint32_t flags)
+			       void (*routine)(const void *parameter),
+			       const void *parameter, uint32_t flags)
 {
 	return z_soc_irq_connect_dynamic(irq, priority, routine, parameter,
 					 flags);

@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, LOG_LEVEL_WRN);
 
-#include <ztest.h>
-#include <net/socket.h>
-#include <net/mqtt.h>
+#include <zephyr/ztest.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/net/mqtt.h>
+#include <zephyr/random/rand32.h>
 
 #include <string.h>
 #include <errno.h>
@@ -22,7 +23,7 @@ static uint8_t rx_buffer[BUFFER_SIZE];
 static uint8_t tx_buffer[BUFFER_SIZE];
 static struct mqtt_client client_ctx;
 static struct sockaddr broker;
-static struct pollfd fds[1];
+static struct zsock_pollfd fds[1];
 static int nfds;
 static bool connected;
 
@@ -33,13 +34,13 @@ static void broker_init(void)
 
 	broker6->sin6_family = AF_INET6;
 	broker6->sin6_port = htons(SERVER_PORT);
-	inet_pton(AF_INET6, SERVER_ADDR, &broker6->sin6_addr);
+	zsock_inet_pton(AF_INET6, SERVER_ADDR, &broker6->sin6_addr);
 #else
 	struct sockaddr_in *broker4 = net_sin(&broker);
 
 	broker4->sin_family = AF_INET;
 	broker4->sin_port = htons(SERVER_PORT);
-	inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
+	zsock_inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
 #endif
 }
 
@@ -61,7 +62,7 @@ static void clear_fds(void)
 static void wait(int timeout)
 {
 	if (nfds > 0) {
-		if (poll(fds, nfds, timeout) < 0) {
+		if (zsock_poll(fds, nfds, timeout) < 0) {
 			TC_PRINT("poll error: %d\n", errno);
 		}
 	}
@@ -302,20 +303,20 @@ static int test_disconnect(void)
 
 void test_mqtt_connect(void)
 {
-	zassert_true(test_connect() == TC_PASS, NULL);
+	zassert_true(test_connect() == TC_PASS);
 }
 
 void test_mqtt_subscribe(void)
 {
-	zassert_true(test_subscribe() == TC_PASS, NULL);
+	zassert_true(test_subscribe() == TC_PASS);
 }
 
 void test_mqtt_unsubscribe(void)
 {
-	zassert_true(test_unsubscribe() == TC_PASS, NULL);
+	zassert_true(test_unsubscribe() == TC_PASS);
 }
 
 void test_mqtt_disconnect(void)
 {
-	zassert_true(test_disconnect() == TC_PASS, NULL);
+	zassert_true(test_disconnect() == TC_PASS);
 }

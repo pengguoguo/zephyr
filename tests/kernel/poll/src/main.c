@@ -4,15 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ztest.h>
-extern void test_poll_no_wait(void);
-extern void test_poll_wait(void);
-extern void test_poll_zero_events(void);
-extern void test_poll_cancel_main_low_prio(void);
-extern void test_poll_cancel_main_high_prio(void);
-extern void test_poll_multi(void);
-extern void test_poll_threadstate(void);
-extern void test_poll_grant_access(void);
+#include <zephyr/ztest.h>
 
 #ifdef CONFIG_64BIT
 #define MAX_SZ	256
@@ -20,22 +12,21 @@ extern void test_poll_grant_access(void);
 #define MAX_SZ	128
 #endif
 
-K_MEM_POOL_DEFINE(test_pool, 128, MAX_SZ, 4, 4);
+K_HEAP_DEFINE(test_heap, MAX_SZ * 4);
+extern void poll_test_grant_access(void);
+extern void poll_fail_grant_access(void);
 
 /*test case main entry*/
-void test_main(void)
+static void *poll_setup(void)
 {
-	test_poll_grant_access();
+	poll_test_grant_access();
+	poll_fail_grant_access();
 
-	k_thread_resource_pool_assign(k_current_get(), &test_pool);
+	k_thread_heap_assign(k_current_get(), &test_heap);
 
-	ztest_test_suite(poll_api,
-			 ztest_1cpu_user_unit_test(test_poll_no_wait),
-			 ztest_1cpu_unit_test(test_poll_wait),
-			 ztest_1cpu_unit_test(test_poll_zero_events),
-			 ztest_1cpu_unit_test(test_poll_cancel_main_low_prio),
-			 ztest_1cpu_unit_test(test_poll_cancel_main_high_prio),
-			 ztest_unit_test(test_poll_multi),
-			 ztest_1cpu_unit_test(test_poll_threadstate));
-	ztest_run_test_suite(poll_api);
+	return NULL;
 }
+
+ZTEST_SUITE(poll_api, NULL, poll_setup, NULL, NULL, NULL);
+ZTEST_SUITE(poll_api_1cpu, NULL, poll_setup, ztest_simple_1cpu_before,
+		 ztest_simple_1cpu_after, NULL);

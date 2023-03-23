@@ -23,23 +23,12 @@ config MCG_FRDIV
 config MCG_FCRDIV
 	default 0
 
-if PINMUX_MCUX
+if FXOS8700
 
-config PINMUX_MCUX_PORTA
-	default y
+choice FXOS8700_MODE
+	default FXOS8700_MODE_ACCEL
+endchoice
 
-config PINMUX_MCUX_PORTB
-	default y
-
-config PINMUX_MCUX_PORTC
-	default n
-
-config PINMUX_MCUX_PORTD
-	default y
-
-config PINMUX_MCUX_PORTE
-	default y if "$(dt_nodelabel_enabled,i2c0)" && I2C
-
-endif # PINMUX_MCUX
+endif # FXOS8700
 
 endif # BOARD_FRDM_KL25Z

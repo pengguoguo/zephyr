@@ -14,18 +14,22 @@
 #include <string.h>
 #include <errno.h>
 
-#include <zephyr.h>
-#include <drivers/sensor.h>
-#include <sys/printk.h>
-#include <sys/byteorder.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/byteorder.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/conn.h>
-#include <bluetooth/uuid.h>
-#include <bluetooth/gatt.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/bluetooth/gatt.h>
 
-static struct device *temp_dev;
+#ifdef CONFIG_TEMP_NRF5
+static const struct device *temp_dev = DEVICE_DT_GET_ANY(nordic_nrf_temp);
+#else
+static const struct device *temp_dev;
+#endif
 
 static uint8_t simulate_htm;
 static uint8_t indicating;
@@ -37,14 +41,19 @@ static void htmc_ccc_cfg_changed(const struct bt_gatt_attr *attr,
 	simulate_htm = (value == BT_GATT_CCC_INDICATE) ? 1 : 0;
 }
 
-static void indicate_cb(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			uint8_t err)
+static void indicate_cb(struct bt_conn *conn,
+			struct bt_gatt_indicate_params *params, uint8_t err)
 {
 	printk("Indication %s\n", err != 0U ? "fail" : "success");
+}
+
+static void indicate_destroy(struct bt_gatt_indicate_params *params)
+{
+	printk("Indication complete\n");
 	indicating = 0U;
 }
 
-/* Heart Rate Service Declaration */
+/* Health Thermometer Service Declaration */
 BT_GATT_SERVICE_DEFINE(hts_svc,
 	BT_GATT_PRIMARY_SERVICE(BT_UUID_HTS),
 	BT_GATT_CHARACTERISTIC(BT_UUID_HTS_MEASUREMENT, BT_GATT_CHRC_INDICATE,
@@ -56,15 +65,13 @@ BT_GATT_SERVICE_DEFINE(hts_svc,
 
 void hts_init(void)
 {
-	temp_dev = device_get_binding("TEMP_0");
-
-	if (!temp_dev) {
-		printk("error: no temp device\n");
-		return;
+	if (temp_dev == NULL || !device_is_ready(temp_dev)) {
+		printk("no temperature device; using simulated data\n");
+		temp_dev = NULL;
+	} else {
+		printk("temp device is %p, name is %s\n", temp_dev,
+		       temp_dev->name);
 	}
-
-	printk("temp device is %p, name is %s\n", temp_dev,
-	       temp_dev->name);
 }
 
 void hts_indicate(void)
@@ -111,12 +118,13 @@ gatt_indicate:
 		mantissa = (uint32_t)(temperature * 100);
 		exponent = (uint8_t)-2;
 
-		htm[0] = 0; /* temperature in celcius */
+		htm[0] = 0; /* temperature in celsius */
 		sys_put_le24(mantissa, (uint8_t *)&htm[1]);
 		htm[4] = exponent;
 
 		ind_params.attr = &hts_svc.attrs[2];
 		ind_params.func = indicate_cb;
+		ind_params.destroy = indicate_destroy;
 		ind_params.data = &htm;
 		ind_params.len = sizeof(htm);
 

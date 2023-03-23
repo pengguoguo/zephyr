@@ -45,9 +45,7 @@ Key Features
 - Arm* Mbed Enabled* compliant (only for some Nucleo part numbers)
 
 .. image:: img/nucleo_h743zi.jpg
-   :width: 720px
    :align: center
-   :height: 720px
    :alt: Nucleo H743ZI
 
 More information about the board can be found at the `Nucleo H743ZI website`_.
@@ -94,25 +92,43 @@ Supported Features
 The Zephyr nucleo_h743zi board configuration supports the following hardware
 features:
 
-+-----------+------------+-------------------------------------+
-| Interface | Controller | Driver/Component                    |
-+===========+============+=====================================+
-| NVIC      | on-chip    | nested vector interrupt controller  |
-+-----------+------------+-------------------------------------+
-| UART      | on-chip    | serial port                         |
-+-----------+------------+-------------------------------------+
-| PINMUX    | on-chip    | pinmux                              |
-+-----------+------------+-------------------------------------+
-| GPIO      | on-chip    | gpio                                |
-+-----------+------------+-------------------------------------+
-| RTC       | on-chip    | counter                             |
-+-----------+------------+-------------------------------------+
-| I2C       | on-chip    | i2c                                 |
-+-----------+------------+-------------------------------------+
-| PWM       | on-chip    | pwm                                 |
-+-----------+------------+-------------------------------------+
-| ADC       | on-chip    | adc                                 |
-+-----------+------------+-------------------------------------+
++-------------+------------+-------------------------------------+
+| Interface   | Controller | Driver/Component                    |
++=============+============+=====================================+
+| NVIC        | on-chip    | nested vector interrupt controller  |
++-------------+------------+-------------------------------------+
+| UART        | on-chip    | serial port                         |
++-------------+------------+-------------------------------------+
+| PINMUX      | on-chip    | pinmux                              |
++-------------+------------+-------------------------------------+
+| GPIO        | on-chip    | gpio                                |
++-------------+------------+-------------------------------------+
+| RTC         | on-chip    | counter                             |
++-------------+------------+-------------------------------------+
+| I2C         | on-chip    | i2c                                 |
++-------------+------------+-------------------------------------+
+| PWM         | on-chip    | pwm                                 |
++-------------+------------+-------------------------------------+
+| ADC         | on-chip    | adc                                 |
++-------------+------------+-------------------------------------+
+| DAC         | on-chip    | DAC Controller                      |
++-------------+------------+-------------------------------------+
+| RNG         | on-chip    | True Random number generator        |
++-------------+------------+-------------------------------------+
+| ETHERNET    | on-chip    | ethernet                            |
++-------------+------------+-------------------------------------+
+| SPI         | on-chip    | spi                                 |
++-------------+------------+-------------------------------------+
+| Backup SRAM | on-chip    | Backup SRAM                         |
++-------------+------------+-------------------------------------+
+| WATCHDOG    | on-chip    | independent watchdog                |
++-------------+------------+-------------------------------------+
+| USB         | on-chip    | usb_device                          |
++-------------+------------+-------------------------------------+
+| CAN/CANFD   | on-chip    | canbus                              |
++-------------+------------+-------------------------------------+
+| die-temp    | on-chip    | die temperature sensor              |
++-------------+------------+-------------------------------------+
 
 Other hardware features are not yet supported on this Zephyr port.
 
@@ -133,7 +149,11 @@ and a ST morpho connector. Board is configured as follows:
 - LD2 : PB7
 - LD3 : PB14
 - I2C : PB8, PB9
-- ADC12_INP15 : PA3
+- ADC1_INP15 : PA3
+- DAC1_OUT1 : PA4
+- ETH : PA1, PA2, PA7, PB13, PC1, PC4, PC5, PG11, PG13
+- SPI1 NSS/SCK/MISO/MOSI : PD14/PA5/PA6/PB5 (Arduino SPI)
+- CAN/CANFD : PD0, PD1
 
 System Clock
 ------------
@@ -148,6 +168,17 @@ Serial Port
 Nucleo H743ZI board has 4 UARTs and 4 USARTs. The Zephyr console output is
 assigned to UART3. Default settings are 115200 8N1.
 
+Backup SRAM
+-----------
+
+In order to test backup SRAM you may want to disconnect VBAT from VDD. You can
+do it by removing ``SB156`` jumper on the back side of the board.
+
+CAN, CANFD
+----------
+
+Requires an external CAN or CANFD transceiver.
+
 Programming and Debugging
 *************************
 
@@ -158,7 +189,8 @@ flashed in the usual way (see :ref:`build_an_application` and
 .. note::
 
    If using OpenOCD you will need a recent development version as the last
-   official release does not support H7 series yet.
+   official release does not support H7 series yet. You can also choose the
+   ``stm32cubeprogrammer`` runner.
 
 Flashing
 ========

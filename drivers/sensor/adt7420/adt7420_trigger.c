@@ -4,33 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <device.h>
-#include <drivers/gpio.h>
-#include <drivers/i2c.h>
-#include <sys/util.h>
-#include <kernel.h>
-#include <drivers/sensor.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
 
 #include "adt7420.h"
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(ADT7420, CONFIG_SENSOR_LOG_LEVEL);
 
-static void setup_int(struct device *dev,
+static void setup_int(const struct device *dev,
 		      bool enable)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	const struct adt7420_dev_config *cfg = dev->config;
 	gpio_flags_t flags = enable
 		? GPIO_INT_EDGE_TO_ACTIVE
 		: GPIO_INT_DISABLE;
 
-	gpio_pin_interrupt_configure(drv_data->gpio, cfg->int_pin, flags);
+	gpio_pin_interrupt_configure_dt(&cfg->int_gpio, flags);
 }
 
-static void handle_int(struct device *dev)
+static void handle_int(const struct device *dev)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
+	struct adt7420_data *drv_data = dev->data;
 
 	setup_int(dev, false);
 
@@ -41,33 +40,33 @@ static void handle_int(struct device *dev)
 #endif
 }
 
-static void process_int(struct device *dev)
+static void process_int(const struct device *dev)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	struct adt7420_data *drv_data = dev->data;
+	const struct adt7420_dev_config *cfg = dev->config;
 	uint8_t status;
 
 	/* Clear the status */
-	if (i2c_reg_read_byte(drv_data->i2c, cfg->i2c_addr,
-			      ADT7420_REG_STATUS, &status) < 0) {
+	if (i2c_reg_read_byte_dt(&cfg->i2c,
+				 ADT7420_REG_STATUS, &status) < 0) {
 		return;
 	}
 
 	if (drv_data->th_handler != NULL) {
-		drv_data->th_handler(dev, &drv_data->th_trigger);
+		drv_data->th_handler(dev, drv_data->th_trigger);
 	}
 
 	setup_int(dev, true);
 
 	/* Check for pin that asserted while we were offline */
-	int pv = gpio_pin_get(drv_data->gpio, cfg->int_pin);
+	int pv = gpio_pin_get_dt(&cfg->int_gpio);
 
 	if (pv > 0) {
 		handle_int(dev);
 	}
 }
 
-static void adt7420_gpio_callback(struct device *dev,
+static void adt7420_gpio_callback(const struct device *dev,
 				  struct gpio_callback *cb, uint32_t pins)
 {
 	struct adt7420_data *drv_data =
@@ -77,16 +76,11 @@ static void adt7420_gpio_callback(struct device *dev,
 }
 
 #if defined(CONFIG_ADT7420_TRIGGER_OWN_THREAD)
-static void adt7420_thread(int dev_ptr, int unused)
+static void adt7420_thread(struct adt7420_data *drv_data)
 {
-	struct device *dev = INT_TO_POINTER(dev_ptr);
-	struct adt7420_data *drv_data = dev->driver_data;
-
-	ARG_UNUSED(unused);
-
 	while (true) {
 		k_sem_take(&drv_data->gpio_sem, K_FOREVER);
-		process_int(dev);
+		process_int(drv_data->dev);
 	}
 }
 
@@ -100,12 +94,16 @@ static void adt7420_work_cb(struct k_work *work)
 }
 #endif
 
-int adt7420_trigger_set(struct device *dev,
+int adt7420_trigger_set(const struct device *dev,
 			const struct sensor_trigger *trig,
 			sensor_trigger_handler_t handler)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	struct adt7420_data *drv_data = dev->data;
+	const struct adt7420_dev_config *cfg = dev->config;
+
+	if (!cfg->int_gpio.port) {
+		return -ENOTSUP;
+	}
 
 	setup_int(dev, false);
 
@@ -116,12 +114,12 @@ int adt7420_trigger_set(struct device *dev,
 	drv_data->th_handler = handler;
 
 	if (handler != NULL) {
-		drv_data->th_trigger = *trig;
+		drv_data->th_trigger = trig;
 
 		setup_int(dev, true);
 
 		/* Check whether already asserted */
-		int pv = gpio_pin_get(drv_data->gpio, cfg->int_pin);
+		int pv = gpio_pin_get_dt(&cfg->int_gpio);
 
 		if (pv > 0) {
 			handle_int(dev);
@@ -131,42 +129,41 @@ int adt7420_trigger_set(struct device *dev,
 	return 0;
 }
 
-int adt7420_init_interrupt(struct device *dev)
+int adt7420_init_interrupt(const struct device *dev)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	struct adt7420_data *drv_data = dev->data;
+	const struct adt7420_dev_config *cfg = dev->config;
+	int rc;
 
-	drv_data->gpio = device_get_binding(cfg->int_name);
-	if (drv_data->gpio == NULL) {
-		LOG_DBG("Failed to get pointer to %s device!",
-			cfg->int_name);
-		return -EINVAL;
+	if (!device_is_ready(cfg->int_gpio.port)) {
+		LOG_ERR("%s: device %s is not ready", dev->name,
+			cfg->int_gpio.port->name);
+		return -ENODEV;
 	}
 
 	gpio_init_callback(&drv_data->gpio_cb,
 			   adt7420_gpio_callback,
-			   BIT(cfg->int_pin));
+			   BIT(cfg->int_gpio.pin));
 
-	int rc = gpio_pin_configure(drv_data->gpio, cfg->int_pin,
-				    GPIO_INPUT | cfg->int_flags);
-	if (rc == 0) {
-		gpio_add_callback(drv_data->gpio, &drv_data->gpio_cb);
+	rc = gpio_pin_configure_dt(&cfg->int_gpio, GPIO_INPUT | cfg->int_gpio.dt_flags);
+	if (rc < 0) {
+		return rc;
 	}
 
-	if (rc != 0) {
-		LOG_DBG("Failed to set gpio callback!");
+	rc = gpio_add_callback(cfg->int_gpio.port, &drv_data->gpio_cb);
+	if (rc < 0) {
 		return rc;
 	}
 
 	drv_data->dev = dev;
 
 #if defined(CONFIG_ADT7420_TRIGGER_OWN_THREAD)
-	k_sem_init(&drv_data->gpio_sem, 0, UINT_MAX);
+	k_sem_init(&drv_data->gpio_sem, 0, K_SEM_MAX_LIMIT);
 
 	k_thread_create(&drv_data->thread, drv_data->thread_stack,
 			CONFIG_ADT7420_THREAD_STACK_SIZE,
-			(k_thread_entry_t)adt7420_thread, dev,
-			0, NULL, K_PRIO_COOP(CONFIG_ADT7420_THREAD_PRIORITY),
+			(k_thread_entry_t)adt7420_thread, drv_data,
+			NULL, NULL, K_PRIO_COOP(CONFIG_ADT7420_THREAD_PRIORITY),
 			0, K_NO_WAIT);
 #elif defined(CONFIG_ADT7420_TRIGGER_GLOBAL_THREAD)
 	drv_data->work.handler = adt7420_work_cb;

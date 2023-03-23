@@ -8,13 +8,15 @@
 #define DT_DRV_COMPAT nxp_kinetis_gpio
 
 #include <errno.h>
-#include <device.h>
-#include <drivers/gpio.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/dt-bindings/gpio/nxp-kinetis-gpio.h>
+#include <zephyr/irq.h>
 #include <soc.h>
 #include <fsl_common.h>
 #include <fsl_port.h>
 
-#include "gpio_utils.h"
+#include <zephyr/drivers/gpio/gpio_utils.h>
 
 struct gpio_mcux_config {
 	/* gpio_driver_config needs to be first */
@@ -31,10 +33,10 @@ struct gpio_mcux_data {
 	sys_slist_t callbacks;
 };
 
-static int gpio_mcux_configure(struct device *dev,
+static int gpio_mcux_configure(const struct device *dev,
 			       gpio_pin_t pin, gpio_flags_t flags)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 	PORT_Type *port_base = config->port_base;
 	uint32_t mask = 0U;
@@ -76,6 +78,10 @@ static int gpio_mcux_configure(struct device *dev,
 		return -ENOTSUP;
 	}
 
+	/* Set PCR mux to GPIO for the pin we are configuring */
+	mask |= PORT_PCR_MUX_MASK;
+	pcr |= PORT_PCR_MUX(kPORT_MuxAsGpio);
+
 	/* Now do the PORT module. Figure out the pullup/pulldown
 	 * configuration, but don't write it to the PCR register yet.
 	 */
@@ -92,15 +98,31 @@ static int gpio_mcux_configure(struct device *dev,
 		pcr |= PORT_PCR_PE_MASK;
 	}
 
+#if defined(FSL_FEATURE_PORT_HAS_DRIVE_STRENGTH) && FSL_FEATURE_PORT_HAS_DRIVE_STRENGTH
+	/* Determine the drive strength */
+	switch (flags & KINETIS_GPIO_DS_MASK) {
+	case KINETIS_GPIO_DS_DFLT:
+		/* Default is low drive strength */
+		mask |= PORT_PCR_DSE_MASK;
+		break;
+	case KINETIS_GPIO_DS_ALT:
+		/* Alternate is high drive strength */
+		pcr |= PORT_PCR_DSE_MASK;
+		break;
+	default:
+		return -ENOTSUP;
+	}
+#endif /* defined(FSL_FEATURE_PORT_HAS_DRIVE_STRENGTH) && FSL_FEATURE_PORT_HAS_DRIVE_STRENGTH */
+
 	/* Accessing by pin, we only need to write one PCR register. */
 	port_base->PCR[pin] = (port_base->PCR[pin] & ~mask) | pcr;
 
 	return 0;
 }
 
-static int gpio_mcux_port_get_raw(struct device *dev, uint32_t *value)
+static int gpio_mcux_port_get_raw(const struct device *dev, uint32_t *value)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 
 	*value = gpio_base->PDIR;
@@ -108,10 +130,11 @@ static int gpio_mcux_port_get_raw(struct device *dev, uint32_t *value)
 	return 0;
 }
 
-static int gpio_mcux_port_set_masked_raw(struct device *dev, uint32_t mask,
+static int gpio_mcux_port_set_masked_raw(const struct device *dev,
+					 uint32_t mask,
 					 uint32_t value)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 
 	gpio_base->PDOR = (gpio_base->PDOR & ~mask) | (mask & value);
@@ -119,9 +142,10 @@ static int gpio_mcux_port_set_masked_raw(struct device *dev, uint32_t mask,
 	return 0;
 }
 
-static int gpio_mcux_port_set_bits_raw(struct device *dev, uint32_t mask)
+static int gpio_mcux_port_set_bits_raw(const struct device *dev,
+				       uint32_t mask)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 
 	gpio_base->PSOR = mask;
@@ -129,9 +153,10 @@ static int gpio_mcux_port_set_bits_raw(struct device *dev, uint32_t mask)
 	return 0;
 }
 
-static int gpio_mcux_port_clear_bits_raw(struct device *dev, uint32_t mask)
+static int gpio_mcux_port_clear_bits_raw(const struct device *dev,
+					 uint32_t mask)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 
 	gpio_base->PCOR = mask;
@@ -139,9 +164,9 @@ static int gpio_mcux_port_clear_bits_raw(struct device *dev, uint32_t mask)
 	return 0;
 }
 
-static int gpio_mcux_port_toggle_bits(struct device *dev, uint32_t mask)
+static int gpio_mcux_port_toggle_bits(const struct device *dev, uint32_t mask)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 
 	gpio_base->PTOR = mask;
@@ -149,9 +174,10 @@ static int gpio_mcux_port_toggle_bits(struct device *dev, uint32_t mask)
 	return 0;
 }
 
-static uint32_t get_port_pcr_irqc_value_from_flags(struct device *dev,
-		uint32_t pin, enum gpio_int_mode mode,
-		enum gpio_int_trig trig)
+static uint32_t get_port_pcr_irqc_value_from_flags(const struct device *dev,
+						   uint32_t pin,
+						   enum gpio_int_mode mode,
+						   enum gpio_int_trig trig)
 {
 	port_interrupt_t port_interrupt = 0;
 
@@ -182,11 +208,11 @@ static uint32_t get_port_pcr_irqc_value_from_flags(struct device *dev,
 	return PORT_PCR_IRQC(port_interrupt);
 }
 
-static int gpio_mcux_pin_interrupt_configure(struct device *dev,
+static int gpio_mcux_pin_interrupt_configure(const struct device *dev,
 					     gpio_pin_t pin, enum gpio_int_mode mode,
 					     enum gpio_int_trig trig)
 {
-	const struct gpio_mcux_config *config = dev->config_info;
+	const struct gpio_mcux_config *config = dev->config;
 	GPIO_Type *gpio_base = config->gpio_base;
 	PORT_Type *port_base = config->port_base;
 
@@ -214,19 +240,18 @@ static int gpio_mcux_pin_interrupt_configure(struct device *dev,
 	return 0;
 }
 
-static int gpio_mcux_manage_callback(struct device *dev,
+static int gpio_mcux_manage_callback(const struct device *dev,
 				     struct gpio_callback *callback, bool set)
 {
-	struct gpio_mcux_data *data = dev->driver_data;
+	struct gpio_mcux_data *data = dev->data;
 
 	return gpio_manage_callback(&data->callbacks, callback, set);
 }
 
-static void gpio_mcux_port_isr(void *arg)
+static void gpio_mcux_port_isr(const struct device *dev)
 {
-	struct device *dev = (struct device *)arg;
-	const struct gpio_mcux_config *config = dev->config_info;
-	struct gpio_mcux_data *data = dev->driver_data;
+	const struct gpio_mcux_config *config = dev->config;
+	struct gpio_mcux_data *data = dev->data;
 	uint32_t int_status;
 
 	int_status = config->port_base->ISFR;
@@ -237,6 +262,26 @@ static void gpio_mcux_port_isr(void *arg)
 	gpio_fire_callbacks(&data->callbacks, dev, int_status);
 }
 
+#ifdef CONFIG_GPIO_GET_DIRECTION
+static int gpio_mcux_port_get_direction(const struct device *dev, gpio_port_pins_t map,
+					gpio_port_pins_t *inputs, gpio_port_pins_t *outputs)
+{
+	const struct gpio_mcux_config *config = dev->config;
+	GPIO_Type *gpio_base = config->gpio_base;
+
+	map &= config->common.port_pin_mask;
+
+	if (inputs != NULL) {
+		*inputs = map & (~gpio_base->PDDR);
+	}
+
+	if (outputs != NULL) {
+		*outputs = map & gpio_base->PDDR;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_GPIO_GET_DIRECTION */
 
 static const struct gpio_driver_api gpio_mcux_driver_api = {
 	.pin_configure = gpio_mcux_configure,
@@ -247,6 +292,9 @@ static const struct gpio_driver_api gpio_mcux_driver_api = {
 	.port_toggle_bits = gpio_mcux_port_toggle_bits,
 	.pin_interrupt_configure = gpio_mcux_pin_interrupt_configure,
 	.manage_callback = gpio_mcux_manage_callback,
+#ifdef CONFIG_GPIO_GET_DIRECTION
+	.port_get_direction = gpio_mcux_port_get_direction,
+#endif /* CONFIG_GPIO_GET_DIRECTION */
 };
 
 #define GPIO_MCUX_IRQ_INIT(n)						\
@@ -254,15 +302,15 @@ static const struct gpio_driver_api gpio_mcux_driver_api = {
 		IRQ_CONNECT(DT_INST_IRQN(n),				\
 			    DT_INST_IRQ(n, priority),			\
 			    gpio_mcux_port_isr,				\
-			    DEVICE_GET(gpio_mcux_port##n), 0);		\
+			    DEVICE_DT_INST_GET(n), 0);			\
 									\
 		irq_enable(DT_INST_IRQN(n));				\
-	} while (0)
+	} while (false)
 
 #define GPIO_PORT_BASE_ADDR(n) DT_REG_ADDR(DT_INST_PHANDLE(n, nxp_kinetis_port))
 
 #define GPIO_DEVICE_INIT_MCUX(n)					\
-	static int gpio_mcux_port## n ## _init(struct device *dev);	\
+	static int gpio_mcux_port## n ## _init(const struct device *dev); \
 									\
 	static const struct gpio_mcux_config gpio_mcux_port## n ## _config = {\
 		.common = {						\
@@ -275,15 +323,16 @@ static const struct gpio_driver_api gpio_mcux_driver_api = {
 									\
 	static struct gpio_mcux_data gpio_mcux_port## n ##_data;	\
 									\
-	DEVICE_AND_API_INIT(gpio_mcux_port## n, DT_INST_LABEL(n),	\
+	DEVICE_DT_INST_DEFINE(n,					\
 			    gpio_mcux_port## n ##_init,			\
+			    NULL,					\
 			    &gpio_mcux_port## n ##_data,		\
 			    &gpio_mcux_port## n##_config,		\
 			    POST_KERNEL,				\
-			    CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
+			    CONFIG_GPIO_INIT_PRIORITY,			\
 			    &gpio_mcux_driver_api);			\
 									\
-	static int gpio_mcux_port## n ##_init(struct device *dev)	\
+	static int gpio_mcux_port## n ##_init(const struct device *dev)	\
 	{								\
 		IF_ENABLED(DT_INST_IRQ_HAS_IDX(n, 0),			\
 			(GPIO_MCUX_IRQ_INIT(n);))			\

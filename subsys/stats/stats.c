@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <assert.h>
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
 #include <zephyr/types.h>
-#include <stats/stats.h>
+#include <zephyr/stats/stats.h>
 
 #define STATS_GEN_NAME_MAX_LEN  (sizeof("s255"))
 
@@ -44,7 +43,7 @@ stats_get_name(const struct stats_hdr *hdr, int idx)
 static uint16_t
 stats_get_off(const struct stats_hdr *hdr, int idx)
 {
-	return sizeof(*hdr) + idx * hdr->s_size;
+	return (uint16_t) (sizeof(*hdr) + idx * (int) hdr->s_size);
 }
 
 /**

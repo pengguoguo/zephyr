@@ -5,20 +5,31 @@
  */
 #include <string.h>
 #include <xtensa-asm2.h>
-#include <kernel.h>
+#include <zephyr/kernel.h>
 #include <ksched.h>
-#include <kernel_structs.h>
+#include <zephyr/kernel_structs.h>
 #include <kernel_internal.h>
 #include <kswap.h>
 #include <_soc_inthandlers.h>
-#include <logging/log.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/logging/log.h>
 
-LOG_MODULE_DECLARE(os);
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
-void *xtensa_init_stack(int *stack_top,
+extern char xtensa_arch_except_epc[];
+
+void *xtensa_init_stack(struct k_thread *thread, int *stack_top,
 			void (*entry)(void *, void *, void *),
 			void *arg1, void *arg2, void *arg3)
 {
+	/* Not-a-cpu ID Ensures that the first time this is run, the
+	 * stack will be invalidated.  That covers the edge case of
+	 * restarting a thread on a stack that had previously been run
+	 * on one CPU, but then initialized on this one, and
+	 * potentially run THERE and not HERE.
+	 */
+	thread->arch.last_cpu = -1;
+
 	/* We cheat and shave 16 bytes off, the top four words are the
 	 * A0-A3 spill area for the caller of the entry function,
 	 * which doesn't exist.  It will never be touched, so we
@@ -27,12 +38,16 @@ void *xtensa_init_stack(int *stack_top,
 	 * start will decrement the stack pointer by 16.
 	 */
 	const int bsasz = BASE_SAVE_AREA_SIZE - 16;
-	void **bsa = (void **) (((char *) stack_top) - bsasz);
+	void *ret, **bsa = (void **) (((char *) stack_top) - bsasz);
 
 	(void)memset(bsa, 0, bsasz);
 
 	bsa[BSA_PC_OFF/4] = z_thread_entry;
 	bsa[BSA_PS_OFF/4] = (void *)(PS_WOE | PS_UM | PS_CALLINC(1));
+
+#if XCHAL_HAVE_THREADPTR && defined(CONFIG_THREAD_LOCAL_STORAGE)
+	bsa[BSA_THREADPTR_OFF/4] = UINT_TO_POINTER(thread->tls);
+#endif
 
 	/* Arguments to z_thread_entry().  Remember these start at A6,
 	 * which will be rotated into A2 by the ENTRY instruction that
@@ -53,27 +68,26 @@ void *xtensa_init_stack(int *stack_top,
 	 * as the handle
 	 */
 	bsa[-9] = bsa;
-	return &bsa[-9];
+	ret = &bsa[-9];
+
+	return ret;
 }
 
 void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
-		     size_t sz, k_thread_entry_t entry,
-		     void *p1, void *p2, void *p3,
-		     int prio, unsigned int opts)
+		     char *stack_ptr, k_thread_entry_t entry,
+		     void *p1, void *p2, void *p3)
 {
-	char *base = Z_THREAD_STACK_BUFFER(stack);
-	char *top = base + sz;
-
-	/* Align downward.  The API as specified requires a runtime check. */
-	top = (char *)(((unsigned int)top) & ~3);
-
-	z_new_thread_init(thread, base, sz);
-
-	thread->switch_handle = xtensa_init_stack((void *)top, entry,
+	thread->switch_handle = xtensa_init_stack(thread,
+						  (int *)stack_ptr, entry,
 						  p1, p2, p3);
+#ifdef CONFIG_KERNEL_COHERENCE
+	__ASSERT((((size_t)stack) % XCHAL_DCACHE_LINESIZE) == 0, "");
+	__ASSERT((((size_t)stack_ptr) % XCHAL_DCACHE_LINESIZE) == 0, "");
+	z_xtensa_cache_flush_inv(stack, (char *)stack_ptr - (char *)stack);
+#endif
 }
 
-void z_irq_spurious(void *arg)
+void z_irq_spurious(const void *arg)
 {
 	int irqs, ie;
 
@@ -132,14 +146,31 @@ static inline unsigned int get_bits(int offset, int num_bits, unsigned int val)
 	return val & mask;
 }
 
+static ALWAYS_INLINE void usage_stop(void)
+{
+#ifdef CONFIG_SCHED_THREAD_USAGE
+	z_sched_usage_stop();
+#endif
+}
+
+static inline void *return_to(void *interrupted)
+{
+	return _current_cpu->nested <= 1 ?
+		z_get_next_switch_handle(interrupted) : interrupted;
+}
+
 /* The wrapper code lives here instead of in the python script that
  * generates _xtensa_handle_one_int*().  Seems cleaner, still kind of
  * ugly.
+ *
+ * This may be unused depending on number of interrupt levels
+ * supported by the SoC.
  */
 #define DEF_INT_C_HANDLER(l)				\
-void *xtensa_int##l##_c(void *interrupted_stack)	\
+__unused void *xtensa_int##l##_c(void *interrupted_stack)	\
 {							   \
 	uint32_t irqs, intenable, m;			   \
+	usage_stop();					   \
 	__asm__ volatile("rsr.interrupt %0" : "=r"(irqs)); \
 	__asm__ volatile("rsr.intenable %0" : "=r"(intenable)); \
 	irqs &= intenable;					\
@@ -147,15 +178,32 @@ void *xtensa_int##l##_c(void *interrupted_stack)	\
 		irqs ^= m;					\
 		__asm__ volatile("wsr.intclear %0" : : "r"(m)); \
 	}							\
-	return z_get_next_switch_handle(interrupted_stack);		\
+	return return_to(interrupted_stack);		\
 }
 
+#if XCHAL_NMILEVEL >= 2
 DEF_INT_C_HANDLER(2)
+#endif
+
+#if XCHAL_NMILEVEL >= 3
 DEF_INT_C_HANDLER(3)
+#endif
+
+#if XCHAL_NMILEVEL >= 4
 DEF_INT_C_HANDLER(4)
+#endif
+
+#if XCHAL_NMILEVEL >= 5
 DEF_INT_C_HANDLER(5)
+#endif
+
+#if XCHAL_NMILEVEL >= 6
 DEF_INT_C_HANDLER(6)
+#endif
+
+#if XCHAL_NMILEVEL >= 7
 DEF_INT_C_HANDLER(7)
+#endif
 
 static inline DEF_INT_C_HANDLER(1)
 
@@ -171,11 +219,8 @@ void *xtensa_excint1_c(int *interrupted_stack)
 	__asm__ volatile("rsr.exccause %0" : "=r"(cause));
 
 	if (cause == EXCCAUSE_LEVEL1_INTERRUPT) {
-
 		return xtensa_int1_c(interrupted_stack);
-
 	} else if (cause == EXCCAUSE_SYSCALL) {
-
 		/* Just report it to the console for now */
 		LOG_ERR(" ** SYSCALL PS %p PC %p",
 			(void *)bsa[BSA_PS_OFF/4], (void *)bsa[BSA_PC_OFF/4]);
@@ -186,18 +231,39 @@ void *xtensa_excint1_c(int *interrupted_stack)
 		 * else it will just loop forever
 		 */
 		bsa[BSA_PC_OFF/4] += 3;
-
 	} else {
 		uint32_t ps = bsa[BSA_PS_OFF/4];
+		void *pc = (void *)bsa[BSA_PC_OFF/4];
 
 		__asm__ volatile("rsr.excvaddr %0" : "=r"(vaddr));
+
+		/* Default for exception */
+		int reason = K_ERR_CPU_EXCEPTION;
+
+		/* We need to distinguish between an ill in xtensa_arch_except,
+		 * e.g for k_panic, and any other ill. For exceptions caused by
+		 * xtensa_arch_except calls, we also need to pass the reason_p
+		 * to z_xtensa_fatal_error. Since the ARCH_EXCEPT frame is in the
+		 * BSA, the first arg reason_p is stored at the A2 offset.
+		 * We assign EXCCAUSE the unused, reserved code 63; this may be
+		 * problematic if the app or new boards also decide to repurpose
+		 * this code.
+		 */
+		if ((pc ==  (void *) &xtensa_arch_except_epc) && (cause == 0)) {
+			cause = 63;
+			__asm__ volatile("wsr.exccause %0" : : "r"(cause));
+			reason = bsa[BSA_A2_OFF/4];
+			/* Skip ILL to RETW */
+			bsa[BSA_PC_OFF/4] += 3;
+			pc = (void *)bsa[BSA_PC_OFF/4];
+		}
 
 		LOG_ERR(" ** FATAL EXCEPTION");
 		LOG_ERR(" ** CPU %d EXCCAUSE %d (%s)",
 			arch_curr_cpu()->id, cause,
 			z_xtensa_exccause(cause));
 		LOG_ERR(" **  PC %p VADDR %p",
-			(void *)bsa[BSA_PC_OFF/4], (void *)vaddr);
+			pc, (void *)vaddr);
 		LOG_ERR(" **  PS %p", (void *)bsa[BSA_PS_OFF/4]);
 		LOG_ERR(" **    (INTLEVEL:%d EXCM: %d UM:%d RING:%d WOE:%d OWB:%d CALLINC:%d)",
 			get_bits(0, 4, ps), get_bits(4, 1, ps),
@@ -210,12 +276,23 @@ void *xtensa_excint1_c(int *interrupted_stack)
 		 * as these are software errors.  Should clean this
 		 * up.
 		 */
-		z_xtensa_fatal_error(K_ERR_CPU_EXCEPTION,
+		z_xtensa_fatal_error(reason,
 				     (void *)interrupted_stack);
 	}
 
-	return z_get_next_switch_handle(interrupted_stack);
+	return return_to(interrupted_stack);
 }
+
+#if defined(CONFIG_GDBSTUB)
+void *xtensa_debugint_c(int *interrupted_stack)
+{
+	extern void z_gdb_isr(z_arch_esf_t *esf);
+
+	z_gdb_isr((void *)interrupted_stack);
+
+	return return_to(interrupted_stack);
+}
+#endif
 
 int z_xtensa_irq_is_enabled(unsigned int irq)
 {
@@ -223,5 +300,5 @@ int z_xtensa_irq_is_enabled(unsigned int irq)
 
 	__asm__ volatile("rsr.intenable %0" : "=r"(ie));
 
-	return (ie & (1 << irq)) != 0;
+	return (ie & (1 << irq)) != 0U;
 }

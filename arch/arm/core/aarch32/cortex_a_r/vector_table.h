@@ -24,12 +24,12 @@
 
 #ifdef _ASMLANGUAGE
 
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <sys/util.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/linker/sections.h>
+#include <zephyr/sys/util.h>
 
 GTEXT(__start)
-GTEXT(_vector_table)
+GDATA(_vector_table)
 
 GTEXT(z_arm_nmi)
 GTEXT(z_arm_undef_instruction)

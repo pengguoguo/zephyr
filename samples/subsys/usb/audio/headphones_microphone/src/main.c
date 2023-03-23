@@ -9,14 +9,14 @@
  * @brief Sample app for Audio class
  */
 
-#include <zephyr.h>
-#include <logging/log.h>
-#include <usb/usb_device.h>
-#include <usb/class/usb_audio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/usb/class/usb_audio.h>
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
-static struct device *mic_dev;
+static const struct device *const mic_dev = DEVICE_DT_GET_ONE(usb_audio_mic);
 
 static void data_received(const struct device *dev,
 			  struct net_buf *buffer,
@@ -42,7 +42,7 @@ static void data_received(const struct device *dev,
 	}
 }
 
-static void feature_update(struct device *dev,
+static void feature_update(const struct device *dev,
 			   const struct usb_audio_fu_evt *evt)
 {
 	LOG_DBG("Control selector %d for channel %d updated",
@@ -65,21 +65,24 @@ static const struct usb_audio_ops mic_ops = {
 
 void main(void)
 {
-	struct device *hp_dev = device_get_binding("HEADPHONES");
+	const struct device *const hp_dev = DEVICE_DT_GET_ONE(usb_audio_hp);
 	int ret;
 
 	LOG_INF("Entered %s", __func__);
-	mic_dev = device_get_binding("MICROPHONE");
 
-	if (!hp_dev) {
-		LOG_ERR("Can not get USB Headphones Device");
+	if (!device_is_ready(hp_dev)) {
+		LOG_ERR("Device USB Headphones is not ready");
 		return;
 	}
 
-	if (!mic_dev) {
-		LOG_ERR("Can not get USB Microphone Device");
+	LOG_INF("Found USB Headphones Device");
+
+	if (!device_is_ready(mic_dev)) {
+		LOG_ERR("Device USB Microphone is not ready");
 		return;
 	}
+
+	LOG_INF("Found USB Microphone Device");
 
 	usb_audio_register(hp_dev, &hp_ops);
 
@@ -90,4 +93,6 @@ void main(void)
 		LOG_ERR("Failed to enable USB");
 		return;
 	}
+
+	LOG_INF("USB enabled");
 }

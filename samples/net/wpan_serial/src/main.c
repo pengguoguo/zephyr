@@ -12,16 +12,23 @@
  * with popular Contiki-based native border routers.
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(wpan_serial, CONFIG_USB_DEVICE_LOG_LEVEL);
 
-#include <drivers/uart.h>
-#include <zephyr.h>
-#include <usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
+#include <zephyr/kernel.h>
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/random/rand32.h>
 
-#include <net/buf.h>
+#include <zephyr/net/buf.h>
 #include <net_private.h>
-#include <net/ieee802154_radio.h>
+#include <zephyr/net/ieee802154_radio.h>
+
+#if defined(CONFIG_NET_TC_THREAD_COOPERATIVE)
+#define THREAD_PRIORITY K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)
+#else
+#define THREAD_PRIORITY K_PRIO_PREEMPT(8)
+#endif
 
 #define SLIP_END     0300
 #define SLIP_ESC     0333
@@ -49,11 +56,13 @@ static uint8_t slip_buf[1 + 2 * CONFIG_NET_BUF_DATA_SIZE];
 
 /* ieee802.15.4 device */
 static struct ieee802154_radio_api *radio_api;
-static struct device *ieee802154_dev;
-uint8_t mac_addr[8];
+static const struct device *const ieee802154_dev =
+	DEVICE_DT_GET(DT_CHOSEN(zephyr_ieee802154));
+uint8_t mac_addr[8]; /* in little endian */
 
 /* UART device */
-static struct device *uart_dev;
+static const struct device *const uart_dev =
+	DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
 
 /* SLIP state machine */
 static uint8_t slip_state = STATE_OK;
@@ -126,8 +135,10 @@ static int slip_process_byte(unsigned char c)
 	return 0;
 }
 
-static void interrupt_handler(struct device *dev)
+static void interrupt_handler(const struct device *dev, void *user_data)
 {
+	ARG_UNUSED(user_data);
+
 	while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
 		unsigned char byte;
 
@@ -411,7 +422,7 @@ static void init_rx_queue(void)
 	k_thread_create(&rx_thread_data, rx_stack,
 			K_THREAD_STACK_SIZEOF(rx_stack),
 			(k_thread_entry_t)rx_thread,
-			NULL, NULL, NULL, K_PRIO_COOP(8), 0, K_NO_WAIT);
+			NULL, NULL, NULL, THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
 static void init_tx_queue(void)
@@ -421,13 +432,13 @@ static void init_tx_queue(void)
 	k_thread_create(&tx_thread_data, tx_stack,
 			K_THREAD_STACK_SIZEOF(tx_stack),
 			(k_thread_entry_t)tx_thread,
-			NULL, NULL, NULL, K_PRIO_COOP(8), 0, K_NO_WAIT);
+			NULL, NULL, NULL, THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
 /**
  * FIXME choose correct OUI, or add support in L2
  */
-static uint8_t *get_mac(struct device *dev)
+static uint8_t *get_mac(const struct device *dev)
 {
 	uint32_t *ptr = (uint32_t *)mac_addr;
 
@@ -447,13 +458,12 @@ static bool init_ieee802154(void)
 {
 	LOG_INF("Initialize ieee802.15.4");
 
-	ieee802154_dev = device_get_binding(CONFIG_NET_CONFIG_IEEE802154_DEV_NAME);
-	if (!ieee802154_dev) {
-		LOG_ERR("Cannot get ieee 802.15.4 device");
+	if (!device_is_ready(ieee802154_dev)) {
+		LOG_ERR("IEEE 802.15.4 device not ready");
 		return false;
 	}
 
-	radio_api = (struct ieee802154_radio_api *)ieee802154_dev->driver_api;
+	radio_api = (struct ieee802154_radio_api *)ieee802154_dev->api;
 
 	/**
 	 * Do actual initialization of the chip
@@ -511,17 +521,20 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 	return 0;
 }
 
+enum net_verdict ieee802154_radio_handle_ack(struct net_if *iface, struct net_pkt *pkt)
+{
+	return NET_CONTINUE;
+}
+
 void main(void)
 {
-	struct device *dev;
 	uint32_t baudrate, dtr = 0U;
 	int ret;
 
 	LOG_INF("Starting wpan_serial application");
 
-	dev = device_get_binding("CDC_ACM_0");
-	if (!dev) {
-		LOG_ERR("CDC ACM device not found");
+	if (!device_is_ready(uart_dev)) {
+		LOG_ERR("CDC ACM device not ready");
 		return;
 	}
 
@@ -534,7 +547,7 @@ void main(void)
 	LOG_DBG("Wait for DTR");
 
 	while (1) {
-		uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+		uart_line_ctrl_get(uart_dev, UART_LINE_CTRL_DTR, &dtr);
 		if (dtr) {
 			break;
 		} else {
@@ -543,11 +556,9 @@ void main(void)
 		}
 	}
 
-	uart_dev = dev;
-
 	LOG_DBG("DTR set, continue");
 
-	ret = uart_line_ctrl_get(dev, UART_LINE_CTRL_BAUD_RATE, &baudrate);
+	ret = uart_line_ctrl_get(uart_dev, UART_LINE_CTRL_BAUD_RATE, &baudrate);
 	if (ret) {
 		LOG_WRN("Failed to get baudrate, ret code %d", ret);
 	} else {
@@ -569,10 +580,10 @@ void main(void)
 	if (!init_ieee802154()) {
 		LOG_ERR("Unable to initialize ieee802154");
 		return;
-	};
+	}
 
-	uart_irq_callback_set(dev, interrupt_handler);
+	uart_irq_callback_set(uart_dev, interrupt_handler);
 
 	/* Enable rx interrupts */
-	uart_irq_rx_enable(dev);
+	uart_irq_rx_enable(uart_dev);
 }

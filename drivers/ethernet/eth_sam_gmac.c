@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2016 Piotr Mienkowski
- * Copyringt (c) 2018 Antmicro Ltd
+ * Copyright (c) 2018 Antmicro Ltd
+ * Copyright (c) 2023 Gerson Fernando Budke
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,27 +19,33 @@
  * - no statistics collection
  */
 
+#if defined(CONFIG_SOC_FAMILY_SAM)
 #define DT_DRV_COMPAT atmel_sam_gmac
+#else
+#define DT_DRV_COMPAT atmel_sam0_gmac
+#endif
 
 #define LOG_MODULE_NAME eth_sam
 #define LOG_LEVEL CONFIG_ETHERNET_LOG_LEVEL
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
-#include <kernel.h>
-#include <device.h>
-#include <sys/__assert.h>
-#include <sys/util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/util.h>
 #include <errno.h>
 #include <stdbool.h>
-#include <net/net_pkt.h>
-#include <net/net_if.h>
-#include <net/ethernet.h>
+#include <zephyr/net/phy.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/ethernet.h>
 #include <ethernet/eth_stats.h>
-#include <drivers/i2c.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control/atmel_sam_pmc.h>
 #include <soc.h>
-#include "phy_sam_gmac.h"
 #include "eth_sam_gmac_priv.h"
 
 #include "eth.h"
@@ -47,10 +54,9 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "eth_sam0_gmac.h"
 #endif
 
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
-#include <ptp_clock.h>
-#include <net/gptp.h>
-#endif
+#include <zephyr/drivers/ptp_clock.h>
+#include <zephyr/net/gptp.h>
+#include <zephyr/irq.h>
 
 #ifdef __DCACHE_PRESENT
 static bool dcache_enabled;
@@ -239,9 +245,8 @@ static void tx_descriptors_init(Gmac *gmac, struct gmac_queue *queue);
 static int nonpriority_queue_init(Gmac *gmac, struct gmac_queue *queue);
 
 #if GMAC_PRIORITY_QUEUE_NUM >= 1
-static inline void set_receive_buf_queue_pointer(
-	Gmac *gmac,
-	struct gmac_queue *queue)
+static inline void set_receive_buf_queue_pointer(Gmac *gmac,
+						 struct gmac_queue *queue)
 {
 	/* Set Receive Buffer Queue Pointer Register */
 	if (queue->que_idx == GMAC_QUE_0) {
@@ -358,9 +363,8 @@ static int queue_init(Gmac *gmac, struct gmac_queue *queue)
 
 #else
 
-static inline void set_receive_buf_queue_pointer(
-	Gmac *gmac,
-	struct gmac_queue *queue)
+static inline void set_receive_buf_queue_pointer(Gmac *gmac,
+						 struct gmac_queue *queue)
 {
 	gmac->GMAC_RBQB = (uint32_t)queue->rx_desc_list.buf;
 }
@@ -475,7 +479,8 @@ static int rx_descriptors_init(Gmac *gmac, struct gmac_queue *queue)
 	rx_desc_list->tail = 0U;
 
 	for (int i = 0; i < rx_desc_list->len; i++) {
-		rx_buf = net_pkt_get_reserve_rx_data(K_NO_WAIT);
+		rx_buf = net_pkt_get_reserve_rx_data(CONFIG_NET_BUF_DATA_SIZE,
+						     K_NO_WAIT);
 		if (rx_buf == NULL) {
 			free_rx_bufs(rx_frag_list, rx_desc_list->len);
 			LOG_ERR("Failed to reserve data net buffers");
@@ -527,7 +532,7 @@ static void tx_descriptors_init(Gmac *gmac, struct gmac_queue *queue)
 #endif
 }
 
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+#if defined(CONFIG_NET_GPTP)
 static struct gptp_hdr *check_gptp_msg(struct net_if *iface,
 				       struct net_pkt *pkt,
 				       bool is_tx)
@@ -728,7 +733,7 @@ static void tx_completed(Gmac *gmac, struct gmac_queue *queue)
 	struct gmac_desc_list *tx_desc_list = &queue->tx_desc_list;
 	struct gmac_desc *tx_desc;
 	struct net_buf *frag;
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+#if defined(CONFIG_NET_GPTP)
 	struct net_pkt *pkt;
 	uint16_t vlan_tag = NET_VLAN_TAG_UNSPEC;
 	struct gptp_hdr *hdr;
@@ -762,6 +767,7 @@ static void tx_completed(Gmac *gmac, struct gmac_queue *queue)
 				vlan_tag = net_pkt_vlan_tag(pkt);
 			}
 #endif
+#if defined(CONFIG_NET_GPTP)
 			hdr = check_gptp_msg(get_iface(dev_data, vlan_tag),
 					     pkt, true);
 
@@ -770,6 +776,7 @@ static void tx_completed(Gmac *gmac, struct gmac_queue *queue)
 			if (hdr && need_timestamping(hdr)) {
 				net_if_add_tx_timestamp(pkt);
 			}
+#endif
 			net_pkt_unref(pkt);
 			LOG_DBG("Dropping pkt %p", pkt);
 #endif
@@ -1089,7 +1096,7 @@ static int gmac_init(Gmac *gmac, uint32_t gmac_ncfgr_val)
 	}
 
 	/* Set Network Control Register to its default value, clear stats. */
-	gmac->GMAC_NCR = GMAC_NCR_CLRSTAT;
+	gmac->GMAC_NCR = GMAC_NCR_CLRSTAT | GMAC_NCR_MPE;
 
 	/* Disable all interrupts */
 	gmac->GMAC_IDR = UINT32_MAX;
@@ -1105,7 +1112,7 @@ static int gmac_init(Gmac *gmac, uint32_t gmac_ncfgr_val)
 	/* Setup Network Configuration Register */
 	gmac->GMAC_NCFGR = gmac_ncfgr_val | mck_divisor;
 
-	gmac->GMAC_UR = DT_ENUM_IDX(DT_DRV_INST(0), phy_connection_type);
+	gmac->GMAC_UR = DT_INST_ENUM_IDX(0, phy_connection_type);
 
 #if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
 	/* Initialize PTP Clock Registers */
@@ -1156,14 +1163,15 @@ static int gmac_init(Gmac *gmac, uint32_t gmac_ncfgr_val)
 	return 0;
 }
 
-static void link_configure(Gmac *gmac, uint32_t flags)
+static void link_configure(Gmac *gmac, bool full_duplex, bool speed_100M)
 {
 	uint32_t val;
 
 	val = gmac->GMAC_NCFGR;
 
 	val &= ~(GMAC_NCFGR_FD | GMAC_NCFGR_SPD);
-	val |= flags & (GMAC_NCFGR_FD | GMAC_NCFGR_SPD);
+	val |= (full_duplex) ? GMAC_NCFGR_FD : 0;
+	val |= (speed_100M) ?  GMAC_NCFGR_SPD : 0;
 
 	gmac->GMAC_NCFGR = val;
 
@@ -1303,7 +1311,7 @@ static struct net_pkt *frame_get(struct gmac_queue *queue)
 			dcache_invalidate((uint32_t)frag_data, frag->size);
 
 			/* Get a new data net buffer from the buffer pool */
-			new_frag = net_pkt_get_frag(rx_frame, K_NO_WAIT);
+			new_frag = net_pkt_get_frag(rx_frame, CONFIG_NET_BUF_DATA_SIZE, K_NO_WAIT);
 			if (new_frag == NULL) {
 				queue->err_rx_frames_dropped++;
 				net_pkt_unref(rx_frame);
@@ -1349,9 +1357,9 @@ static void eth_rx(struct gmac_queue *queue)
 			     queue_list[queue->que_idx]);
 	uint16_t vlan_tag = NET_VLAN_TAG_UNSPEC;
 	struct net_pkt *rx_frame;
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
-	struct device *const dev = net_if_get_device(dev_data->iface);
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
+#if defined(CONFIG_NET_GPTP)
+	const struct device *const dev = net_if_get_device(dev_data->iface);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
 	Gmac *gmac = cfg->regs;
 	struct gptp_hdr *hdr;
 #endif
@@ -1391,7 +1399,7 @@ static void eth_rx(struct gmac_queue *queue)
 			}
 		}
 #endif
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+#if defined(CONFIG_NET_GPTP)
 		hdr = check_gptp_msg(get_iface(dev_data, vlan_tag), rx_frame,
 				     false);
 
@@ -1400,7 +1408,7 @@ static void eth_rx(struct gmac_queue *queue)
 		if (hdr) {
 			update_pkt_priority(hdr, rx_frame);
 		}
-#endif /* CONFIG_PTP_CLOCK_SAM_GMAC */
+#endif /* CONFIG_NET_GPTP */
 
 		if (net_recv_data(get_iface(dev_data, vlan_tag),
 				  rx_frame) < 0) {
@@ -1443,10 +1451,10 @@ static int priority2queue(enum net_priority priority)
 }
 #endif
 
-static int eth_tx(struct device *dev, struct net_pkt *pkt)
+static int eth_tx(const struct device *dev, struct net_pkt *pkt)
 {
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
-	struct eth_sam_dev_data *const dev_data = DEV_DATA(dev);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
+	struct eth_sam_dev_data *const dev_data = dev->data;
 	Gmac *gmac = cfg->regs;
 	struct gmac_queue *queue;
 	struct gmac_desc_list *tx_desc_list;
@@ -1461,7 +1469,7 @@ static int eth_tx(struct device *dev, struct net_pkt *pkt)
 #endif
 	uint8_t pkt_prio;
 #if GMAC_MULTIPLE_TX_PACKETS == 0
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+#if defined(CONFIG_NET_GPTP)
 	uint16_t vlan_tag = NET_VLAN_TAG_UNSPEC;
 	struct gptp_hdr *hdr;
 #if defined(CONFIG_NET_VLAN)
@@ -1606,13 +1614,14 @@ static int eth_tx(struct device *dev, struct net_pkt *pkt)
 	if (queue->err_tx_flushed_count != err_tx_flushed_count_at_entry) {
 		return -EIO;
 	}
-#if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
+#if defined(CONFIG_NET_GPTP)
 #if defined(CONFIG_NET_VLAN)
 	eth_hdr = NET_ETH_HDR(pkt);
 	if (ntohs(eth_hdr->type) == NET_ETH_PTYPE_VLAN) {
 		vlan_tag = net_pkt_vlan_tag(pkt);
 	}
 #endif
+#if defined(CONFIG_NET_GPTP)
 	hdr = check_gptp_msg(get_iface(dev_data, vlan_tag), pkt, true);
 	timestamp_tx_pkt(gmac, hdr, pkt);
 	if (hdr && need_timestamping(hdr)) {
@@ -1620,15 +1629,15 @@ static int eth_tx(struct device *dev, struct net_pkt *pkt)
 	}
 #endif
 #endif
+#endif
 
 	return 0;
 }
 
-static void queue0_isr(void *arg)
+static void queue0_isr(const struct device *dev)
 {
-	struct device *const dev = (struct device *const)arg;
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
-	struct eth_sam_dev_data *const dev_data = DEV_DATA(dev);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
+	struct eth_sam_dev_data *const dev_data = dev->data;
 	Gmac *gmac = cfg->regs;
 	struct gmac_queue *queue;
 	struct gmac_desc_list *rx_desc_list;
@@ -1675,11 +1684,11 @@ static void queue0_isr(void *arg)
 }
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
-static inline void priority_queue_isr(void *arg, unsigned int queue_idx)
+static inline void priority_queue_isr(const struct device *dev,
+				      unsigned int queue_idx)
 {
-	struct device *const dev = (struct device *const)arg;
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
-	struct eth_sam_dev_data *const dev_data = DEV_DATA(dev);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
+	struct eth_sam_dev_data *const dev_data = dev->data;
 	Gmac *gmac = cfg->regs;
 	struct gmac_queue *queue;
 	struct gmac_desc_list *rx_desc_list;
@@ -1726,136 +1735,130 @@ static inline void priority_queue_isr(void *arg, unsigned int queue_idx)
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
-static void queue1_isr(void *arg)
+static void queue1_isr(const struct device *dev)
 {
-	priority_queue_isr(arg, 1);
+	priority_queue_isr(dev, 1);
 }
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 2
-static void queue2_isr(void *arg)
+static void queue2_isr(const struct device *dev)
 {
-	priority_queue_isr(arg, 2);
+	priority_queue_isr(dev, 2);
 }
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 3
-static void queue3_isr(void *arg)
+static void queue3_isr(const struct device *dev)
 {
-	priority_queue_isr(arg, 3);
+	priority_queue_isr(dev, 3);
 }
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 4
-static void queue4_isr(void *arg)
+static void queue4_isr(const struct device *dev)
 {
-	priority_queue_isr(arg, 4);
+	priority_queue_isr(dev, 4);
 }
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 5
-static void queue5_isr(void *arg)
+static void queue5_isr(const struct device *dev)
 {
-	priority_queue_isr(arg, 5);
+	priority_queue_isr(dev, 5);
 }
 #endif
 
-static int eth_initialize(struct device *dev)
+static int eth_initialize(const struct device *dev)
 {
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
+	int retval;
 
 	cfg->config_func();
 
 #ifdef CONFIG_SOC_FAMILY_SAM
 	/* Enable GMAC module's clock */
-	soc_pmc_peripheral_enable(cfg->periph_id);
-
-	/* Connect pins to the peripheral */
-	soc_gpio_list_configure(cfg->pin_list, cfg->pin_list_size);
+	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
+			       (clock_control_subsys_t *)&cfg->clock_cfg);
 #else
 	/* Enable MCLK clock on GMAC */
 	MCLK->AHBMASK.reg |= MCLK_AHBMASK_GMAC;
 	*MCLK_GMAC |= MCLK_GMAC_MASK;
 #endif
+	/* Connect pins to the peripheral */
+	retval = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
 
-	return 0;
+	return retval;
 }
 
-#ifdef CONFIG_ETH_SAM_GMAC_MAC_I2C_EEPROM
+#if DT_INST_NODE_HAS_PROP(0, mac_eeprom)
 static void get_mac_addr_from_i2c_eeprom(uint8_t mac_addr[6])
 {
-	struct device *dev;
 	uint32_t iaddr = CONFIG_ETH_SAM_GMAC_MAC_I2C_INT_ADDRESS;
+	int ret;
+	const struct i2c_dt_spec i2c = I2C_DT_SPEC_GET(DT_INST_PHANDLE(0, mac_eeprom));
 
-	dev = device_get_binding(CONFIG_ETH_SAM_GMAC_MAC_I2C_DEV_NAME);
-	if (!dev) {
-		LOG_ERR("I2C: Device not found");
+	if (!device_is_ready(i2c.bus)) {
+		LOG_ERR("Bus device is not ready");
 		return;
 	}
 
-	i2c_write_read(dev, CONFIG_ETH_SAM_GMAC_MAC_I2C_SLAVE_ADDRESS,
-		       &iaddr, CONFIG_ETH_SAM_GMAC_MAC_I2C_INT_ADDRESS_SIZE,
-		       mac_addr, 6);
+	ret = i2c_write_read_dt(&i2c,
+			   &iaddr, CONFIG_ETH_SAM_GMAC_MAC_I2C_INT_ADDRESS_SIZE,
+			   mac_addr, 6);
+
+	if (ret != 0) {
+		LOG_ERR("I2C: failed to read MAC addr");
+		return;
+	}
 }
 #endif
 
 static void generate_mac(uint8_t mac_addr[6])
 {
-#if defined(CONFIG_ETH_SAM_GMAC_MAC_I2C_EEPROM)
+#if DT_INST_NODE_HAS_PROP(0, mac_eeprom)
 	get_mac_addr_from_i2c_eeprom(mac_addr);
 #elif DT_INST_PROP(0, zephyr_random_mac_address)
 	gen_random_mac(mac_addr, ATMEL_OUI_B0, ATMEL_OUI_B1, ATMEL_OUI_B2);
 #endif
 }
 
-static void monitor_work_handler(struct k_work *work)
+static void phy_link_state_changed(const struct device *pdev,
+				   struct phy_link_state *state,
+				   void *user_data)
 {
-	struct eth_sam_dev_data *const dev_data =
-		CONTAINER_OF(work, struct eth_sam_dev_data, monitor_work);
-	struct device *const dev = net_if_get_device(dev_data->iface);
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
-	bool link_status;
-	uint32_t link_config;
-	int result;
+	const struct device *dev = (const struct device *) user_data;
+	struct eth_sam_dev_data *const dev_data = dev->data;
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
+	bool is_up;
 
-	/* Poll PHY link status */
-	link_status = phy_sam_gmac_link_status_get(&cfg->phy);
+	is_up = state->is_up;
 
-	if (link_status && !dev_data->link_up) {
+	if (is_up && !dev_data->link_up) {
 		LOG_INF("Link up");
 
 		/* Announce link up status */
 		dev_data->link_up = true;
 		net_eth_carrier_on(dev_data->iface);
 
-		/* PHY auto-negotiate link parameters */
-		result = phy_sam_gmac_auto_negotiate(&cfg->phy, &link_config);
-		if (result < 0) {
-			LOG_ERR("ETH PHY auto-negotiate sequence failed");
-			goto finally;
-		}
-
-		/* Set up link parameters */
-		link_configure(cfg->regs, link_config);
-	} else if (!link_status && dev_data->link_up) {
+		/* Set up link */
+		link_configure(cfg->regs,
+			       PHY_LINK_IS_FULL_DUPLEX(state->speed),
+			       PHY_LINK_IS_SPEED_100M(state->speed));
+	} else if (!is_up && dev_data->link_up) {
 		LOG_INF("Link down");
 
 		/* Announce link down status */
 		dev_data->link_up = false;
 		net_eth_carrier_off(dev_data->iface);
 	}
-
-finally:
-	/* Submit delayed work */
-	k_delayed_work_submit(&dev_data->monitor_work,
-			      K_MSEC(CONFIG_ETH_SAM_GMAC_MONITOR_PERIOD));
 }
 
 static void eth0_iface_init(struct net_if *iface)
 {
-	struct device *const dev = net_if_get_device(iface);
-	struct eth_sam_dev_data *const dev_data = DEV_DATA(dev);
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct device *dev = net_if_get_device(iface);
+	struct eth_sam_dev_data *const dev_data = dev->data;
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
 	static bool init_done;
 	uint32_t gmac_ncfgr_val;
 	int result;
@@ -1956,26 +1959,21 @@ static void eth0_iface_init(struct net_if *iface)
 
 #endif
 #endif
+	if (device_is_ready(cfg->phy_dev)) {
+		phy_link_callback_set(cfg->phy_dev, &phy_link_state_changed,
+				      (void *)dev);
 
-	/* PHY initialize */
-	result = phy_sam_gmac_init(&cfg->phy);
-	if (result < 0) {
-		LOG_ERR("ETH PHY Initialization Error");
-		return;
+	} else {
+		LOG_ERR("PHY device not ready");
 	}
 
-	/* Initialise monitor */
-	k_delayed_work_init(&dev_data->monitor_work, monitor_work_handler);
-	k_delayed_work_submit(&dev_data->monitor_work,
-			      K_MSEC(CONFIG_ETH_SAM_GMAC_MONITOR_PERIOD));
-
 	/* Do not start the interface until PHY link is up */
-	net_if_flag_set(iface, NET_IF_NO_AUTO_START);
+	net_if_carrier_off(iface);
 
 	init_done = true;
 }
 
-static enum ethernet_hw_caps eth_sam_gmac_get_capabilities(struct device *dev)
+static enum ethernet_hw_caps eth_sam_gmac_get_capabilities(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
@@ -1991,11 +1989,11 @@ static enum ethernet_hw_caps eth_sam_gmac_get_capabilities(struct device *dev)
 }
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
-static int eth_sam_gmac_set_qav_param(struct device *dev,
+static int eth_sam_gmac_set_qav_param(const struct device *dev,
 				      enum ethernet_config_type type,
 				      const struct ethernet_config *config)
 {
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
 	Gmac *gmac = cfg->regs;
 	enum ethernet_qav_param_type qav_param_type;
 	unsigned int delta_bandwidth;
@@ -2033,28 +2031,55 @@ static int eth_sam_gmac_set_qav_param(struct device *dev,
 }
 #endif
 
-static int eth_sam_gmac_set_config(struct device *dev,
+static int eth_sam_gmac_set_config(const struct device *dev,
 				   enum ethernet_config_type type,
 				   const struct ethernet_config *config)
 {
+	int result = 0;
+
 	switch (type) {
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
 	case ETHERNET_CONFIG_TYPE_QAV_PARAM:
 		return eth_sam_gmac_set_qav_param(dev, type, config);
 #endif
+	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
+	{
+		struct eth_sam_dev_data *const dev_data = dev->data;
+		const struct eth_sam_dev_cfg *const cfg = dev->config;
+
+		memcpy(dev_data->mac_addr,
+		       config->mac_address.addr,
+		       sizeof(dev_data->mac_addr));
+
+		/* Set MAC Address for frame filtering logic */
+		mac_addr_set(cfg->regs, 0, dev_data->mac_addr);
+
+		LOG_INF("%s MAC set to %02x:%02x:%02x:%02x:%02x:%02x",
+			dev->name,
+			dev_data->mac_addr[0], dev_data->mac_addr[1],
+			dev_data->mac_addr[2], dev_data->mac_addr[3],
+			dev_data->mac_addr[4], dev_data->mac_addr[5]);
+
+		/* Register Ethernet MAC Address with the upper layer */
+		net_if_set_link_addr(dev_data->iface, dev_data->mac_addr,
+				     sizeof(dev_data->mac_addr),
+				     NET_LINK_ETHERNET);
+		break;
+	}
 	default:
+		result = -ENOTSUP;
 		break;
 	}
 
-	return -ENOTSUP;
+	return result;
 }
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
-static int eth_sam_gmac_get_qav_param(struct device *dev,
+static int eth_sam_gmac_get_qav_param(const struct device *dev,
 				      enum ethernet_config_type type,
 				      struct ethernet_config *config)
 {
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct eth_sam_dev_cfg *const cfg = dev->config;
 	Gmac *gmac = cfg->regs;
 	enum ethernet_qav_param_type qav_param_type;
 	int queue_id;
@@ -2099,7 +2124,7 @@ static int eth_sam_gmac_get_qav_param(struct device *dev,
 }
 #endif
 
-static int eth_sam_gmac_get_config(struct device *dev,
+static int eth_sam_gmac_get_config(const struct device *dev,
 				   enum ethernet_config_type type,
 				   struct ethernet_config *config)
 {
@@ -2119,9 +2144,9 @@ static int eth_sam_gmac_get_config(struct device *dev,
 }
 
 #if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
-static struct device *eth_sam_gmac_get_ptp_clock(struct device *dev)
+static const struct device *eth_sam_gmac_get_ptp_clock(const struct device *dev)
 {
-	struct eth_sam_dev_data *const dev_data = DEV_DATA(dev);
+	struct eth_sam_dev_data *const dev_data = dev->data;
 
 	return dev_data->ptp_clock;
 }
@@ -2140,64 +2165,63 @@ static const struct ethernet_api eth_api = {
 #endif
 };
 
-DEVICE_DECLARE(eth0_sam_gmac);
-
 static void eth0_irq_config(void)
 {
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, gmac, irq),
 		    DT_INST_IRQ_BY_NAME(0, gmac, priority),
-		    queue0_isr, DEVICE_GET(eth0_sam_gmac), 0);
+		    queue0_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQ_BY_NAME(0, gmac, irq));
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 1
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, q1, irq),
 		    DT_INST_IRQ_BY_NAME(0, q1, priority),
-		    queue1_isr, DEVICE_GET(eth0_sam_gmac), 0);
+		    queue1_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQ_BY_NAME(0, q1, irq));
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 2
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, q2, irq),
 		    DT_INST_IRQ_BY_NAME(0, q1, priority),
-		    queue2_isr, DEVICE_GET(eth0_sam_gmac), 0);
+		    queue2_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQ_BY_NAME(0, q2, irq));
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 3
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, q3, irq),
 		    DT_INST_IRQ_BY_NAME(0, q3, priority),
-		    queue3_isr, DEVICE_GET(eth0_sam_gmac), 0);
+		    queue3_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQ_BY_NAME(0, q3, irq));
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 4
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, q4, irq),
 		    DT_INST_IRQ_BY_NAME(0, q4, priority),
-		    queue4_isr, DEVICE_GET(eth0_sam_gmac), 0);
+		    queue4_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQ_BY_NAME(0, q4, irq));
 #endif
 
 #if GMAC_ACTIVE_PRIORITY_QUEUE_NUM >= 5
 	IRQ_CONNECT(DT_INST_IRQ_BY_NAME(0, q5, irq),
 		    DT_INST_IRQ_BY_NAME(0, q5, priority),
-		    queue5_isr, DEVICE_GET(eth0_sam_gmac), 0);
+		    queue5_isr, DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQ_BY_NAME(0, q5, irq));
 #endif
 }
 
-#ifdef CONFIG_SOC_FAMILY_SAM
-static const struct soc_gpio_pin pins_eth0[] = ATMEL_SAM_DT_PINS(0);
-#endif
+PINCTRL_DT_INST_DEFINE(0);
 
 static const struct eth_sam_dev_cfg eth0_config = {
-	.regs = GMAC,
-	.periph_id = ID_GMAC,
+	.regs = (Gmac *)DT_INST_REG_ADDR(0),
+	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
 #ifdef CONFIG_SOC_FAMILY_SAM
-	.pin_list = pins_eth0,
-	.pin_list_size = ARRAY_SIZE(pins_eth0),
+	.clock_cfg = SAM_DT_INST_CLOCK_PMC_CFG(0),
 #endif
 	.config_func = eth0_irq_config,
-	.phy = {GMAC, CONFIG_ETH_SAM_GMAC_PHY_ADDR},
+#if DT_NODE_EXISTS(DT_INST_CHILD(0, phy))
+	.phy_dev = DEVICE_DT_GET(DT_INST_CHILD(0, phy))
+#else
+#error "No PHY driver specified"
+#endif
 };
 
 static struct eth_sam_dev_data eth0_data = {
@@ -2367,23 +2391,23 @@ static struct eth_sam_dev_data eth0_data = {
 	},
 };
 
-ETH_NET_DEVICE_INIT(eth0_sam_gmac, DT_INST_LABEL(0),
-		    eth_initialize, device_pm_control_nop, &eth0_data,
+ETH_NET_DEVICE_DT_INST_DEFINE(0,
+		    eth_initialize, NULL, &eth0_data,
 		    &eth0_config, CONFIG_ETH_INIT_PRIORITY, &eth_api,
 		    GMAC_MTU);
 
 #if defined(CONFIG_PTP_CLOCK_SAM_GMAC)
 struct ptp_context {
-	struct device *eth_dev;
+	const struct device *eth_dev;
 };
 
 static struct ptp_context ptp_gmac_0_context;
 
-static int ptp_clock_sam_gmac_set(struct device *dev,
+static int ptp_clock_sam_gmac_set(const struct device *dev,
 				  struct net_ptp_time *tm)
 {
-	struct ptp_context *ptp_context = dev->driver_data;
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(ptp_context->eth_dev);
+	struct ptp_context *ptp_context = dev->data;
+	const struct eth_sam_dev_cfg *const cfg = ptp_context->eth_dev->config;
 	Gmac *gmac = cfg->regs;
 
 	gmac->GMAC_TSH = tm->_sec.high & 0xffff;
@@ -2393,11 +2417,11 @@ static int ptp_clock_sam_gmac_set(struct device *dev,
 	return 0;
 }
 
-static int ptp_clock_sam_gmac_get(struct device *dev,
+static int ptp_clock_sam_gmac_get(const struct device *dev,
 				  struct net_ptp_time *tm)
 {
-	struct ptp_context *ptp_context = dev->driver_data;
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(ptp_context->eth_dev);
+	struct ptp_context *ptp_context = dev->data;
+	const struct eth_sam_dev_cfg *const cfg = ptp_context->eth_dev->config;
 	Gmac *gmac = cfg->regs;
 
 	tm->second = ((uint64_t)(gmac->GMAC_TSH & 0xffff) << 32) | gmac->GMAC_TSL;
@@ -2406,10 +2430,10 @@ static int ptp_clock_sam_gmac_get(struct device *dev,
 	return 0;
 }
 
-static int ptp_clock_sam_gmac_adjust(struct device *dev, int increment)
+static int ptp_clock_sam_gmac_adjust(const struct device *dev, int increment)
 {
-	struct ptp_context *ptp_context = dev->driver_data;
-	const struct eth_sam_dev_cfg *const cfg = DEV_CFG(ptp_context->eth_dev);
+	struct ptp_context *ptp_context = dev->data;
+	const struct eth_sam_dev_cfg *const cfg = ptp_context->eth_dev->config;
 	Gmac *gmac = cfg->regs;
 
 	if ((increment <= -NSEC_PER_SEC) || (increment >= NSEC_PER_SEC)) {
@@ -2425,7 +2449,8 @@ static int ptp_clock_sam_gmac_adjust(struct device *dev, int increment)
 	return 0;
 }
 
-static int ptp_clock_sam_gmac_rate_adjust(struct device *dev, float ratio)
+static int ptp_clock_sam_gmac_rate_adjust(const struct device *dev,
+					  double ratio)
 {
 	return -ENOTSUP;
 }
@@ -2437,11 +2462,11 @@ static const struct ptp_clock_driver_api ptp_api = {
 	.rate_adjust = ptp_clock_sam_gmac_rate_adjust,
 };
 
-static int ptp_gmac_init(struct device *port)
+static int ptp_gmac_init(const struct device *port)
 {
-	struct device *eth_dev = DEVICE_GET(eth0_sam_gmac);
-	struct eth_sam_dev_data *dev_data = eth_dev->driver_data;
-	struct ptp_context *ptp_context = port->driver_data;
+	const struct device *const eth_dev = DEVICE_DT_INST_GET(0);
+	struct eth_sam_dev_data *dev_data = eth_dev->data;
+	struct ptp_context *ptp_context = port->data;
 
 	dev_data->ptp_clock = port;
 	ptp_context->eth_dev = eth_dev;
@@ -2449,8 +2474,8 @@ static int ptp_gmac_init(struct device *port)
 	return 0;
 }
 
-DEVICE_AND_API_INIT(gmac_ptp_clock_0, PTP_CLOCK_NAME, ptp_gmac_init,
-		    &ptp_gmac_0_context, NULL, POST_KERNEL,
-		    CONFIG_APPLICATION_INIT_PRIORITY, &ptp_api);
+DEVICE_DEFINE(gmac_ptp_clock_0, PTP_CLOCK_NAME, ptp_gmac_init,
+		NULL, &ptp_gmac_0_context, NULL, POST_KERNEL,
+		CONFIG_APPLICATION_INIT_PRIORITY, &ptp_api);
 
 #endif /* CONFIG_PTP_CLOCK_SAM_GMAC */

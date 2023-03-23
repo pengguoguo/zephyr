@@ -9,13 +9,26 @@ find_program(CMAKE_AR      ${CROSS_COMPILE}ar      PATHS ${TOOLCHAIN_HOME} NO_DE
 find_program(CMAKE_RANLIB  ${CROSS_COMPILE}ranlib  PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 find_program(CMAKE_READELF ${CROSS_COMPILE}readelf PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 find_program(CMAKE_NM      ${CROSS_COMPILE}nm      PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+find_program(CMAKE_STRIP   ${CROSS_COMPILE}strip   PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 
-find_program(CMAKE_GDB     ${CROSS_COMPILE}gdb     PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
-find_program(CMAKE_GDB     gdb-multiarch           PATHS ${TOOLCHAIN_HOME}                )
+find_program(CMAKE_GDB     ${CROSS_COMPILE}gdb-py  PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
 
-# Include bin tool abstraction macros
-include(${ZEPHYR_BASE}/cmake/bintools/gnu/target_memusage.cmake)
-include(${ZEPHYR_BASE}/cmake/bintools/gnu/target_objcopy.cmake)
-include(${ZEPHYR_BASE}/cmake/bintools/gnu/target_objdump.cmake)
-include(${ZEPHYR_BASE}/cmake/bintools/gnu/target_readelf.cmake)
-include(${ZEPHYR_BASE}/cmake/bintools/gnu/target_strip.cmake)
+if(CMAKE_GDB)
+  execute_process(
+    COMMAND ${CMAKE_GDB} --configuration
+    RESULTS_VARIABLE GDB_CFG_ERR
+    OUTPUT_QUIET
+    ERROR_QUIET
+    )
+endif()
+
+if(NOT CMAKE_GDB OR GDB_CFG_ERR)
+  find_program(CMAKE_GDB_NO_PY ${CROSS_COMPILE}gdb PATHS ${TOOLCHAIN_HOME} NO_DEFAULT_PATH)
+
+  if(CMAKE_GDB_NO_PY)
+    set(CMAKE_GDB ${CMAKE_GDB_NO_PY} CACHE FILEPATH "Path to a program." FORCE)
+  endif()
+endif()
+
+# Include bin tool properties
+include(${ZEPHYR_BASE}/cmake/bintools/gnu/target_bintools.cmake)

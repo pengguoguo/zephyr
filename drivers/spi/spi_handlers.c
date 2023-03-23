@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <drivers/spi.h>
-#include <syscall_handler.h>
+#include <zephyr/drivers/spi.h>
+#include <zephyr/syscall_handler.h>
 #include <string.h>
 
 /* This assumes that bufs and buf_copy are copies from the values passed
@@ -52,10 +52,10 @@ static struct spi_buf_set *copy_and_check(struct spi_buf_set *bufs,
  * count member has been verified and is a value that won't lead to stack
  * overflow.
  */
-static uint32_t copy_bufs_and_transceive(struct device *dev,
-				      const struct spi_config *config,
-				      struct spi_buf_set *tx_bufs,
-				      struct spi_buf_set *rx_bufs)
+static uint32_t copy_bufs_and_transceive(const struct device *dev,
+					 const struct spi_config *config,
+					 struct spi_buf_set *tx_bufs,
+					 struct spi_buf_set *rx_bufs)
 {
 	struct spi_buf tx_buf_copy[tx_bufs->count ? tx_bufs->count : 1];
 	struct spi_buf rx_buf_copy[rx_bufs->count ? rx_bufs->count : 1];
@@ -63,14 +63,14 @@ static uint32_t copy_bufs_and_transceive(struct device *dev,
 	tx_bufs = copy_and_check(tx_bufs, tx_buf_copy, 0);
 	rx_bufs = copy_and_check(rx_bufs, rx_buf_copy, 1);
 
-	return z_impl_spi_transceive((struct device *)dev, config,
-				    tx_bufs, rx_bufs);
+	return z_impl_spi_transceive((const struct device *)dev, config,
+				     tx_bufs, rx_bufs);
 }
 
-static inline int z_vrfy_spi_transceive(struct device *dev,
-				       const struct spi_config *config,
-				       const struct spi_buf_set *tx_bufs,
-				       const struct spi_buf_set *rx_bufs)
+static inline int z_vrfy_spi_transceive(const struct device *dev,
+					const struct spi_config *config,
+					const struct spi_buf_set *tx_bufs,
+					const struct spi_buf_set *rx_bufs)
 {
 	struct spi_buf_set tx_bufs_copy;
 	struct spi_buf_set rx_bufs_copy;
@@ -108,23 +108,23 @@ static inline int z_vrfy_spi_transceive(struct device *dev,
 		const struct spi_cs_control *cs = config_copy.cs;
 
 		Z_OOPS(Z_SYSCALL_MEMORY_READ(cs, sizeof(*cs)));
-		if (cs->gpio_dev) {
-			Z_OOPS(Z_SYSCALL_OBJ(cs->gpio_dev, K_OBJ_DRIVER_GPIO));
+		if (cs->gpio.port) {
+			Z_OOPS(Z_SYSCALL_OBJ(cs->gpio.port, K_OBJ_DRIVER_GPIO));
 		}
 	}
 
-	return copy_bufs_and_transceive((struct device *)dev,
+	return copy_bufs_and_transceive((const struct device *)dev,
 					&config_copy,
 					&tx_bufs_copy,
 					&rx_bufs_copy);
 }
 #include <syscalls/spi_transceive_mrsh.c>
 
-static inline int z_vrfy_spi_release(struct device *dev,
-				    const struct spi_config *config)
+static inline int z_vrfy_spi_release(const struct device *dev,
+				     const struct spi_config *config)
 {
 	Z_OOPS(Z_SYSCALL_MEMORY_READ(config, sizeof(*config)));
 	Z_OOPS(Z_SYSCALL_DRIVER_SPI(dev, release));
-	return z_impl_spi_release((struct device *)dev, config);
+	return z_impl_spi_release((const struct device *)dev, config);
 }
 #include <syscalls/spi_release_mrsh.c>

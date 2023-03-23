@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, CONFIG_DNS_RESOLVER_LOG_LEVEL);
 
 #include <zephyr/types.h>
@@ -12,18 +12,19 @@ LOG_MODULE_REGISTER(net_test, CONFIG_DNS_RESOLVER_LOG_LEVEL);
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/printk.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/random/rand32.h>
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
-#include <net/ethernet.h>
-#include <net/dummy.h>
-#include <net/buf.h>
-#include <net/net_ip.h>
-#include <net/net_if.h>
-#include <net/dns_resolve.h>
-#include <net/net_event.h>
-#include <net/net_mgmt.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/dummy.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/dns_resolve.h>
+#include <zephyr/net/net_event.h>
+#include <zephyr/net/net_mgmt.h>
 
 #define NET_LOG_ENABLED 1
 #include "net_private.h"
@@ -40,6 +41,7 @@ LOG_MODULE_REGISTER(net_test, CONFIG_DNS_RESOLVER_LOG_LEVEL);
 #define NAME_IPV6 "2001:db8::1"
 
 #define DNS_NAME_IPV4 "192.0.2.4"
+#define DNS2_NAME_IPV4 "192.0.2.5"
 #define DNS_NAME_IPV6 "2001:db8::4"
 
 #define DNS_TIMEOUT 500 /* ms */
@@ -78,14 +80,14 @@ struct net_if_test {
 	uint8_t mac_addr[sizeof(struct net_eth_addr)];
 };
 
-static int net_iface_dev_init(struct device *dev)
+static int net_iface_dev_init(const struct device *dev)
 {
 	return 0;
 }
 
-static uint8_t *net_iface_get_mac(struct device *dev)
+static uint8_t *net_iface_get_mac(const struct device *dev)
 {
-	struct net_if_test *data = dev->driver_data;
+	struct net_if_test *data = dev->data;
 
 	if (data->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -108,7 +110,7 @@ static void net_iface_init(struct net_if *iface)
 			     NET_LINK_ETHERNET);
 }
 
-static int sender_iface(struct device *dev, struct net_pkt *pkt)
+static int sender_iface(const struct device *dev, struct net_pkt *pkt)
 {
 	if (!pkt->frags) {
 		DBG("No data to send!\n");
@@ -132,7 +134,7 @@ NET_DEVICE_INIT_INSTANCE(net_iface1_test,
 			 "iface1",
 			 iface1,
 			 net_iface_dev_init,
-			 device_pm_control_nop,
+			 NULL,
 			 &net_iface1_data,
 			 NULL,
 			 CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
@@ -151,16 +153,25 @@ static void dns_evt_handler(struct net_mgmt_event_callback *cb,
 	}
 }
 
-static void test_init(void)
+static void *test_init(void)
 {
 	struct net_if_addr *ifaddr;
+
+#if defined(CONFIG_NET_IPV4)
+	dns_resolve_init(&resv_ipv4, NULL, NULL);
+	dns_resolve_init(&resv_ipv4_2, NULL, NULL);
+#endif
+#if defined(CONFIG_NET_IPV6)
+	dns_resolve_init(&resv_ipv6, NULL, NULL);
+	dns_resolve_init(&resv_ipv6_2, NULL, NULL);
+#endif
 
 	iface1 = net_if_get_by_index(0);
 	zassert_is_null(iface1, "iface1");
 
 	iface1 = net_if_get_by_index(1);
 
-	((struct net_if_test *)net_if_get_device(iface1)->driver_data)->idx =
+	((struct net_if_test *) net_if_get_device(iface1)->data)->idx =
 		net_if_get_by_iface(iface1);
 
 #if defined(CONFIG_NET_IPV6)
@@ -171,7 +182,7 @@ static void test_init(void)
 		       net_sprint_ipv6_addr(&my_addr1));
 		zassert_not_null(ifaddr, "addr1");
 
-		return;
+		return NULL;
 	}
 
 	/* For testing purposes we need to set the adddresses preferred */
@@ -186,7 +197,7 @@ static void test_init(void)
 		       net_sprint_ipv4_addr(&my_addr2));
 		zassert_not_null(ifaddr, "addr2");
 
-		return;
+		return NULL;
 	}
 
 	ifaddr->addr_state = NET_ADDR_PREFERRED;
@@ -201,6 +212,8 @@ static void test_init(void)
 				     NET_EVENT_DNS_SERVER_ADD |
 				     NET_EVENT_DNS_SERVER_DEL);
 	net_mgmt_add_event_callback(&mgmt_cb);
+
+	return NULL;
 }
 
 static void test_dns_do_not_add_add_callback6(void)
@@ -282,7 +295,7 @@ static void test_dns_remove_none_callback6(void)
 #endif
 }
 
-static void test_dns_add_remove_two_callback6(void)
+ZTEST(dns_addremove, test_dns_add_remove_two_callback6)
 {
 #if defined(CONFIG_NET_IPV6)
 	struct dns_resolve_context *dnsCtx = &resv_ipv6;
@@ -321,9 +334,11 @@ static void test_dns_add_remove_two_callback6(void)
 			     "Timeout while waiting for DNS added callback");
 	}
 
-	/* Check both DNS servers are used */
-	zassert_true(resv_ipv6.is_used, "DNS server #1 is missing");
-	zassert_true(resv_ipv6_2.is_used, "DNS server #2 is missing");
+	/* Check both DNS servers are active */
+	zassert_equal(resv_ipv6.state, DNS_RESOLVE_CONTEXT_ACTIVE,
+		      "DNS server #1 is missing");
+	zassert_equal(resv_ipv6_2.state, DNS_RESOLVE_CONTEXT_ACTIVE,
+		      "DNS server #2 is missing");
 
 	/* Remove first DNS server */
 	dnsCtx = &resv_ipv6;
@@ -337,9 +352,11 @@ static void test_dns_add_remove_two_callback6(void)
 			"Received DNS removed callback when should not have");
 	}
 
-	/* Check second DNS servers is used */
-	zassert_false(resv_ipv6.is_used, "DNS server #1 is active");
-	zassert_true(resv_ipv6_2.is_used, "DNS server #2 is missing");
+	/* Check second DNS server is active */
+	zassert_equal(resv_ipv6.state, DNS_RESOLVE_CONTEXT_INACTIVE,
+		      "DNS server #1 is active");
+	zassert_equal(resv_ipv6_2.state, DNS_RESOLVE_CONTEXT_ACTIVE,
+		      "DNS server #2 is missing");
 
 	/* Check first DNS server cannot be removed once removed */
 	ret = dns_resolve_close(dnsCtx);
@@ -361,8 +378,10 @@ static void test_dns_add_remove_two_callback6(void)
 	}
 
 	/* Check neither DNS server is used */
-	zassert_false(resv_ipv6.is_used, "DNS server #1 isa ctive");
-	zassert_false(resv_ipv6_2.is_used, "DNS server #2 is active");
+	zassert_equal(resv_ipv6.state, DNS_RESOLVE_CONTEXT_INACTIVE,
+		      "DNS server #1 is active");
+	zassert_equal(resv_ipv6_2.state, DNS_RESOLVE_CONTEXT_INACTIVE,
+		      "DNS server #2 is active");
 
 	/* Check first DNS server cannot be removed once removed */
 	ret = dns_resolve_close(dnsCtx);
@@ -430,6 +449,56 @@ static void test_dns_remove_callback(void)
 #endif
 }
 
+ZTEST(dns_addremove, test_dns_reconfigure_callback)
+{
+#if defined(CONFIG_NET_IPV4)
+	struct dns_resolve_context *dnsCtx = &resv_ipv4;
+	const char *dns_servers_str[] = { DNS_NAME_IPV4, NULL };
+	const char *dns2_servers_str[] = { DNS2_NAME_IPV4, NULL };
+	int ret;
+
+	ret = dns_resolve_init(dnsCtx, dns_servers_str, NULL);
+	if (ret < 0) {
+		LOG_ERR("dns_resolve_init fail (%d)", ret);
+		return;
+	}
+
+	k_yield(); /* mandatory so that net_if send func gets to run */
+
+	/* Wait for DNS added callback after adding DNS */
+	if (k_sem_take(&dns_added, WAIT_TIME)) {
+		zassert_true(false,
+			     "Timeout while waiting for DNS added callback");
+	}
+
+	ret = dns_resolve_reconfigure(&resv_ipv4, dns2_servers_str, NULL);
+	zassert_equal(ret, 0, "Cannot reconfigure DNS server");
+
+	/* Wait for DNS removed callback after reconfiguring DNS */
+	if (k_sem_take(&dns_removed, WAIT_TIME)) {
+		zassert_true(false,
+			     "Timeout while waiting for DNS removed callback");
+	}
+
+	/* Wait for DNS added callback after reconfiguring DNS */
+	if (k_sem_take(&dns_added, WAIT_TIME)) {
+		zassert_true(false,
+			     "Timeout while waiting for DNS added callback");
+	}
+
+	ret = dns_resolve_close(&resv_ipv4);
+	zassert_equal(ret, 0, "Cannot remove DNS server");
+
+	k_yield(); /* mandatory so that net_if send func gets to run */
+
+	/* Wait for DNS removed callback after removing DNS */
+	if (k_sem_take(&dns_removed, WAIT_TIME)) {
+		zassert_true(false,
+			     "Timeout while waiting for DNS removed callback");
+	}
+#endif
+}
+
 static void test_dns_remove_none_callback(void)
 {
 #if defined(CONFIG_NET_IPV4)
@@ -449,7 +518,7 @@ static void test_dns_remove_none_callback(void)
 #endif
 }
 
-static void test_dns_add_remove_two_callback(void)
+ZTEST(dns_addremove, test_dns_add_remove_two_callback)
 {
 #if defined(CONFIG_NET_IPV4)
 	struct dns_resolve_context *dnsCtx = &resv_ipv4;
@@ -489,8 +558,10 @@ static void test_dns_add_remove_two_callback(void)
 	}
 
 	/* Check both DNS servers are used */
-	zassert_true(resv_ipv4.is_used, "DNS server #1 is missing");
-	zassert_true(resv_ipv4_2.is_used, "DNS server #2 is missing");
+	zassert_equal(resv_ipv4.state, DNS_RESOLVE_CONTEXT_ACTIVE,
+		      "DNS server #1 is missing");
+	zassert_equal(resv_ipv4_2.state, DNS_RESOLVE_CONTEXT_ACTIVE,
+		      "DNS server #2 is missing");
 
 	/* Remove first DNS server */
 	dnsCtx = &resv_ipv4;
@@ -505,8 +576,10 @@ static void test_dns_add_remove_two_callback(void)
 	}
 
 	/* Check second DNS servers is used */
-	zassert_false(resv_ipv4.is_used, "DNS server #1 is active");
-	zassert_true(resv_ipv4_2.is_used, "DNS server #2 is missing");
+	zassert_equal(resv_ipv4.state, DNS_RESOLVE_CONTEXT_INACTIVE,
+		      "DNS server #1 is active");
+	zassert_equal(resv_ipv4_2.state, DNS_RESOLVE_CONTEXT_ACTIVE,
+		      "DNS server #2 is missing");
 
 	/* Check first DNS server cannot be removed once removed */
 	ret = dns_resolve_close(dnsCtx);
@@ -528,8 +601,10 @@ static void test_dns_add_remove_two_callback(void)
 	}
 
 	/* Check neither DNS server is used */
-	zassert_false(resv_ipv4.is_used, "DNS server #1 isa ctive");
-	zassert_false(resv_ipv4_2.is_used, "DNS server #2 is active");
+	zassert_equal(resv_ipv4.state, DNS_RESOLVE_CONTEXT_INACTIVE,
+		      "DNS server #1 is active");
+	zassert_equal(resv_ipv4_2.state, DNS_RESOLVE_CONTEXT_INACTIVE,
+		      "DNS server #2 is active");
 
 	/* Check first DNS server cannot be removed once removed */
 	ret = dns_resolve_close(dnsCtx);
@@ -539,22 +614,20 @@ static void test_dns_add_remove_two_callback(void)
 #endif
 }
 
-void test_main(void)
+ZTEST(dns_addremove, test_dns_addremove_v6)
 {
-	ztest_test_suite(dns_tests,
-			 ztest_unit_test(test_init),
-			 ztest_unit_test(test_dns_do_not_add_add_callback6),
-			 ztest_unit_test(test_dns_add_callback6),
-			 ztest_unit_test(test_dns_remove_callback6),
-			 ztest_unit_test(test_dns_remove_none_callback6),
-			 ztest_unit_test(test_dns_add_remove_two_callback6),
-			 ztest_unit_test(test_dns_do_not_add_add_callback),
-			 ztest_unit_test(test_dns_add_callback),
-			 ztest_unit_test(test_dns_remove_callback),
-			 ztest_unit_test(test_dns_remove_none_callback),
-			 ztest_unit_test(test_dns_add_remove_two_callback)
-
-);
-
-	ztest_run_test_suite(dns_tests);
+	test_dns_do_not_add_add_callback6();
+	test_dns_add_callback6();
+	test_dns_remove_callback6();
+	test_dns_remove_none_callback6();
 }
+
+ZTEST(dns_addremove, test_dns_addremove_v4)
+{
+	test_dns_do_not_add_add_callback();
+	test_dns_add_callback();
+	test_dns_remove_callback();
+	test_dns_remove_none_callback();
+}
+
+ZTEST_SUITE(dns_addremove, NULL, test_init, NULL, NULL, NULL);

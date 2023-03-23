@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT arm_cortex_m3
+#define DT_DRV_COMPAT arm_beetle_syscon
 
 /**
  * @file
@@ -15,9 +15,10 @@
  */
 
 #include <soc.h>
-#include <drivers/clock_control.h>
-#include <sys/util.h>
-#include <drivers/clock_control/arm_clock_control.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/irq.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/drivers/clock_control/arm_clock_control.h>
 
 #define MAINCLK_BASE_FREQ 24000000
 
@@ -80,7 +81,7 @@ static inline void beetle_apb_set_clock_off(uint8_t bit,
 			 bit, state);
 }
 
-static inline int beetle_clock_control_on(struct device *dev,
+static inline int beetle_clock_control_on(const struct device *dev,
 					  clock_control_subsys_t sub_system)
 {
 	struct arm_clock_control_t *beetle_cc =
@@ -104,7 +105,7 @@ static inline int beetle_clock_control_on(struct device *dev,
 	return 0;
 }
 
-static inline int beetle_clock_control_off(struct device *dev,
+static inline int beetle_clock_control_off(const struct device *dev,
 					   clock_control_subsys_t sub_system)
 {
 	struct arm_clock_control_t *beetle_cc =
@@ -127,13 +128,13 @@ static inline int beetle_clock_control_off(struct device *dev,
 	return 0;
 }
 
-static int beetle_clock_control_get_subsys_rate(struct device *clock,
-					      clock_control_subsys_t sub_system,
-					      uint32_t *rate)
+static int beetle_clock_control_get_subsys_rate(const struct device *clock,
+						clock_control_subsys_t sub_system,
+						uint32_t *rate)
 {
 #ifdef CONFIG_CLOCK_CONTROL_BEETLE_ENABLE_PLL
 	const struct beetle_clock_control_cfg_t * const cfg =
-						clock->config_info;
+						clock->config;
 	uint32_t nc_mainclk = beetle_round_freq(cfg->freq);
 
 	*rate = nc_mainclk;
@@ -215,11 +216,11 @@ static int beetle_pll_enable(uint32_t mainclk)
 }
 #endif /* CONFIG_CLOCK_CONTROL_BEETLE_ENABLE_PLL */
 
-static int beetle_clock_control_init(struct device *dev)
+static int beetle_clock_control_init(const struct device *dev)
 {
 #ifdef CONFIG_CLOCK_CONTROL_BEETLE_ENABLE_PLL
 	const struct beetle_clock_control_cfg_t * const cfg =
-						dev->config_info;
+						dev->config;
 
 	/*
 	 * Enable PLL if Beetle is configured to run at a different
@@ -235,16 +236,14 @@ static int beetle_clock_control_init(struct device *dev)
 
 static const struct beetle_clock_control_cfg_t beetle_cc_cfg = {
 	.clock_control_id = 0,
-	.freq = DT_INST_PROP(0, clock_frequency),
+	.freq = DT_PROP(DT_PATH(cpus, cpu_0), clock_frequency),
 };
 
 /**
  * @brief Clock Control device init
  *
  */
-DEVICE_AND_API_INIT(clock_control_beetle, CONFIG_ARM_CLOCK_CONTROL_DEV_NAME,
-		    &beetle_clock_control_init,
-		    NULL, &beetle_cc_cfg,
-		    PRE_KERNEL_1,
-		    CONFIG_CLOCK_CONTROL_BEETLE_DEVICE_INIT_PRIORITY,
-		    &beetle_clock_control_api);
+DEVICE_DT_INST_DEFINE(0, &beetle_clock_control_init, NULL,
+		      NULL, &beetle_cc_cfg, PRE_KERNEL_1,
+		      CONFIG_CLOCK_CONTROL_INIT_PRIORITY,
+		      &beetle_clock_control_api);

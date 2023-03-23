@@ -12,12 +12,13 @@ supported:
   - adc
   - arduino_gpio
   - arduino_i2c
+  - arduino_serial
   - arduino_spi
   - ble
   - counter
   - gpio
   - i2c
-  - ieee802154
+  - i2s
   - pwm
   - spi
   - usb_cdc

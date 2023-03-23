@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <sys/libc-hooks.h>
-#include <logging/log.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/sys/libc-hooks.h>
+#include <zephyr/logging/log.h>
 
 #include "sample_driver.h"
-#include "main.h"
+#include "app_shared.h"
 #include "app_a.h"
 #include "app_syscall.h"
 
@@ -21,7 +21,7 @@ LOG_MODULE_REGISTER(app_a);
 /* Resource pool for allocations made by the kernel on behalf of system
  * calls. Needed for k_queue_alloc_append()
  */
-K_MEM_POOL_DEFINE(app_a_resource_pool, 32, 256, 5, 4);
+K_HEAP_DEFINE(app_a_resource_pool, 256 * 5 + 128);
 
 /* Define app_a_partition, where all globals for this app will be routed.
  * The partition starting address and size are populated by build system
@@ -49,14 +49,14 @@ K_THREAD_STACK_DEFINE(writeback_stack, 2048);
  * we ensure all this gets linked into the continuous region denoted by
  * app_a_partition.
  */
-APP_A_BSS struct device *sample_device;
+APP_A_BSS const struct device *sample_device;
 APP_A_BSS unsigned int pending_count;
 
 /* ISR-level callback function. Runs in supervisor mode. Does what's needed
  * to get the data into this application's accessible memory and have the
  * worker thread running in user mode do the rest.
  */
-void sample_callback(struct device *dev, void *context, void *data)
+void sample_callback(const struct device *dev, void *context, void *data)
 {
 	int ret;
 
@@ -99,8 +99,8 @@ static void monitor_entry(void *p1, void *p2, void *p3)
 	}
 
 	while (monitor_count < NUM_LOOPS) {
-		payload = sys_mem_pool_alloc(&shared_pool,
-					     SAMPLE_DRIVER_MSG_SIZE);
+		payload = sys_heap_alloc(&shared_pool,
+					 SAMPLE_DRIVER_MSG_SIZE);
 		if (payload == NULL) {
 			LOG_ERR("couldn't alloc memory from shared pool");
 			k_oops();
@@ -168,7 +168,7 @@ static void writeback_entry(void *p1, void *p2, void *p3)
 
 		LOG_INF("writing processed data back to the sample device");
 		sample_driver_write(sample_device, data);
-		sys_mem_pool_free(data);
+		sys_heap_free(&shared_pool, data);
 		pending_count--;
 		writeback_count++;
 	}
@@ -189,6 +189,7 @@ static void writeback_entry(void *p1, void *p2, void *p3)
 /* Supervisor mode setup function for application A */
 void app_a_entry(void *p1, void *p2, void *p3)
 {
+	int ret;
 	struct k_mem_partition *parts[] = {
 #if Z_LIBC_PARTITION_EXISTS
 		&z_libc_partition,
@@ -207,13 +208,16 @@ void app_a_entry(void *p1, void *p2, void *p3)
 	 * partition, the shared partition, and any common libc partition
 	 * if it exists.
 	 */
-	k_mem_domain_init(&app_a_domain, ARRAY_SIZE(parts), parts);
+	ret = k_mem_domain_init(&app_a_domain, ARRAY_SIZE(parts), parts);
+	__ASSERT(ret == 0, "k_mem_domain_init failed %d", ret);
+	ARG_UNUSED(ret);
+
 	k_mem_domain_add_thread(&app_a_domain, k_current_get());
 
 	/* Assign a resource pool to serve for kernel-side allocations on
 	 * behalf of application A. Needed for k_queue_alloc_append().
 	 */
-	k_thread_resource_pool_assign(k_current_get(), &app_a_resource_pool);
+	k_thread_heap_assign(k_current_get(), &app_a_resource_pool);
 
 	/* Set the callback function for the sample driver. This has to be
 	 * done from supervisor mode, as this code will run in supervisor
@@ -227,7 +231,7 @@ void app_a_entry(void *p1, void *p2, void *p3)
 	 * This child thread automatically inherits the memory domain of
 	 * this thread that created it; it will be a member of app_a_domain.
 	 *
-	 * Initiailize this thread with K_FOREVER timeout so we can
+	 * Initialize this thread with K_FOREVER timeout so we can
 	 * modify its permissions and then start it.
 	 */
 	k_thread_create(&writeback_thread, writeback_stack,

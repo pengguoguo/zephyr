@@ -6,11 +6,11 @@
 
 /* Sample which uses the filesystem API and SDHC driver */
 
-#include <zephyr.h>
-#include <device.h>
-#include <disk/disk_access.h>
-#include <logging/log.h>
-#include <fs/fs.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/storage/disk_access.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/fs/fs.h>
 #include <ff.h>
 
 LOG_MODULE_REGISTER(main);
@@ -83,6 +83,8 @@ static int lsdir(const char *path)
 	int res;
 	struct fs_dir_t dirp;
 	static struct fs_dirent entry;
+
+	fs_dir_t_init(&dirp);
 
 	/* Verify fs_opendir() */
 	res = fs_opendir(&dirp, path);

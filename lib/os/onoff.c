@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <sys/onoff.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/onoff.h>
 #include <stdio.h>
 
 #define SERVICE_REFS_MAX UINT16_MAX
@@ -46,7 +46,7 @@ BUILD_ASSERT((ONOFF_FLAG_ERROR | ONOFF_FLAG_ONOFF | ONOFF_FLAG_TRANSITION)
  *   the top invocation.
  * * RECHECK indicates that a state transition has completed but
  *   process_events() must re-check the overall state to confirm no
- *   additional transitions are required.  This is used to simplfy the
+ *   additional transitions are required.  This is used to simplify the
  *   logic when, for example, a request is received during a
  *   transition to off, which means that when the transition completes
  *   a transition to on must be initiated if the request is still
@@ -217,11 +217,13 @@ static int process_recheck(struct onoff_manager *mgr)
 	    && !sys_slist_is_empty(&mgr->clients)) {
 		evt = EVT_START;
 	} else if ((state == ONOFF_STATE_ON)
-		   && (mgr->refs == 0)) {
+		   && (mgr->refs == 0U)) {
 		evt = EVT_STOP;
 	} else if ((state == ONOFF_STATE_ERROR)
 		   && !sys_slist_is_empty(&mgr->clients)) {
 		evt = EVT_RESET;
+	} else {
+		;
 	}
 
 	return evt;
@@ -394,7 +396,6 @@ static void process_event(struct onoff_manager *mgr,
 
 			key = k_spin_lock(&mgr->lock);
 			mgr->flags &= ~ONOFF_FLAG_PROCESSING;
-			state = mgr->flags & ONOFF_STATE_MASK;
 		}
 
 		/* Process deferred events.  Completion takes priority
@@ -406,6 +407,8 @@ static void process_event(struct onoff_manager *mgr,
 		} else if ((mgr->flags & ONOFF_FLAG_RECHECK) != 0) {
 			mgr->flags &= ~ONOFF_FLAG_RECHECK;
 			evt = EVT_RECHECK;
+		} else {
+			;
 		}
 
 		state = mgr->flags & ONOFF_STATE_MASK;
@@ -597,6 +600,56 @@ int onoff_monitor_unregister(struct onoff_manager *mgr,
 	}
 
 	k_spin_unlock(&mgr->lock, key);
+
+	return rv;
+}
+
+int onoff_sync_lock(struct onoff_sync_service *srv,
+		    k_spinlock_key_t *keyp)
+{
+	*keyp = k_spin_lock(&srv->lock);
+	return srv->count;
+}
+
+int onoff_sync_finalize(struct onoff_sync_service *srv,
+			k_spinlock_key_t key,
+			struct onoff_client *cli,
+			int res,
+			bool on)
+{
+	uint32_t state = ONOFF_STATE_ON;
+
+	/* Clear errors visible when locked.  If they are to be
+	 * preserved the caller must finalize with the previous
+	 * error code.
+	 */
+	if (srv->count < 0) {
+		srv->count = 0;
+	}
+	if (res < 0) {
+		srv->count = res;
+		state = ONOFF_STATE_ERROR;
+	} else if (on) {
+		srv->count += 1;
+	} else {
+		srv->count -= 1;
+		/* state would be either off or on, but since
+		 * callbacks are used only when turning on don't
+		 * bother changing it.
+		 */
+	}
+
+	int rv = srv->count;
+
+	k_spin_unlock(&srv->lock, key);
+
+	if (cli) {
+		/* Detect service mis-use: onoff does not callback on transition
+		 * to off, so no client should have been passed.
+		 */
+		__ASSERT_NO_MSG(on);
+		notify_one(NULL, cli, state, res);
+	}
 
 	return rv;
 }

@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <zephyr/types.h>
 #include <errno.h>
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 
 int char2hex(char c, uint8_t *x)
 {
@@ -28,7 +28,7 @@ int hex2char(uint8_t x, char *c)
 {
 	if (x <= 9) {
 		*c = x + '0';
-	} else  if (x >= 10 && x <= 15) {
+	} else  if (x <= 15) {
 		*c = x - 10 + 'a';
 	} else {
 		return -EINVAL;
@@ -39,7 +39,7 @@ int hex2char(uint8_t x, char *c)
 
 size_t bin2hex(const uint8_t *buf, size_t buflen, char *hex, size_t hexlen)
 {
-	if ((hexlen + 1) < buflen * 2) {
+	if (hexlen < (buflen * 2 + 1)) {
 		return 0;
 	}
 

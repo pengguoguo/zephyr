@@ -13,7 +13,6 @@ boards. It can also be used as a standalone board.
 
 
 .. figure:: img/96b_aerocore2.jpg
-     :width: 487px
      :align: center
      :alt: 96Boards Aerocore2
 
@@ -97,6 +96,7 @@ External Connectors
 -------------------
 
 Octal PWM Header (J1)
+
 +-------+-------------+-------------------------+-------+-------------+-------+-------------+
 | PIN # | Signal Name | STM32F427 Functions Pin | PIN # | Signal Name | Pin # | Signal Name |
 +=======+=============+=========================+=======+=============+=======+=============+
@@ -119,6 +119,7 @@ Octal PWM Header (J1)
 
 
 IO Header J11
+
 +-------+-------------+-------+-------------+
 | PIN # | Signal Name | PIN # | Signal Name |
 +=======+=============+=======+=============+

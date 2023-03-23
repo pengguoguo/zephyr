@@ -4,11 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <init.h>
+/* Disable syscall tracing for all calls from this compilation unit to avoid
+ * undefined symbols as the macros are not expanded recursively
+ */
+#define DISABLE_SYSCALL_TRACING
+
+#include <zephyr/init.h>
 #include <string.h>
-#include <kernel.h>
-#include <sys/util.h>
-#include <sys/atomic.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/atomic.h>
 #include <tracing_core.h>
 #include <tracing_buffer.h>
 #include <tracing_backend.h>
@@ -22,6 +27,8 @@
 #define TRACING_BACKEND_NAME "tracing_backend_usb"
 #elif defined CONFIG_TRACING_BACKEND_POSIX
 #define TRACING_BACKEND_NAME "tracing_backend_posix"
+#elif defined CONFIG_TRACING_BACKEND_RAM
+#define TRACING_BACKEND_NAME "tracing_backend_ram"
 #else
 #define TRACING_BACKEND_NAME ""
 #endif
@@ -80,7 +87,7 @@ static void tracing_set_state(enum tracing_state state)
 	atomic_set(&tracing_state, state);
 }
 
-static int tracing_init(struct device *arg)
+static int tracing_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 

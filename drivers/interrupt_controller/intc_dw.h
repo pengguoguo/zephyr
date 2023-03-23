@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-typedef void (*dw_ictl_config_irq_t)(struct device *dev);
+typedef void (*dw_ictl_config_irq_t)(const struct device *dev);
 
 struct dw_ictl_config {
 	uint32_t base_addr;
@@ -80,7 +80,7 @@ struct dw_ictl_registers {
 	uint32_t irq_plevel;		/* offset d8 */
 	uint32_t Reserved18;		/* offset dc */
 	uint32_t APB_ICTL_COMP_VERSION;	/* offset e0 */
-	uint32_t Reserved19;		/* offset e4 */
+	uint32_t Reserved19[199];
 };
 
 #ifdef __cplusplus

@@ -13,16 +13,15 @@
 #ifndef ZEPHYR_INCLUDE_DRIVERS_MODEM_MODEM_IFACE_UART_H_
 #define ZEPHYR_INCLUDE_DRIVERS_MODEM_MODEM_IFACE_UART_H_
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct modem_iface_uart_data {
-	/* ISR char buffer */
-	char *isr_buf;
-	size_t isr_buf_len;
+	/* HW flow control */
+	bool hw_flow_control;
 
 	/* ring buffer char buffer */
 	char *rx_rb_buf;
@@ -33,6 +32,13 @@ struct modem_iface_uart_data {
 
 	/* rx semaphore */
 	struct k_sem rx_sem;
+
+#ifdef CONFIG_MODEM_IFACE_UART_ASYNC
+
+	/* tx semaphore */
+	struct k_sem tx_sem;
+
+#endif /* CONFIG_MODEM_IFACE_UART_ASYNC */
 };
 
 /**
@@ -46,7 +52,7 @@ struct modem_iface_uart_data {
  * @retval 0 if ok, < 0 if error.
  */
 int modem_iface_uart_init_dev(struct modem_iface *iface,
-			      const char *dev_name);
+			      const struct device *dev);
 
 /**
  * @brief  Init modem interface for UART
@@ -59,7 +65,7 @@ int modem_iface_uart_init_dev(struct modem_iface *iface,
  */
 int modem_iface_uart_init(struct modem_iface *iface,
 			  struct modem_iface_uart_data *data,
-			  const char *dev_name);
+			  const struct device *dev);
 
 #ifdef __cplusplus
 }

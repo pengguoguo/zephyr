@@ -41,10 +41,10 @@
  * @}
  */
 
-#include <ztest.h>
-#include <irq_offload.h>
+#include <zephyr/ztest.h>
+#include <zephyr/irq_offload.h>
 
-#define TSTACK_SIZE     (512 + CONFIG_TEST_EXTRA_STACKSIZE)
+#define TSTACK_SIZE     (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 #define STACK_LEN       4
 
 /* stack objects used in this test */
@@ -66,32 +66,14 @@ static struct k_sem end_sema;
 
 
 
-K_MEM_POOL_DEFINE(test_pool, 128, 128, 2, 4);
+K_HEAP_DEFINE(test_pool, 128 * 3);
 
 extern struct k_stack kstack;
 extern struct k_stack stack;
 extern struct k_sem end_sema;
 
-extern void test_stack_thread2thread(void);
-extern void test_stack_thread2isr(void);
-extern void test_stack_pop_fail(void);
-extern void test_stack_alloc_thread2thread(void);
-#ifdef CONFIG_USERSPACE
-extern void test_stack_user_thread2thread(void);
-extern void test_stack_user_pop_fail(void);
-#else
-#define dummy_test(_name)	   \
-	static void _name(void)	   \
-	{			   \
-		ztest_test_skip(); \
-	}
-
-dummy_test(test_stack_user_thread2thread);
-dummy_test(test_stack_user_pop_fail);
-#endif /* CONFIG_USERSPACE */
-
 /* entry of contexts */
-static void tIsr_entry_push(void *p)
+static void tIsr_entry_push(const void *p)
 {
 	uint32_t i;
 
@@ -101,7 +83,7 @@ static void tIsr_entry_push(void *p)
 	}
 }
 
-static void tIsr_entry_pop(void *p)
+static void tIsr_entry_pop(const void *p)
 {
 	uint32_t i;
 
@@ -124,7 +106,7 @@ static void thread_entry_fn_single(void *p1, void *p2, void *p3)
 	for (i = STACK_LEN; i; i--) {
 		k_stack_pop((struct k_stack *)p1, &tmp[i - 1], K_NO_WAIT);
 	}
-	zassert_false(memcmp(tmp, data1, STACK_LEN),
+	zassert_false(memcmp(tmp, data1, sizeof(tmp)),
 		      "Push & Pop items does not match");
 
 	/* Push items from stack */
@@ -149,19 +131,19 @@ static void thread_entry_fn_dual(void *p1, void *p2, void *p3)
 		k_stack_push(p1, data1[i]);
 
 	}
-	zassert_false(memcmp(tmp, data2, STACK_LEN),
+	zassert_false(memcmp(tmp, data2, sizeof(tmp)),
 		      "Push & Pop items does not match");
 }
 
 static void thread_entry_fn_isr(void *p1, void *p2, void *p3)
 {
 	/* Pop items from stack2 */
-	irq_offload(tIsr_entry_pop, p2);
-	zassert_false(memcmp(data_isr, data2, STACK_LEN),
+	irq_offload(tIsr_entry_pop, (const void *)p2);
+	zassert_false(memcmp(data_isr, data2, sizeof(data_isr)),
 		      "Push & Pop items does not match");
 
 	/* Push items to stack1 */
-	irq_offload(tIsr_entry_push, p1);
+	irq_offload(tIsr_entry_push, (const void *)p1);
 
 	/* Give control back to Test thread */
 	k_sem_give(&end_sema);
@@ -176,7 +158,7 @@ static void thread_entry_fn_isr(void *p1, void *p2, void *p3)
  * @brief Verify data passing between threads using single stack
  * @see k_stack_push(), #K_STACK_DEFINE(x), k_stack_pop()
  */
-static void test_single_stack_play(void)
+ZTEST_USER(stack_usage, test_single_stack_play)
 {
 	stack_data_t tmp[STACK_LEN];
 	uint32_t i;
@@ -202,7 +184,7 @@ static void test_single_stack_play(void)
 		k_stack_pop(&stack1, &tmp[i - 1], K_NO_WAIT);
 	}
 
-	zassert_false(memcmp(tmp, data2, STACK_LEN),
+	zassert_false(memcmp(tmp, data2, sizeof(tmp)),
 		      "Push & Pop items does not match");
 
 	/* Clear the spawn thread to avoid side effect */
@@ -213,7 +195,7 @@ static void test_single_stack_play(void)
  * @brief Verify data passing between threads using dual stack
  * @see k_stack_push(), #K_STACK_DEFINE(x), k_stack_pop()
  */
-static void test_dual_stack_play(void)
+ZTEST_USER(stack_usage_1cpu, test_dual_stack_play)
 {
 	stack_data_t tmp[STACK_LEN];
 	uint32_t i;
@@ -231,7 +213,7 @@ static void test_dual_stack_play(void)
 		k_stack_pop(&stack1, &tmp[i], K_FOREVER);
 	}
 
-	zassert_false(memcmp(tmp, data1, STACK_LEN),
+	zassert_false(memcmp(tmp, data1, sizeof(tmp)),
 		      "Push & Pop items does not match");
 
 	/* Clear the spawn thread to avoid side effect */
@@ -242,7 +224,7 @@ static void test_dual_stack_play(void)
  * @brief Verify data passing between thread and ISR
  * @see k_stack_push(), #K_STACK_DEFINE(x), k_stack_pop()
  */
-static void test_isr_stack_play(void)
+ZTEST(stack_usage_1cpu, test_isr_stack_play)
 {
 	/* Init kernel objects */
 	k_sem_init(&end_sema, 0, 1);
@@ -254,19 +236,69 @@ static void test_isr_stack_play(void)
 
 
 	/* Push items to stack2 */
-	irq_offload(tIsr_entry_push, &stack2);
+	irq_offload(tIsr_entry_push, (const void *)&stack2);
 
 	/* Let the child thread run */
 	k_sem_take(&end_sema, K_FOREVER);
 
 	/* Pop items from stack1 */
-	irq_offload(tIsr_entry_pop, &stack1);
+	irq_offload(tIsr_entry_pop, (const void *)&stack1);
 
-	zassert_false(memcmp(data_isr, data1, STACK_LEN),
+	zassert_false(memcmp(data_isr, data1, sizeof(data_isr)),
 		      "Push & Pop items does not match");
 
 	/* Clear the spawn thread to avoid side effect */
 	k_thread_abort(tid);
+}
+
+/* the thread entry */
+void thread_entry_wait(void *p1, void *p2, void *p3)
+{
+	stack_data_t *txdata = p3;
+
+	k_stack_push(p1, *(txdata + 2));
+	k_stack_push(p1, *(txdata + 3));
+}
+
+/**
+ * @brief Test that the stack pop can be waited
+ * if no item available
+ *
+ * @details Create and initialize a new stack
+ * Set two timeout parameters to indicate
+ * the maximum amount of time the thread will wait.
+ *
+ * @ingroup kernel_stack_tests
+ *
+ * @see k_stack_push(), #K_STACK_DEFINE(x), k_stack_pop()
+ */
+ZTEST(stack_usage, test_stack_pop_can_wait)
+{
+	struct k_stack stack3;
+	stack_data_t tx_data[STACK_LEN] = { 0xaa, 0xbb, 0xcc, 0xdd };
+	stack_data_t rx_data[STACK_LEN] = { 0 };
+
+	k_stack_alloc_init(&stack3, 2);
+	k_tid_t tid = k_thread_create(&thread_data, threadstack,
+			TSTACK_SIZE, thread_entry_wait, &stack3,
+			NULL, tx_data, K_PRIO_PREEMPT(0), 0,
+			K_NO_WAIT);
+
+	for (int i = 0; i < 2; i++) {
+		k_stack_push(&stack3, tx_data[i]);
+	}
+
+	for (int i = 0; i < 3; i++) {
+		k_stack_pop(&stack3, &rx_data[i], K_FOREVER);
+	}
+
+	zassert_true(rx_data[2] == tx_data[2], "wait forever and pop failed\n");
+	k_stack_pop(&stack3, &rx_data[3], K_MSEC(50));
+	zassert_true(rx_data[3] == tx_data[3], "Wait maximum time pop failed\n");
+	/* Clear the spawn thread to avoid side effect */
+	k_thread_abort(tid);
+	/*free the buffer allocated*/
+	k_stack_cleanup(&stack3);
 }
 
 /**
@@ -277,24 +309,22 @@ extern struct k_stack threadstack1;
 extern struct k_thread thread_data1;
 extern struct k_sem end_sema1;
 
-/*test case main entry*/
-void test_main(void)
+static void *stack_setup(void)
 {
 	k_thread_access_grant(k_current_get(), &stack1, &stack2, &thread_data,
 			      &end_sema, &threadstack, &kstack, &stack, &thread_data1,
 			      &end_sema1, &threadstack1);
 
-	k_thread_resource_pool_assign(k_current_get(), &test_pool);
+	k_thread_heap_assign(k_current_get(), &test_pool);
 
-	ztest_test_suite(test_stack_usage,
-			 ztest_unit_test(test_stack_thread2thread),
-			 ztest_user_unit_test(test_stack_user_thread2thread),
-			 ztest_unit_test(test_stack_thread2isr),
-			 ztest_unit_test(test_stack_pop_fail),
-			 ztest_user_unit_test(test_stack_user_pop_fail),
-			 ztest_unit_test(test_stack_alloc_thread2thread),
-			 ztest_user_unit_test(test_single_stack_play),
-			 ztest_1cpu_user_unit_test(test_dual_stack_play),
-			 ztest_1cpu_unit_test(test_isr_stack_play));
-	ztest_run_test_suite(test_stack_usage);
+	return NULL;
 }
+
+ZTEST_SUITE(stack_usage, NULL, stack_setup, NULL, NULL, NULL);
+
+ZTEST_SUITE(stack_contexts, NULL, stack_setup, NULL, NULL, NULL);
+
+ZTEST_SUITE(stack_fail, NULL, stack_setup, NULL, NULL, NULL);
+
+ZTEST_SUITE(stack_usage_1cpu, NULL, stack_setup,
+		ztest_simple_1cpu_before, ztest_simple_1cpu_after, NULL);

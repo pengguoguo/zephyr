@@ -6,27 +6,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, CONFIG_NET_ICMPV4_LOG_LEVEL);
 
 #include <errno.h>
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
-#include <sys/printk.h>
-#include <linker/sections.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/linker/sections.h>
 
-#include <tc_util.h>
+#include <zephyr/tc_util.h>
 
-#include <net/buf.h>
-#include <net/ethernet.h>
-#include <net/dummy.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/dummy.h>
 
 #include "net_private.h"
 #include "icmpv4.h"
 #include "ipv4.h"
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 static const unsigned char icmpv4_echo_req[] = {
 	/* IPv4 Header */
@@ -137,18 +137,18 @@ struct net_icmpv4_context {
 	struct net_linkaddr ll_addr;
 };
 
-static int net_icmpv4_dev_init(struct device *dev)
+static int net_icmpv4_dev_init(const struct device *dev)
 {
-	struct net_icmpv4_context *net_icmpv4_context = dev->driver_data;
+	struct net_icmpv4_context *net_icmpv4_context = dev->data;
 
 	net_icmpv4_context = net_icmpv4_context;
 
 	return 0;
 }
 
-static uint8_t *net_icmpv4_get_mac(struct device *dev)
+static uint8_t *net_icmpv4_get_mac(const struct device *dev)
 {
-	struct net_icmpv4_context *context = dev->driver_data;
+	struct net_icmpv4_context *context = dev->data;
 
 	if (context->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -263,7 +263,7 @@ static int verify_echo_reply_with_opts(struct net_pkt *pkt)
 	payload_len = sizeof(icmpv4_echo_req_opt) -
 		      NET_IPV4H_LEN - NET_ICMPH_LEN - opts_len;
 	if (payload_len != net_pkt_remaining_data(pkt)) {
-		zassert_true(false, "echo_reply_opts invalid paylaod len");
+		zassert_true(false, "echo_reply_opts invalid payload len");
 	}
 
 	ret = net_pkt_read(pkt, buf, payload_len);
@@ -286,7 +286,7 @@ static int verify_echo_reply_with_opts(struct net_pkt *pkt)
 	return 0;
 }
 
-static int tester_send(struct device *dev, struct net_pkt *pkt)
+static int tester_send(const struct device *dev, struct net_pkt *pkt)
 {
 	if (current == TEST_ICMPV4_ECHO_REQ) {
 		return verify_echo_reply(pkt);
@@ -305,7 +305,7 @@ static struct dummy_api net_icmpv4_if_api = {
 };
 
 NET_DEVICE_INIT(net_icmpv4_test, "net_icmpv4_test",
-		net_icmpv4_dev_init, device_pm_control_nop,
+		net_icmpv4_dev_init, NULL,
 		&net_icmpv4_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&net_icmpv4_if_api, DUMMY_L2,
@@ -414,11 +414,11 @@ fail:
 	return NULL;
 }
 
-static void test_icmpv4(void)
+static void *icmpv4_setup(void)
 {
 	struct net_if_addr *ifaddr;
 
-	iface = net_if_get_default();
+	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
 	if (!iface) {
 		zassert_true(false, "Interface not available");
 	}
@@ -427,9 +427,19 @@ static void test_icmpv4(void)
 	if (!ifaddr) {
 		zassert_true(false, "Failed to add address");
 	}
+	return NULL;
 }
 
-static void test_icmpv4_send_echo_req(void)
+static void icmpv4_teardown(void *dummy)
+{
+	ARG_UNUSED(dummy);
+
+	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
+
+	net_if_ipv4_addr_rm(iface, &my_addr);
+}
+
+static void icmpv4_send_echo_req(void)
 {
 	struct net_pkt *pkt;
 
@@ -446,7 +456,7 @@ static void test_icmpv4_send_echo_req(void)
 	}
 }
 
-static void test_icmpv4_send_echo_rep(void)
+static void icmpv4_send_echo_rep(void)
 {
 	struct net_pkt *pkt;
 
@@ -461,11 +471,10 @@ static void test_icmpv4_send_echo_rep(void)
 		net_pkt_unref(pkt);
 		zassert_true(false, "Failed to send");
 	}
-
 	net_icmpv4_unregister_handler(&echo_rep_handler);
 }
 
-static void test_icmpv4_send_echo_req_opt(void)
+ZTEST(net_icmpv4, test_icmpv4_send_echo_req_opt)
 {
 	struct net_pkt *pkt;
 
@@ -482,7 +491,7 @@ static void test_icmpv4_send_echo_req_opt(void)
 	}
 }
 
-static void test_icmpv4_send_echo_req_bad_opt(void)
+ZTEST(net_icmpv4, test_send_echo_req_bad_opt)
 {
 	struct net_pkt *pkt;
 
@@ -492,20 +501,15 @@ static void test_icmpv4_send_echo_req_bad_opt(void)
 			     "EchoRequest with bad opts packet prep failed");
 	}
 
-	if (!net_ipv4_input(pkt)) {
+	if (net_ipv4_input(pkt)) {
 		net_pkt_unref(pkt);
-		zassert_true(false, "Failed to send");
 	}
 }
 
-/**test case main entry */
-void test_main(void)
+ZTEST(net_icmpv4, test_icmpv4_send_echo)
 {
-	ztest_test_suite(test_icmpv4_fn,
-			 ztest_unit_test(test_icmpv4),
-			 ztest_unit_test(test_icmpv4_send_echo_req),
-			 ztest_unit_test(test_icmpv4_send_echo_rep),
-			 ztest_unit_test(test_icmpv4_send_echo_req_opt),
-			 ztest_unit_test(test_icmpv4_send_echo_req_bad_opt));
-	ztest_run_test_suite(test_icmpv4_fn);
+	icmpv4_send_echo_req();
+	icmpv4_send_echo_rep();
 }
+
+ZTEST_SUITE(net_icmpv4, NULL, icmpv4_setup, NULL, NULL, icmpv4_teardown);

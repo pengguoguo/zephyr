@@ -17,6 +17,20 @@ deep sleep on Nordic platforms.  The functional behavior is:
 
 A power monitor will be able to distinguish among these states.
 
+This sample also demonstrates the use of a :c:func:`SYS_INIT()` call to
+disable the deep sleep functionality before the kernel starts, which
+prevents the board from powering down during initialization of drivers
+that use unbounded delays to wait for startup.
+
+RAM Retention
+=============
+
+On nRF52 platforms this also can demonstrate RAM retention.  By selecting
+``CONFIG_APP_RETENTION=y`` state related to number of boots, number of times
+system off was entered, and total uptime since initial power-on are retained
+in a checksummed data structure.  The POWER peripheral is configured to keep
+the containing RAM section powered while in system-off mode.
+
 Requirements
 ************
 

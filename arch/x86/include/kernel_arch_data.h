@@ -53,8 +53,21 @@
 #define CR0_PG		BIT(31)		/* enable paging */
 #define CR0_WP		BIT(16)		/* honor W bit even when supervisor */
 
+#define CR4_PSE		BIT(4)		/* Page size extension (4MB pages) */
 #define CR4_PAE		BIT(5)		/* enable PAE */
 #define CR4_OSFXSR	BIT(9)		/* enable SSE (OS FXSAVE/RSTOR) */
+
+#ifndef _ASMLANGUAGE
+
+/* x86 boot argument (see prep_c.c) */
+struct x86_boot_arg {
+	int boot_type;
+	void *arg;
+};
+
+typedef struct x86_boot_arg x86_boot_arg_t;
+
+#endif /* _ASMLANGUAGE  */
 
 #ifdef CONFIG_X86_64
 #include <intel64/kernel_arch_data.h>

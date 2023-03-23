@@ -8,32 +8,33 @@
 
 #define NET_LOG_LEVEL CONFIG_NET_UDP_LOG_LEVEL
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 
-#include <zephyr.h>
-#include <linker/sections.h>
+#include <zephyr/kernel.h>
+#include <zephyr/linker/sections.h>
 
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
-#include <device.h>
-#include <init.h>
-#include <sys/printk.h>
-#include <net/buf.h>
-#include <net/net_core.h>
-#include <net/net_pkt.h>
-#include <net/net_ip.h>
-#include <net/ethernet.h>
-#include <net/dummy.h>
-#include <net/udp.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/net/net_core.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/dummy.h>
+#include <zephyr/net/udp.h>
+#include <zephyr/random/rand32.h>
 
 #include "ipv4.h"
 #include "ipv6.h"
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
 #if NET_LOG_LEVEL >= LOG_LEVEL_DBG
 #define DBG(fmt, ...) printk(fmt, ##__VA_ARGS__)
@@ -59,18 +60,18 @@ struct net_udp_context {
 	struct net_linkaddr ll_addr;
 };
 
-int net_udp_dev_init(struct device *dev)
+int net_udp_dev_init(const struct device *dev)
 {
-	struct net_udp_context *net_udp_context = dev->driver_data;
+	struct net_udp_context *net_udp_context = dev->data;
 
 	net_udp_context = net_udp_context;
 
 	return 0;
 }
 
-static uint8_t *net_udp_get_mac(struct device *dev)
+static uint8_t *net_udp_get_mac(const struct device *dev)
 {
-	struct net_udp_context *context = dev->driver_data;
+	struct net_udp_context *context = dev->data;
 
 	if (context->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -94,7 +95,7 @@ static void net_udp_iface_init(struct net_if *iface)
 
 static int send_status = -EINVAL;
 
-static int tester_send(struct device *dev, struct net_pkt *pkt)
+static int tester_send(const struct device *dev, struct net_pkt *pkt)
 {
 	if (!pkt->frags) {
 		DBG("No data to send!\n");
@@ -137,7 +138,7 @@ static struct dummy_api net_udp_if_api = {
 #define _ETH_L2_CTX_TYPE NET_L2_GET_CTX_TYPE(DUMMY_L2)
 
 NET_DEVICE_INIT(net_udp_test, "net_udp_test",
-		net_udp_dev_init, device_pm_control_nop,
+		net_udp_dev_init, NULL,
 		&net_udp_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&net_udp_if_api, _ETH_L2_LAYER, _ETH_L2_CTX_TYPE, 127);
@@ -418,14 +419,19 @@ static void set_port(sa_family_t family, struct sockaddr *raddr,
 	}
 }
 
-void test_udp(void)
+ZTEST(udp_fn_tests, test_udp)
 {
-	k_thread_priority_set(k_current_get(), K_PRIO_COOP(7));
+	if (IS_ENABLED(CONFIG_NET_TC_THREAD_COOPERATIVE)) {
+		k_thread_priority_set(k_current_get(),
+				K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1));
+	} else {
+		k_thread_priority_set(k_current_get(), K_PRIO_PREEMPT(9));
+	}
 
 	test_failed = false;
 
 	struct net_conn_handle *handlers[CONFIG_NET_MAX_CONN];
-	struct net_if *iface = net_if_get_default();
+	struct net_if *iface;
 	struct net_if_addr *ifaddr;
 	struct ud *ud;
 	int ret, i = 0;
@@ -450,6 +456,8 @@ void test_udp(void)
 
 	struct sockaddr_in peer_addr4;
 	struct in_addr in4addr_peer = { { { 192, 0, 2, 9 } } };
+
+	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
 
 	net_ipaddr_copy(&any_addr6.sin6_addr, &in6addr_any);
 	any_addr6.sin6_family = AF_INET6;
@@ -503,7 +511,7 @@ void test_udp(void)
 				       (struct sockaddr *)raddr,	\
 				       (struct sockaddr *)laddr,	\
 				       rport, lport,			\
-				       test_ok, &user_data,		\
+				       NULL, test_ok, &user_data,	\
 				       &handlers[i]);			\
 		if (ret) {						\
 			printk("UDP register %s failed (%d)\n",		\
@@ -519,7 +527,8 @@ void test_udp(void)
 			       (struct sockaddr *)raddr,		\
 			       (struct sockaddr *)laddr,		\
 			       rport, lport,				\
-			       test_fail, INT_TO_POINTER(0), NULL);	\
+			       NULL, test_fail, INT_TO_POINTER(0),	\
+			       NULL);					\
 	if (!ret) {							\
 		printk("UDP register invalid match %s failed\n",	\
 		       "DST="#raddr"-SRC="#laddr"-RP="#rport"-LP="#lport); \
@@ -662,9 +671,4 @@ void test_udp(void)
 	zassert_false(test_failed, "udp tests failed");
 }
 
-void test_main(void)
-{
-	ztest_test_suite(test_udp_fn,
-		ztest_unit_test(test_udp));
-	ztest_run_test_suite(test_udp_fn);
-}
+ZTEST_SUITE(udp_fn_tests, NULL, NULL, NULL, NULL, NULL);

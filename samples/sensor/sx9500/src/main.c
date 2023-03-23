@@ -4,14 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
-#include <sys/printk.h>
+#include <zephyr/sys/printk.h>
 #ifdef CONFIG_SX9500_TRIGGER
 
-static void sensor_trigger_handler(struct device *dev, struct sensor_trigger *trig)
+static void sensor_trigger_handler(const struct device *dev,
+				   const struct sensor_trigger *trig)
 {
 	struct sensor_value prox_value;
 	int ret;
@@ -26,7 +27,7 @@ static void sensor_trigger_handler(struct device *dev, struct sensor_trigger *tr
 	printk("prox is %d\n", prox_value.val1);
 }
 
-static void setup_trigger(struct device *dev)
+static void setup_trigger(const struct device *dev)
 {
 	int ret;
 	struct sensor_trigger trig = {
@@ -39,7 +40,7 @@ static void setup_trigger(struct device *dev)
 	}
 }
 
-void do_main(struct device *dev)
+void do_main(const struct device *dev)
 {
 	setup_trigger(dev);
 
@@ -50,7 +51,7 @@ void do_main(struct device *dev)
 
 #else /* CONFIG_SX9500_TRIGGER */
 
-static void do_main(struct device *dev)
+static void do_main(const struct device *dev)
 {
 	int ret;
 	struct sensor_value prox_value;
@@ -73,12 +74,10 @@ static void do_main(struct device *dev)
 
 void main(void)
 {
-	struct device *dev;
+	const struct device *const dev = DEVICE_DT_GET_ONE(semtech_sx9500);
 
-	dev = device_get_binding("SX9500");
-
-	if (dev == NULL) {
-		printk("Could not get SX9500 device\n");
+	if (!device_is_ready(dev)) {
+		printk("sensor: device not ready.\n");
 		return;
 	}
 

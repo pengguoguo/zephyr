@@ -4,14 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_gptp, CONFIG_NET_GPTP_LOG_LEVEL);
 
-#include <net/net_pkt.h>
-#include <ptp_clock.h>
-#include <net/ethernet_mgmt.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/drivers/ptp_clock.h>
+#include <zephyr/net/ethernet_mgmt.h>
+#include <zephyr/random/rand32.h>
 
-#include <net/gptp.h>
+#include <zephyr/net/gptp.h>
 
 #include "gptp_messages.h"
 #include "gptp_mi.h"
@@ -30,7 +31,7 @@ LOG_MODULE_REGISTER(net_gptp, CONFIG_NET_GPTP_LOG_LEVEL);
 #error Maximum number of ports exceeded. (Max is 32).
 #endif
 
-K_THREAD_STACK_DEFINE(gptp_stack, NET_GPTP_STACK_SIZE);
+K_KERNEL_STACK_DEFINE(gptp_stack, NET_GPTP_STACK_SIZE);
 K_FIFO_DEFINE(gptp_rx_queue);
 
 static k_tid_t tid;
@@ -83,12 +84,8 @@ static void gptp_compute_clock_identity(int port)
 	}
 }
 
-/* Note that we do not use log_strdup() here when printing msg as currently the
- * msg variable is always a const string that is not allocated from the stack.
- * If this changes at some point, then add log_strdup(msg) here.
- */
 #define PRINT_INFO(msg, hdr, pkt)				\
-	NET_DBG("Received %s seq %d pkt %p", msg,		\
+	NET_DBG("Received %s seq %d pkt %p", (const char *)msg,	\
 		ntohs(hdr->sequence_id), pkt)			\
 
 
@@ -381,7 +378,15 @@ static void gptp_init_clock_ds(void)
 		GPTP_OFFSET_SCALED_LOG_VAR_UNKNOWN;
 
 	if (default_ds->gm_capable) {
-		default_ds->priority1 = GPTP_PRIORITY1_GM_CAPABLE;
+		/* The priority1 value cannot be 255 for GM capable
+		 * system.
+		 */
+		if (CONFIG_NET_GPTP_BMCA_PRIORITY1 ==
+		    GPTP_PRIORITY1_NON_GM_CAPABLE) {
+			default_ds->priority1 = GPTP_PRIORITY1_GM_CAPABLE;
+		} else {
+			default_ds->priority1 = CONFIG_NET_GPTP_BMCA_PRIORITY1;
+		}
 	} else {
 		default_ds->priority1 = GPTP_PRIORITY1_NON_GM_CAPABLE;
 	}
@@ -512,18 +517,23 @@ static void gptp_state_machine(void)
 	for (port = GPTP_PORT_START; port < GPTP_PORT_END; port++) {
 		struct gptp_port_ds *port_ds = GPTP_PORT_DS(port);
 
-		switch (GPTP_GLOBAL_DS()->selected_role[port]) {
-		case GPTP_PORT_DISABLED:
-		case GPTP_PORT_MASTER:
-		case GPTP_PORT_PASSIVE:
-		case GPTP_PORT_SLAVE:
-			gptp_md_state_machines(port);
-			gptp_mi_port_sync_state_machines(port);
-			gptp_mi_port_bmca_state_machines(port);
-			break;
-		default:
-			NET_DBG("%s: Unknown port state", __func__);
-			break;
+		/* If interface is down, don't move forward */
+		if (net_if_flag_is_set(GPTP_PORT_IFACE(port), NET_IF_UP)) {
+			switch (GPTP_GLOBAL_DS()->selected_role[port]) {
+			case GPTP_PORT_DISABLED:
+			case GPTP_PORT_MASTER:
+			case GPTP_PORT_PASSIVE:
+			case GPTP_PORT_SLAVE:
+				gptp_md_state_machines(port);
+				gptp_mi_port_sync_state_machines(port);
+				gptp_mi_port_bmca_state_machines(port);
+				break;
+			default:
+				NET_DBG("%s: Unknown port state", __func__);
+				break;
+			}
+		} else {
+			GPTP_GLOBAL_DS()->selected_role[port] = GPTP_PORT_DISABLED;
 		}
 
 		port_ds->prev_ptt_port_enabled = port_ds->ptt_port_enabled;
@@ -563,7 +573,7 @@ static void gptp_thread(void)
 static void gptp_add_port(struct net_if *iface, void *user_data)
 {
 	int *num_ports = user_data;
-	struct device *clk;
+	const struct device *clk;
 
 	if (*num_ports >= CONFIG_NET_GPTP_NUM_PORTS) {
 		return;
@@ -827,7 +837,7 @@ struct port_user_data {
 static void gptp_get_port(struct net_if *iface, void *user_data)
 {
 	struct port_user_data *ud = user_data;
-	struct device *clk;
+	const struct device *clk;
 
 	/* Check if interface has a PTP clock. */
 	clk = net_eth_get_ptp_clock(iface);
@@ -908,7 +918,7 @@ static void init_ports(void)
 	gptp_init_state_machine();
 
 	tid = k_thread_create(&gptp_thread_data, gptp_stack,
-			      K_THREAD_STACK_SIZEOF(gptp_stack),
+			      K_KERNEL_STACK_SIZEOF(gptp_stack),
 			      (k_thread_entry_t)gptp_thread,
 			      NULL, NULL, NULL, K_PRIO_COOP(5), 0, K_NO_WAIT);
 	k_thread_name_set(&gptp_thread_data, "gptp");

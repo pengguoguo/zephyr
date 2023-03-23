@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <zephyr.h>
-#include <ztest.h>
-#include <sys/sys_heap.h>
+#include <zephyr/kernel.h>
+#include <zephyr/ztest.h>
+#include <zephyr/sys/sys_heap.h>
 
 #define HEAP_SZ 0x1000
 
@@ -17,7 +17,7 @@ uint8_t *heap_start, *heap_end;
 /* Note that this test is making whitebox assumptions about the
  * behavior of the heap in order to exercise coverage of the
  * underlying code: that chunk headers are 8 bytes, that heap chunks
- * are returned low-adddress to high, and that freed blocks are merged
+ * are returned low-address to high, and that freed blocks are merged
  * immediately with adjacent free blocks.
  */
 static void check_heap_align(struct sys_heap *h,
@@ -57,10 +57,10 @@ static void check_heap_align(struct sys_heap *h,
 	sys_heap_free(h, p);
 }
 
-static void test_aligned_alloc(void)
+ZTEST(lib_heap_align, test_aligned_alloc)
 {
 	struct sys_heap heap = {};
-	void *p;
+	void *p, *q;
 
 	sys_heap_init(&heap, heapmem, HEAP_SZ);
 
@@ -81,12 +81,21 @@ static void test_aligned_alloc(void)
 			}
 		}
 	}
+
+	/* corner case on small heaps */
+	p = sys_heap_aligned_alloc(&heap, 8, 12);
+	memset(p, 0, 12);
+	zassert_true(sys_heap_validate(&heap), "heap invalid");
+	sys_heap_free(&heap, p);
+
+	/* corner case with minimizing the overallocation before alignment */
+	p = sys_heap_aligned_alloc(&heap, 16, 16);
+	q = sys_heap_aligned_alloc(&heap, 16, 17);
+	memset(p, 0, 16);
+	memset(q, 0, 17);
+	zassert_true(sys_heap_validate(&heap), "heap invalid");
+	sys_heap_free(&heap, p);
+	sys_heap_free(&heap, q);
 }
 
-void test_main(void)
-{
-	ztest_test_suite(lib_heap_align_test,
-			 ztest_unit_test(test_aligned_alloc));
-
-	ztest_run_test_suite(lib_heap_align_test);
-}
+ZTEST_SUITE(lib_heap_align, NULL, NULL, NULL, NULL, NULL);

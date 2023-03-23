@@ -6,32 +6,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, CONFIG_NET_DHCPV4_LOG_LEVEL);
 
-#include <zephyr.h>
-#include <linker/sections.h>
+#include <zephyr/kernel.h>
+#include <zephyr/linker/sections.h>
 
 #include <zephyr/types.h>
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
-#include <device.h>
-#include <init.h>
-#include <net/net_core.h>
-#include <net/net_pkt.h>
-#include <net/net_ip.h>
-#include <net/dhcpv4.h>
-#include <net/ethernet.h>
-#include <net/net_mgmt.h>
-#include <net/dummy.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/net/net_core.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/dhcpv4.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/dummy.h>
 
 #include "ipv4.h"
 #include "udp_internal.h"
 
-#include <tc_util.h>
-#include <ztest.h>
+#include <zephyr/tc_util.h>
+#include <zephyr/ztest.h>
 
 #define NET_LOG_ENABLED 1
 #include "net_private.h"
@@ -163,18 +163,18 @@ struct net_dhcpv4_context {
 	struct net_linkaddr ll_addr;
 };
 
-static int net_dhcpv4_dev_init(struct device *dev)
+static int net_dhcpv4_dev_init(const struct device *dev)
 {
-	struct net_dhcpv4_context *net_dhcpv4_context = dev->driver_data;
+	struct net_dhcpv4_context *net_dhcpv4_context = dev->data;
 
 	net_dhcpv4_context = net_dhcpv4_context;
 
 	return 0;
 }
 
-static uint8_t *net_dhcpv4_get_mac(struct device *dev)
+static uint8_t *net_dhcpv4_get_mac(const struct device *dev)
 {
-	struct net_dhcpv4_context *context = dev->driver_data;
+	struct net_dhcpv4_context *context = dev->data;
 
 	if (context->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -331,7 +331,7 @@ static int parse_dhcp_message(struct net_pkt *pkt, struct dhcp_msg *msg)
 	return 0;
 }
 
-static int tester_send(struct device *dev, struct net_pkt *pkt)
+static int tester_send(const struct device *dev, struct net_pkt *pkt)
 {
 	struct net_pkt *rpkt;
 	struct dhcp_msg msg;
@@ -380,7 +380,7 @@ static struct dummy_api net_dhcpv4_if_api = {
 };
 
 NET_DEVICE_INIT(net_dhcpv4_test, "net_dhcpv4_test",
-		net_dhcpv4_dev_init, device_pm_control_nop,
+		net_dhcpv4_dev_init, NULL,
 		&net_dhcpv4_context_data, NULL,
 		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
 		&net_dhcpv4_if_api, DUMMY_L2,
@@ -388,6 +388,7 @@ NET_DEVICE_INIT(net_dhcpv4_test, "net_dhcpv4_test",
 
 static struct net_mgmt_event_callback rx_cb;
 static struct net_mgmt_event_callback dns_cb;
+static struct net_mgmt_event_callback dhcp_cb;
 static int event_count;
 
 static void receiver_cb(struct net_mgmt_event_callback *cb,
@@ -395,7 +396,9 @@ static void receiver_cb(struct net_mgmt_event_callback *cb,
 {
 	if (nm_event != NET_EVENT_IPV4_ADDR_ADD &&
 	    nm_event != NET_EVENT_DNS_SERVER_ADD &&
-	    nm_event != NET_EVENT_DNS_SERVER_DEL) {
+	    nm_event != NET_EVENT_DNS_SERVER_DEL &&
+	    nm_event != NET_EVENT_IPV4_DHCP_START &&
+	    nm_event != NET_EVENT_IPV4_DHCP_BOUND) {
 		/* Spurious callback. */
 		return;
 	}
@@ -405,7 +408,7 @@ static void receiver_cb(struct net_mgmt_event_callback *cb,
 	k_sem_give(&test_lock);
 }
 
-void test_dhcp(void)
+ZTEST(dhcpv4_tests, test_dhcp)
 {
 	struct net_if *iface;
 
@@ -422,14 +425,20 @@ void test_dhcp(void)
 
 	net_mgmt_add_event_callback(&dns_cb);
 
-	iface = net_if_get_default();
+	net_mgmt_init_event_callback(&dhcp_cb, receiver_cb,
+				     NET_EVENT_IPV4_DHCP_START |
+				     NET_EVENT_IPV4_DHCP_BOUND);
+
+	net_mgmt_add_event_callback(&dhcp_cb);
+
+	iface = net_if_get_first_by_type(&NET_L2_GET_NAME(DUMMY));
 	if (!iface) {
 		zassert_true(false, "Interface not available");
 	}
 
 	net_dhcpv4_start(iface);
 
-	while (event_count < 3) {
+	while (event_count < 5) {
 		if (k_sem_take(&test_lock, WAIT_TIME)) {
 			zassert_true(false, "Timeout while waiting");
 		}
@@ -437,9 +446,4 @@ void test_dhcp(void)
 }
 
 /**test case main entry */
-void test_main(void)
-{
-	ztest_test_suite(test_dhcpv4,
-			ztest_unit_test(test_dhcp));
-	ztest_run_test_suite(test_dhcpv4);
-}
+ZTEST_SUITE(dhcpv4_tests, NULL, NULL, NULL, NULL, NULL);

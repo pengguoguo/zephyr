@@ -30,9 +30,7 @@
  * at runtime.
  */
 
-#include <init.h>
-
-#include <drivers/pinmux.h>
+#include <zephyr/init.h>
 
 #include <inc/hw_types.h>
 #include <inc/hw_memmap.h>
@@ -53,7 +51,7 @@
  *  driverlib pin defines.  For example, I2C_CC32XX_PIN_01_I2C_SCL & 0xff = 0,
  *  which equals PIN_01 in driverlib pin.h.  By matching the PIN_xx defines in
  *  driverlib pin.h, we can pass the pin directly to the driverlib functions.
- *  The upper 8 bits of the macro correspond to the pin mux confg mode
+ *  The upper 8 bits of the macro correspond to the pin mux config mode
  *  value for the pin to operate in the I2C mode.  For example, pin 1 is
  *  configured with mode 1 to operate as I2C_SCL.
  */
@@ -66,7 +64,7 @@
 #define I2C_CC32XX_PIN_16_I2C_SCL  0x90F  /*!< PIN 16 is used for I2C_SCL */
 #define I2C_CC32XX_PIN_17_I2C_SDA  0x910  /*!< PIN 17 is used for I2C_SDA */
 
-int pinmux_initialize(struct device *port)
+int pinmux_initialize(const struct device *port)
 {
 	ARG_UNUSED(port);
 

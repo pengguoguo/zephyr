@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig PCIE_ENDPOINT
-	bool "Enable PCIe Endpoint support"
+	bool "PCIe Endpoint support"
 	help
 	  This option enables PCIe Endpoint support.
 
@@ -16,6 +16,6 @@ source "subsys/logging/Kconfig.template.log_config"
 
 comment "PCIe Endpoint Drivers"
 
-source "drivers/pcie/endpoint/Kconfig.bcm_iproc"
+source "drivers/pcie/endpoint/Kconfig.iproc"
 
 endif # PCIE_ENDPOINT

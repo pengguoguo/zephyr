@@ -6,7 +6,7 @@
 #ifndef ZEPHYR_ARCH_X86_INCLUDE_INTEL64_KERNEL_ARCH_DATA_H_
 #define ZEPHYR_ARCH_X86_INCLUDE_INTEL64_KERNEL_ARCH_DATA_H_
 
-#include <arch/x86/mmustructs.h>
+#include <zephyr/arch/x86/mmustructs.h>
 
 #ifndef _ASMLANGUAGE
 
@@ -23,11 +23,9 @@ struct x86_cpuboot {
 	uint16_t tr;		/* selector for task register */
 	struct x86_tss64 *gs_base; /* Base address for GS segment */
 	uint64_t sp;		/* initial stack pointer */
+	size_t stack_size;	/* size of stack */
 	arch_cpustart_t fn;	/* kernel entry function */
 	void *arg;		/* argument for above function */
-#ifdef CONFIG_X86_MMU
-	struct x86_page_tables *ptables; /* Runtime page tables to install */
-#endif /* CONFIG_X86_MMU */
 };
 
 typedef struct x86_cpuboot x86_cpuboot_t;

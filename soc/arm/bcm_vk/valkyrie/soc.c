@@ -3,10 +3,11 @@
  * Copyright 2018 Broadcom.
  */
 
-#include <device.h>
-#include <init.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <soc.h>
-#include <arch/cpu.h>
+#include <zephyr/arch/cpu.h>
+#include <zephyr/irq.h>
 
 /**
  * @brief Perform basic hardware initialization at boot.
@@ -16,7 +17,7 @@
  *
  * @return 0
  */
-static int valkyrie_init(struct device *arg)
+static int valkyrie_init(const struct device *arg)
 {
 	uint32_t key;
 

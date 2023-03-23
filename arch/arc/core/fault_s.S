@@ -12,11 +12,12 @@
  * Fault handlers for ARCv2 processors.
  */
 
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <arch/cpu.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/linker/sections.h>
+#include <zephyr/arch/cpu.h>
 #include <swap_macros.h>
-#include <syscall.h>
+#include <zephyr/syscall.h>
+#include <zephyr/arch/arc/asm-compat/assembler.h>
 
 GTEXT(_Fault)
 GTEXT(__reset)
@@ -33,9 +34,6 @@ GTEXT(__ev_extension)
 GTEXT(__ev_div_zero)
 GTEXT(__ev_dc_error)
 GTEXT(__ev_maligned)
-#ifdef CONFIG_IRQ_OFFLOAD
-GTEXT(z_irq_do_offload);
-#endif
 
 .macro _save_exc_regs_into_stack
 #ifdef CONFIG_ARC_HAS_SECURE
@@ -43,10 +41,10 @@ GTEXT(z_irq_do_offload);
 	lr r0,[_ARC_V2_ERSEC_STAT]
 	st_s r0, [sp, ___isf_t_sec_stat_OFFSET]
 #endif
-	lr r0,[_ARC_V2_ERET]
-	st_s r0, [sp, ___isf_t_pc_OFFSET]
-	lr r0,[_ARC_V2_ERSTATUS]
-	st_s r0, [sp, ___isf_t_status32_OFFSET]
+	LRR r0, [_ARC_V2_ERET]
+	STR r0, sp, ___isf_t_pc_OFFSET
+	LRR r0, [_ARC_V2_ERSTATUS]
+	STR r0, sp, ___isf_t_status32_OFFSET
 .endm
 
 /*
@@ -84,9 +82,9 @@ _exc_entry:
 	 * and exception is raised, then here it's guaranteed that
 	 * exception handling has necessary stack to use
 	 */
-	mov_s ilink, sp
+	MOVR ilink, sp
 	_get_curr_cpu_irq_stack sp
-	sub sp, sp, (CONFIG_ISR_STACK_SIZE - CONFIG_ARC_EXCEPTION_STACK_SIZE)
+	SUBR sp, sp, (CONFIG_ISR_STACK_SIZE - CONFIG_ARC_EXCEPTION_STACK_SIZE)
 
 	/*
 	 * save caller saved registers
@@ -102,9 +100,9 @@ _exc_entry:
 	_save_exc_regs_into_stack
 
 	/* sp is parameter of _Fault */
-	mov_s r0, sp
+	MOVR r0, sp
 	/* ilink is the thread's original sp */
-	mov_s r1, ilink
+	MOVR r1, ilink
 	jl _Fault
 
 _exc_return:
@@ -118,9 +116,9 @@ _exc_return:
 
 	_get_next_switch_handle
 
-	breq r0, r2, _exc_return_from_exc
+	BREQR r0, 0, _exc_return_from_exc
 
-	mov_s r2, r0
+	MOVR r2, r0
 
 #ifdef CONFIG_ARC_SECURE_FIRMWARE
 	/*
@@ -143,10 +141,10 @@ _exc_return:
 	/* save r2 in ilink because of the possible following reg
 	 * bank switch
 	 */
-	mov_s ilink, r2
+	mov ilink, r2
 #endif
-	lr r3, [_ARC_V2_STATUS32]
-	and r3,r3,(~(_ARC_V2_STATUS32_AE | _ARC_V2_STATUS32_RB(7)))
+	LRR r3, [_ARC_V2_STATUS32]
+	ANDR r3, r3, (~(_ARC_V2_STATUS32_AE | _ARC_V2_STATUS32_RB(7)))
 	kflag r3
 	/* pretend lowest priority interrupt happened to use common handler
 	 * if exception is raised in irq, i.e., _ARC_V2_AUX_IRQ_ACT !=0,
@@ -158,7 +156,7 @@ _exc_return:
 #ifdef CONFIG_ARC_SECURE_FIRMWARE
 	mov_s r3, (1 << (ARC_N_IRQ_START_LEVEL - 1))
 #else
-	mov_s r3, (1 << (CONFIG_NUM_IRQ_PRIO_LEVELS - 1))
+	MOVR r3, (1 << (CONFIG_NUM_IRQ_PRIO_LEVELS - 1))
 #endif
 
 #ifdef CONFIG_ARC_NORMAL_FIRMWARE
@@ -169,7 +167,7 @@ _exc_return:
 	sjli SJLI_CALL_ARC_SECURE
 	pop_s r2
 #else
-	sr r3, [_ARC_V2_AUX_IRQ_ACT]
+	SRR r3, [_ARC_V2_AUX_IRQ_ACT]
 #endif
 
 #if defined(CONFIG_ARC_FIRQ) && CONFIG_RGF_NUM_BANKS != 1
@@ -183,23 +181,23 @@ _exc_return_from_exc:
 	/* exception handler may change return address.
 	 * reload it
 	 */
-	ld_s r0, [sp, ___isf_t_pc_OFFSET]
-	sr r0, [_ARC_V2_ERET]
+	LDR r0, sp, ___isf_t_pc_OFFSET
+	SRR r0, [_ARC_V2_ERET]
 
 	_pop_irq_stack_frame
-	mov_s sp, ilink
+	MOVR sp, ilink
 	rtie
 
 /* separated entry for trap which may be used by irq_offload, USERPSACE */
 SECTION_SUBSEC_FUNC(TEXT,__fault,__ev_trap)
 	/* get the id of trap_s */
-	lr ilink, [_ARC_V2_ECR]
-	and ilink, ilink, 0x3f
+	LRR ilink, [_ARC_V2_ECR]
+	ANDR ilink, ilink, 0x3f
 #ifdef CONFIG_USERSPACE
 	cmp ilink, _TRAP_S_CALL_SYSTEM_CALL
 	bne _do_non_syscall_trap
 	/* do sys_call */
-	mov_s ilink, K_SYSCALL_LIMIT
+	mov ilink, K_SYSCALL_LIMIT
 	cmp r6, ilink
 	blo valid_syscall_id
 
@@ -230,38 +228,4 @@ valid_syscall_id:
 
 _do_non_syscall_trap:
 #endif /* CONFIG_USERSPACE */
-#ifdef CONFIG_IRQ_OFFLOAD
-	/*
-	 * IRQ_OFFLOAD is to simulate interrupt handling through exception,
-	 * so its entry is different with normal exception handling, it is
-	 * handled in isr stack
-	 */
-	cmp ilink, _TRAP_S_SCALL_IRQ_OFFLOAD
-	bne _exc_entry
-	/* save caller saved registers */
-	_create_irq_stack_frame
-
-	_save_exc_regs_into_stack
-
-	/* check whether irq stack is used */
-	_check_and_inc_int_nest_counter r0, r1
-
-	bne.d exc_nest_handle
-	mov_s r0, sp
-
-	_get_curr_cpu_irq_stack sp
-exc_nest_handle:
-	push_s r0
-
-	jl z_irq_do_offload
-
-	pop sp
-
-	_dec_int_nest_counter r0, r1
-
-	_pop_irq_stack_frame
-
-	/* ERSTATUS, ERET are not changed, so ok to rtie */
-	rtie
-#endif /* CONFIG_IRQ_OFFLOAD */
 	b _exc_entry

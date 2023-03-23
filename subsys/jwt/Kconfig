@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig JWT
-	bool "Enable JSON Web Token generation"
+	bool "JSON Web Token generation"
 	select JSON_LIBRARY
 	help
 	  Enable creation of JWT tokens
@@ -16,6 +16,7 @@ choice
 
 config JWT_SIGN_RSA
 	bool "Use RSA signature (RS-256)"
+	depends on CSPRING_ENABLED
 	select MBEDTLS
 
 config JWT_SIGN_ECDSA

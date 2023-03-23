@@ -7,18 +7,27 @@
 #define DT_DRV_COMPAT nxp_imx_gpio
 
 #include <errno.h>
-#include <device.h>
-#include <drivers/gpio.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/irq.h>
 #include <soc.h>
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 #include <gpio_imx.h>
+#include <string.h>
+#ifdef CONFIG_PINCTRL
+#include <zephyr/drivers/pinctrl.h>
+#endif
 
-#include "gpio_utils.h"
+#include <zephyr/drivers/gpio/gpio_utils.h>
 
 struct imx_gpio_config {
 	/* gpio_driver_config needs to be first */
 	struct gpio_driver_config common;
 	GPIO_Type *base;
+#ifdef CONFIG_PINCTRL
+	const struct pinctrl_soc_pinmux *pin_muxes;
+	uint8_t mux_count;
+#endif
 };
 
 struct imx_gpio_data {
@@ -28,21 +37,68 @@ struct imx_gpio_data {
 	sys_slist_t callbacks;
 };
 
-static int imx_gpio_configure(struct device *port, gpio_pin_t pin,
+static int imx_gpio_configure(const struct device *port, gpio_pin_t pin,
 			      gpio_flags_t flags)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 
 	if (((flags & GPIO_INPUT) != 0U) && ((flags & GPIO_OUTPUT) != 0U)) {
 		return -ENOTSUP;
 	}
+#ifdef CONFIG_PINCTRL
+	__ASSERT_NO_MSG(pin < config->mux_count);
 
+	struct pinctrl_soc_pin pin_cfg;
+	/* Set appropriate bits in pin configuration register */
+	volatile uint32_t *gpio_cfg_reg =
+		(volatile uint32_t *)config->pin_muxes[pin].config_register;
+	uint32_t reg = *gpio_cfg_reg;
+
+#ifdef MCUX_IMX_DRIVE_OPEN_DRAIN_SHIFT
+	if ((flags & GPIO_SINGLE_ENDED) != 0) {
+		/* Set ODE bit */
+		reg |= BIT(MCUX_IMX_DRIVE_OPEN_DRAIN_SHIFT);
+	} else {
+		reg &= ~BIT(MCUX_IMX_DRIVE_OPEN_DRAIN_SHIFT);
+	}
+#else
+	if ((flags & GPIO_SINGLE_ENDED) != 0) {
+		return -ENOTSUP;
+	}
+#endif
+	if (((flags & GPIO_PULL_UP) != 0) || ((flags & GPIO_PULL_DOWN) != 0)) {
+		reg |= BIT(MCUX_IMX_PULL_ENABLE_SHIFT);
+#ifdef CONFIG_SOC_MCIMX6X_M4
+		reg |= BIT(MCUX_IMX_BIAS_BUS_HOLD_SHIFT);
+#endif
+		if (((flags & GPIO_PULL_UP) != 0)) {
+			reg |= BIT(MCUX_IMX_BIAS_PULL_UP_SHIFT);
+		} else {
+			reg &= ~BIT(MCUX_IMX_BIAS_PULL_UP_SHIFT);
+		}
+	} else {
+		/* Set pin to highz */
+		reg &= ~BIT(MCUX_IMX_PULL_ENABLE_SHIFT);
+#ifdef CONFIG_SOC_MCIMX6X_M4
+		reg &= ~BIT(MCUX_IMX_BIAS_BUS_HOLD_SHIFT);
+#endif
+	}
+
+	/* Init pin configuration struct, and use pinctrl api to apply settings */
+	__ASSERT_NO_MSG(pin < config->mux_count);
+	memcpy(&pin_cfg.pinmux, &config->pin_muxes[pin], sizeof(pin_cfg));
+	/* cfg register will be set by pinctrl_configure_pins */
+	pin_cfg.pin_ctrl_flags = reg;
+	pinctrl_configure_pins(&pin_cfg, 1, PINCTRL_REG_NONE);
+
+#else /*CONFIG_PINCTRL */
 	if ((flags & (GPIO_SINGLE_ENDED
 		      | GPIO_PULL_UP
 		      | GPIO_PULL_DOWN)) != 0U) {
 		return -ENOTSUP;
 	}
+#endif
 
 	/* Disable interrupts for pin */
 	GPIO_SetPinIntMode(base, pin, false);
@@ -66,9 +122,9 @@ static int imx_gpio_configure(struct device *port, gpio_pin_t pin,
 	return 0;
 }
 
-static int imx_gpio_port_get_raw(struct device *port, uint32_t *value)
+static int imx_gpio_port_get_raw(const struct device *port, uint32_t *value)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 
 	*value = GPIO_ReadPortInput(base);
@@ -76,11 +132,11 @@ static int imx_gpio_port_get_raw(struct device *port, uint32_t *value)
 	return 0;
 }
 
-static int imx_gpio_port_set_masked_raw(struct device *port,
+static int imx_gpio_port_set_masked_raw(const struct device *port,
 					gpio_port_pins_t mask,
 					gpio_port_value_t value)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 
 	GPIO_WritePortOutput(base,
@@ -89,10 +145,10 @@ static int imx_gpio_port_set_masked_raw(struct device *port,
 	return 0;
 }
 
-static int imx_gpio_port_set_bits_raw(struct device *port,
+static int imx_gpio_port_set_bits_raw(const struct device *port,
 				      gpio_port_pins_t pins)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 
 	GPIO_WritePortOutput(base, GPIO_ReadPortInput(base) | pins);
@@ -100,10 +156,10 @@ static int imx_gpio_port_set_bits_raw(struct device *port,
 	return 0;
 }
 
-static int imx_gpio_port_clear_bits_raw(struct device *port,
+static int imx_gpio_port_clear_bits_raw(const struct device *port,
 					gpio_port_pins_t pins)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 
 	GPIO_WritePortOutput(base, GPIO_ReadPortInput(base) & ~pins);
@@ -111,9 +167,10 @@ static int imx_gpio_port_clear_bits_raw(struct device *port,
 	return 0;
 }
 
-static int imx_gpio_port_toggle_bits(struct device *port, gpio_port_pins_t pins)
+static int imx_gpio_port_toggle_bits(const struct device *port,
+				     gpio_port_pins_t pins)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 
 	GPIO_WritePortOutput(base, GPIO_ReadPortInput(base) ^ pins);
@@ -121,12 +178,12 @@ static int imx_gpio_port_toggle_bits(struct device *port, gpio_port_pins_t pins)
 	return 0;
 }
 
-static int imx_gpio_pin_interrupt_configure(struct device *port,
+static int imx_gpio_pin_interrupt_configure(const struct device *port,
 					    gpio_pin_t pin,
 					    enum gpio_int_mode mode,
 					    enum gpio_int_trig trig)
 {
-	const struct imx_gpio_config *config = port->config_info;
+	const struct imx_gpio_config *config = port->config;
 	GPIO_Type *base = config->base;
 	volatile uint32_t *icr_reg;
 	unsigned int key;
@@ -174,19 +231,18 @@ static int imx_gpio_pin_interrupt_configure(struct device *port,
 	return 0;
 }
 
-static int imx_gpio_manage_callback(struct device *port,
+static int imx_gpio_manage_callback(const struct device *port,
 				    struct gpio_callback *cb, bool set)
 {
-	struct imx_gpio_data *data = port->driver_data;
+	struct imx_gpio_data *data = port->data;
 
 	return gpio_manage_callback(&data->callbacks, cb, set);
 }
 
-static void imx_gpio_port_isr(void *arg)
+static void imx_gpio_port_isr(const struct device *port)
 {
-	struct device *port = (struct device *)arg;
-	const struct imx_gpio_config *config = port->config_info;
-	struct imx_gpio_data *data = port->driver_data;
+	const struct imx_gpio_config *config = port->config;
+	struct imx_gpio_data *data = port->data;
 	uint32_t int_status;
 
 	int_status = config->base->ISR;
@@ -207,8 +263,24 @@ static const struct gpio_driver_api imx_gpio_driver_api = {
 	.manage_callback = imx_gpio_manage_callback,
 };
 
+#ifdef CONFIG_PINCTRL
+/* These macros will declare an array of pinctrl_soc_pinmux types */
+#define PINMUX_INIT(node, prop, idx) MCUX_IMX_PINMUX(DT_PROP_BY_IDX(node, prop, idx)),
+#define IMX_IGPIO_PIN_DECLARE(n)						\
+	const struct pinctrl_soc_pinmux mcux_igpio_pinmux_##n[] = {		\
+		DT_INST_FOREACH_PROP_ELEM(n, pinmux, PINMUX_INIT)	\
+	};
+#define IMX_IGPIO_PIN_INIT(n)							\
+	.pin_muxes = mcux_igpio_pinmux_##n,					\
+	.mux_count = DT_INST_PROP_LEN(n, pinmux),
+#else
+#define IMX_IGPIO_PIN_DECLARE(n)
+#define IMX_IGPIO_PIN_INIT(n)
+#endif /* CONFIG_PINCTRL */
+
 #define GPIO_IMX_INIT(n)						\
-	static int imx_gpio_##n##_init(struct device *port);		\
+	IMX_IGPIO_PIN_DECLARE(n)					\
+	static int imx_gpio_##n##_init(const struct device *port);	\
 									\
 	static const struct imx_gpio_config imx_gpio_##n##_config = {	\
 		.common = {						\
@@ -216,31 +288,33 @@ static const struct gpio_driver_api imx_gpio_driver_api = {
 				GPIO_PORT_PIN_MASK_FROM_DT_INST(n),	\
 		},							\
 		.base = (GPIO_Type *)DT_INST_REG_ADDR(n),		\
+		IMX_IGPIO_PIN_INIT(n)					\
 	};								\
 									\
 	static struct imx_gpio_data imx_gpio_##n##_data;		\
 									\
-	DEVICE_AND_API_INIT(imx_gpio_##n, DT_INST_LABEL(n),		\
+	DEVICE_DT_INST_DEFINE(n,					\
 			    imx_gpio_##n##_init,			\
+			    NULL,					\
 			    &imx_gpio_##n##_data,			\
 			    &imx_gpio_##n##_config,			\
-			    POST_KERNEL,				\
-			    CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,	\
+			    PRE_KERNEL_1,				\
+			    CONFIG_GPIO_INIT_PRIORITY,			\
 			    &imx_gpio_driver_api);			\
 									\
-	static int imx_gpio_##n##_init(struct device *port)		\
+	static int imx_gpio_##n##_init(const struct device *port)	\
 	{								\
 		IRQ_CONNECT(DT_INST_IRQ_BY_IDX(n, 0, irq),		\
 			    DT_INST_IRQ_BY_IDX(n, 0, priority),		\
 			    imx_gpio_port_isr,				\
-			    DEVICE_GET(imx_gpio_##n), 0);		\
+			    DEVICE_DT_INST_GET(n), 0);			\
 									\
 		irq_enable(DT_INST_IRQ_BY_IDX(n, 0, irq));		\
 									\
 		IRQ_CONNECT(DT_INST_IRQ_BY_IDX(n, 1, irq),		\
 			    DT_INST_IRQ_BY_IDX(n, 1, priority),		\
 			    imx_gpio_port_isr,				\
-			    DEVICE_GET(imx_gpio_##n), 0);		\
+			    DEVICE_DT_INST_GET(n), 0);			\
 									\
 		irq_enable(DT_INST_IRQ_BY_IDX(n, 1, irq));		\
 									\

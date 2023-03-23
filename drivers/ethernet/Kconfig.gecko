@@ -4,23 +4,12 @@
 
 menuconfig ETH_GECKO
 	bool "SiLabs Gecko Ethernet driver"
+	default y
+	depends on DT_HAS_SILABS_GECKO_ETHERNET_ENABLED
 	help
 	  Enable Ethernet driver for Silicon Labs Gecko chips.
 
 if ETH_GECKO
-
-config ETH_GECKO_NAME
-	string "Device name"
-	default "ETH_0"
-	help
-	  Device name allows user to obtain a handle to the device object
-	  required by all driver API functions. Device name has to be unique.
-
-config ETH_GECKO_IRQ_PRI
-	int "Interrupt priority"
-	default 0
-	help
-	  IRQ priority of Ethernet device
 
 config ETH_GECKO_RX_THREAD_STACK_SIZE
 	int "RX thread stack size"

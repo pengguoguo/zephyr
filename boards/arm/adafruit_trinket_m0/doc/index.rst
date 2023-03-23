@@ -10,8 +10,7 @@ The Adafruit Trinket M0 is a tiny (27 mm x 15 mm) ARM development
 board with an onboard RGB LED, USB port, and range of I/O broken out
 onto 5 pins.
 
-.. image:: img/adafruit_trinket_m0.png
-     :width: 500px
+.. image:: img/adafruit_trinket_m0.jpg
      :align: center
      :alt: Adafruit Trinket M0
 
@@ -109,6 +108,9 @@ Programming and Debugging
 The Trinket M0 ships the BOSSA compatible UF2 bootloader.  The
 bootloader can be entered by quickly tapping the reset button twice.
 
+Additionally, if :code:`CONFIG_USB_CDC_ACM` is enabled then the bootloader
+will be entered automatically when you run :code:`west flash`.
+
 Flashing
 ========
 
@@ -151,7 +153,7 @@ Flashing
       :goals: flash
       :compact:
 
-   You should see "Hello World! arm" in your terminal.
+   You should see "Hello World! adafruit_trinket_m0" in your terminal.
 
 References
 **********

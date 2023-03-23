@@ -4,41 +4,55 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdbool.h>
+#include <stdint.h>
 
-#include <toolchain.h>
-#include <zephyr/types.h>
-#include <sys/util.h>
+#include <soc.h>
 
+#include <zephyr/sys/byteorder.h>
+
+#include "hal/cpu.h"
 #include "hal/ccm.h"
 #include "hal/radio.h"
 #include "hal/ticker.h"
+#include "hal/radio_df.h"
 
 #include "util/util.h"
+#include "util/mem.h"
 #include "util/memq.h"
+#include "util/dbuf.h"
 
+#include "pdu_df.h"
+#include "pdu_vendor.h"
 #include "pdu.h"
 
 #include "lll.h"
 #include "lll_vendor.h"
 #include "lll_clock.h"
 #include "lll_chan.h"
+#include "lll_adv_types.h"
 #include "lll_adv.h"
+#include "lll_adv_pdu.h"
 #include "lll_adv_sync.h"
+#include "lll_adv_iso.h"
+#include "lll_df_types.h"
 
 #include "lll_internal.h"
 #include "lll_adv_internal.h"
 #include "lll_tim_internal.h"
+#include "lll_prof_internal.h"
+#include "lll_df_internal.h"
 
-#define BT_DBG_ENABLED IS_ENABLED(CONFIG_BT_DEBUG_HCI_DRIVER)
-#define LOG_MODULE_NAME bt_ctlr_lll_adv_sync
-#include "common/log.h"
-#include <soc.h>
 #include "hal/debug.h"
 
 static int init_reset(void);
-static int prepare_cb(struct lll_prepare_param *prepare_param);
+static int prepare_cb(struct lll_prepare_param *p);
 static void abort_cb(struct lll_prepare_param *prepare_param, void *param);
+static void isr_done(void *param);
+
+#if defined(CONFIG_BT_CTLR_ADV_SYNC_PDU_BACK2BACK)
+static void isr_tx(void *param);
+static void switch_radio_complete_and_b2b_tx(const struct lll_adv_sync *lll, uint8_t phy_s);
+#endif /* CONFIG_BT_CTLR_ADV_SYNC_PDU_BACK2BACK */
 
 int lll_adv_sync_init(void)
 {
@@ -66,54 +80,14 @@ int lll_adv_sync_reset(void)
 
 void lll_adv_sync_prepare(void *param)
 {
-	struct lll_prepare_param *p = param;
-	struct lll_adv_sync *lll = p->param;
-	uint16_t elapsed;
 	int err;
 
 	err = lll_hfclock_on();
-	LL_ASSERT(!err || err == -EINPROGRESS);
-
-	/* Instants elapsed */
-	elapsed = p->lazy + 1;
-
-	/* Save the (latency + 1) for use in event */
-	lll->latency_prepare += elapsed;
+	LL_ASSERT(err >= 0);
 
 	/* Invoke common pipeline handling of prepare */
-	err = lll_prepare(lll_is_abort_cb, abort_cb, prepare_cb, 0, p);
+	err = lll_prepare(lll_is_abort_cb, abort_cb, prepare_cb, 0, param);
 	LL_ASSERT(!err || err == -EINPROGRESS);
-}
-
-void lll_adv_sync_offset_fill(uint32_t ticks_offset, uint32_t start_us,
-			     struct pdu_adv *pdu)
-{
-	struct pdu_adv_com_ext_adv *p;
-	struct pdu_adv_sync_info *si;
-	struct pdu_adv_hdr *h;
-	uint8_t *ptr;
-
-	p = (void *)&pdu->adv_ext_ind;
-	h = (void *)p->ext_hdr_adi_adv_data;
-	ptr = (uint8_t *)h + sizeof(*h);
-
-	if (h->adv_addr) {
-		ptr += BDADDR_SIZE;
-	}
-
-	if (h->adi) {
-		ptr += sizeof(struct pdu_adv_adi);
-	}
-
-	if (h->aux_ptr) {
-		ptr += sizeof(struct pdu_adv_aux_ptr);
-	}
-
-	si = (void *)ptr;
-	si->offs = (HAL_TICKER_TICKS_TO_US(ticks_offset) - start_us) / 30;
-	if (si->offs_units) {
-		si->offs /= 10;
-	}
 }
 
 static int init_reset(void)
@@ -121,14 +95,28 @@ static int init_reset(void)
 	return 0;
 }
 
-static int prepare_cb(struct lll_prepare_param *prepare_param)
+static bool is_instant_or_past(uint16_t event_counter, uint16_t instant)
 {
-	struct lll_adv_sync *lll = prepare_param->param;
-	uint32_t ticks_at_event, ticks_at_start;
-	struct pdu_adv *pdu;
-	struct evt_hdr *evt;
+	uint16_t instant_latency;
+
+	instant_latency = (event_counter - instant) &
+			  EVENT_INSTANT_MAX;
+
+	return instant_latency <= EVENT_INSTANT_LATENCY_MAX;
+}
+
+static int prepare_cb(struct lll_prepare_param *p)
+{
+	struct lll_adv_sync *lll;
+	uint32_t ticks_at_event;
+	uint32_t ticks_at_start;
+	uint8_t data_chan_count;
+	uint8_t *data_chan_map;
 	uint16_t event_counter;
 	uint8_t data_chan_use;
+	struct pdu_adv *pdu;
+	struct ull_hdr *ull;
+	uint32_t cte_len_us;
 	uint32_t remainder;
 	uint32_t start_us;
 	uint8_t phy_s;
@@ -136,26 +124,37 @@ static int prepare_cb(struct lll_prepare_param *prepare_param)
 
 	DEBUG_RADIO_START_A(1);
 
-	/* Deduce the latency */
-	lll->latency_event = lll->latency_prepare - 1;
+	lll = p->param;
+
+	/* Calculate the current event latency */
+	lll->latency_event = lll->latency_prepare + p->lazy;
 
 	/* Calculate the current event counter value */
 	event_counter = lll->event_counter + lll->latency_event;
 
 	/* Update event counter to next value */
-	lll->event_counter = lll->event_counter + lll->latency_prepare;
+	lll->event_counter = (event_counter + 1);
 
 	/* Reset accumulated latencies */
 	lll->latency_prepare = 0;
 
+	/* Process channel map update, if any */
+	if ((lll->chm_first != lll->chm_last) &&
+	    is_instant_or_past(event_counter, lll->chm_instant)) {
+		/* At or past the instant, use channelMapNew */
+		lll->chm_first = lll->chm_last;
+	}
+
+	/* Calculate the radio channel to use */
+	data_chan_map = lll->chm[lll->chm_first].data_chan_map;
+	data_chan_count = lll->chm[lll->chm_first].data_chan_count;
 	data_chan_use = lll_chan_sel_2(event_counter, lll->data_chan_id,
-				       &lll->data_chan_map[0],
-				       lll->data_chan_count);
+				       data_chan_map, data_chan_count);
 
 	/* Start setting up of Radio h/w */
 	radio_reset();
 #if defined(CONFIG_BT_CTLR_TX_PWR_DYNAMIC_CONTROL)
-	radio_tx_power_set(lll->tx_pwr_lvl);
+	radio_tx_power_set(lll->adv->tx_pwr_lvl);
 #else
 	radio_tx_power_set(RADIO_TXP_DEFAULT);
 #endif
@@ -163,45 +162,83 @@ static int prepare_cb(struct lll_prepare_param *prepare_param)
 	phy_s = lll->adv->phy_s;
 
 	/* TODO: if coded we use S8? */
-	radio_phy_set(phy_s, 1);
-	radio_pkt_configure(8, PDU_AC_PAYLOAD_SIZE_MAX, (phy_s << 1));
+	radio_phy_set(phy_s, lll->adv->phy_flags);
+	radio_pkt_configure(RADIO_PKT_CONF_LENGTH_8BIT, PDU_AC_PAYLOAD_SIZE_MAX,
+			    RADIO_PKT_CONF_PHY(phy_s));
 	radio_aa_set(lll->access_addr);
-	radio_crc_configure(((0x5bUL) | ((0x06UL) << 8) | ((0x00UL) << 16)),
-			    (((uint32_t)lll->crc_init[2] << 16) |
-			     ((uint32_t)lll->crc_init[1] << 8) |
-			     ((uint32_t)lll->crc_init[0])));
+	radio_crc_configure(PDU_CRC_POLYNOMIAL,
+				sys_get_le24(lll->crc_init));
 	lll_chan_set(data_chan_use);
 
-	pdu = lll_adv_sync_data_latest_get(lll, &upd);
+	upd = 0U;
+	pdu = lll_adv_sync_data_latest_get(lll, NULL, &upd);
+	LL_ASSERT(pdu);
+
+#if defined(CONFIG_BT_CTLR_DF_ADV_CTE_TX)
+	lll_df_cte_tx_enable(lll, pdu, &cte_len_us);
+#else
+	cte_len_us = 0U;
+#endif /* CONFIG_BT_CTLR_DF_ADV_CTE_TX) */
+
 	radio_pkt_tx_set(pdu);
 
-	/* TODO: chaining */
-	radio_isr_set(lll_isr_done, lll);
-	radio_switch_complete_and_disable();
+#if defined(CONFIG_BT_CTLR_ADV_SYNC_PDU_BACK2BACK)
+	if (pdu->adv_ext_ind.ext_hdr_len && pdu->adv_ext_ind.ext_hdr.aux_ptr) {
+		lll->last_pdu = pdu;
 
-	ticks_at_event = prepare_param->ticks_at_expire;
-	evt = HDR_LLL2EVT(lll);
-	ticks_at_event += lll_evt_offset_get(evt);
+		radio_isr_set(isr_tx, lll);
+		radio_tmr_tifs_set(EVENT_SYNC_B2B_MAFS_US);
+		switch_radio_complete_and_b2b_tx(lll, phy_s);
+	} else
+#endif /* CONFIG_BT_CTLR_ADV_SYNC_PDU_BACK2BACK */
+	{
+		radio_isr_set(isr_done, lll);
+		radio_switch_complete_and_disable();
+	}
+
+	ticks_at_event = p->ticks_at_expire;
+	ull = HDR_LLL2ULL(lll);
+	ticks_at_event += lll_event_offset_get(ull);
 
 	ticks_at_start = ticks_at_event;
 	ticks_at_start += HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US);
 
-	remainder = prepare_param->remainder;
+	remainder = p->remainder;
 	start_us = radio_tmr_start(1, ticks_at_start, remainder);
 
-#if defined(CONFIG_BT_CTLR_GPIO_PA_PIN)
+#if defined(CONFIG_BT_CTLR_PROFILE_ISR) || \
+	defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
+	/* capture end of AUX_SYNC_IND/AUX_CHAIN_IND PDU, used for calculating
+	 * next PDU timestamp.
+	 *
+	 * In Periodic Advertising without chaining there is no need for LLL to
+	 * get the end time from radio, hence there is no call to
+	 * radio_tmr_end_capture() to capture the radio end time.
+	 *
+	 * With chaining the sw_switch used PPI/DPPI for back to back Tx, no
+	 * radio end time capture is needed there either.
+	 *
+	 * For PA LNA (and ISR profiling), the radio end time is required to
+	 * setup the GPIOTE using radio_gpio_pa_lna_enable which needs call to
+	 * radio_tmr_tifs_base_get(), both PA/LNA and ISR profiling call
+	 * radio_tmr_end_get().
+	 */
+	radio_tmr_end_capture();
+#endif /* CONFIG_BT_CTLR_PROFILE_ISR */
+
+#if defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
 	radio_gpio_pa_setup();
 
 	radio_gpio_pa_lna_enable(start_us + radio_tx_ready_delay_get(phy_s, 1) -
-				 CONFIG_BT_CTLR_GPIO_PA_OFFSET);
-#else /* !CONFIG_BT_CTLR_GPIO_PA_PIN */
+				 HAL_RADIO_GPIO_PA_OFFSET);
+#else /* !HAL_RADIO_GPIO_HAVE_PA_PIN */
 	ARG_UNUSED(start_us);
-#endif /* !CONFIG_BT_CTLR_GPIO_PA_PIN */
+#endif /* !HAL_RADIO_GPIO_HAVE_PA_PIN */
 
 #if defined(CONFIG_BT_CTLR_XTAL_ADVANCED) && \
 	(EVENT_OVERHEAD_PREEMPT_US <= EVENT_OVERHEAD_PREEMPT_MIN_US)
 	/* check if preempt to start has changed */
-	if (lll_preempt_calc(evt, (TICKER_ID_ADV_SYNC_BASE +
+	if (lll_preempt_calc(ull, (TICKER_ID_ADV_SYNC_BASE +
 				   ull_adv_sync_lll_handle_get(lll)),
 			     ticks_at_event)) {
 		radio_isr_set(lll_isr_abort, lll);
@@ -210,6 +247,12 @@ static int prepare_cb(struct lll_prepare_param *prepare_param)
 #endif /* CONFIG_BT_CTLR_XTAL_ADVANCED */
 	{
 		uint32_t ret;
+
+#if defined(CONFIG_BT_CTLR_ADV_ISO)
+		if (lll->iso) {
+			ull_adv_iso_lll_biginfo_fill(pdu, lll);
+		}
+#endif /* CONFIG_BT_CTLR_ADV_ISO */
 
 		ret = lll_prepare_done(lll);
 		LL_ASSERT(!ret);
@@ -222,6 +265,7 @@ static int prepare_cb(struct lll_prepare_param *prepare_param)
 
 static void abort_cb(struct lll_prepare_param *prepare_param, void *param)
 {
+	struct lll_adv_sync *lll;
 	int err;
 
 	/* NOTE: This is not a prepare being cancelled */
@@ -230,7 +274,7 @@ static void abort_cb(struct lll_prepare_param *prepare_param, void *param)
 		 * After event has been cleanly aborted, clean up resources
 		 * and dispatch event done.
 		 */
-		radio_isr_set(lll_isr_done, param);
+		radio_isr_set(isr_done, param);
 		radio_disable();
 		return;
 	}
@@ -239,7 +283,137 @@ static void abort_cb(struct lll_prepare_param *prepare_param, void *param)
 	 * currently in preparation pipeline.
 	 */
 	err = lll_hfclock_off();
-	LL_ASSERT(!err || err == -EBUSY);
+	LL_ASSERT(err >= 0);
+
+	/* Accumulate the latency as event is aborted while being in pipeline */
+	lll = prepare_param->param;
+	lll->latency_prepare += (prepare_param->lazy + 1);
 
 	lll_done(param);
 }
+
+static void isr_done(void *param)
+{
+	struct lll_adv_sync *lll = param;
+
+#if defined(CONFIG_BT_CTLR_DF_ADV_CTE_TX)
+	if (lll->cte_started) {
+		lll_df_cte_tx_disable();
+	}
+#endif /* CONFIG_BT_CTLR_DF_ADV_CTE_TX */
+
+	/* Signal thread mode to remove Channel Map Update Indication in the
+	 * ACAD.
+	 */
+	if ((lll->chm_first != lll->chm_last) &&
+	    is_instant_or_past(lll->event_counter, lll->chm_instant)) {
+		struct node_rx_hdr *rx;
+
+		/* Allocate, prepare and dispatch Channel Map Update
+		 * complete message towards ULL, then subsequently to
+		 * the thread context.
+		 */
+		rx = ull_pdu_rx_alloc();
+		LL_ASSERT(rx);
+
+		rx->type = NODE_RX_TYPE_SYNC_CHM_COMPLETE;
+		rx->rx_ftr.param = lll;
+
+		ull_rx_put_sched(rx->link, rx);
+	}
+
+	lll_isr_done(lll);
+}
+
+#if defined(CONFIG_BT_CTLR_ADV_SYNC_PDU_BACK2BACK)
+static void isr_tx(void *param)
+{
+	struct lll_adv_sync *lll_sync;
+	struct pdu_adv *pdu;
+	struct lll_adv *lll;
+	uint32_t cte_len_us;
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		lll_prof_latency_capture();
+	}
+
+	/* Clear radio tx status and events */
+	lll_isr_tx_status_reset();
+
+	lll_sync = param;
+	lll = lll_sync->adv;
+
+	/* FIXME: Use implementation defined channel index */
+	lll_chan_set(0);
+
+	pdu = lll_adv_pdu_linked_next_get(lll_sync->last_pdu);
+	LL_ASSERT(pdu);
+	lll_sync->last_pdu = pdu;
+
+#if defined(CONFIG_BT_CTLR_DF_ADV_CTE_TX)
+	lll_df_cte_tx_enable(lll_sync, pdu, &cte_len_us);
+#else
+	cte_len_us = 0;
+#endif /* CONFIG_BT_CTLR_DF_ADV_CTE_TX */
+
+	/* setup tIFS switching */
+	if (pdu->adv_ext_ind.ext_hdr_len && pdu->adv_ext_ind.ext_hdr.aux_ptr) {
+		radio_tmr_tifs_set(EVENT_SYNC_B2B_MAFS_US);
+		radio_isr_set(isr_tx, lll_sync);
+		switch_radio_complete_and_b2b_tx(lll_sync, lll->phy_s);
+	} else {
+		radio_isr_set(isr_done, lll_sync);
+		radio_switch_complete_and_disable();
+	}
+
+	radio_pkt_tx_set(pdu);
+
+	/* assert if radio packet ptr is not set and radio started rx */
+	LL_ASSERT(!radio_is_ready());
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		lll_prof_cputime_capture();
+	}
+
+#if defined(CONFIG_BT_CTLR_PROFILE_ISR) || \
+	defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
+	/* capture end of AUX_SYNC_IND/AUX_CHAIN_IND PDU, used for calculating
+	 * next PDU timestamp.
+	 */
+	radio_tmr_end_capture();
+#endif /* CONFIG_BT_CTLR_PROFILE_ISR */
+
+#if defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		/* PA/LNA enable is overwriting packet end used in ISR
+		 * profiling, hence back it up for later use.
+		 */
+		lll_prof_radio_end_backup();
+	}
+
+	radio_gpio_pa_setup();
+	radio_gpio_pa_lna_enable(radio_tmr_tifs_base_get() +
+				 EVENT_SYNC_B2B_MAFS_US -
+				 (EVENT_CLOCK_JITTER_US << 1) + cte_len_us -
+				 radio_tx_chain_delay_get(lll->phy_s, 0) -
+				 HAL_RADIO_GPIO_PA_OFFSET);
+#endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		lll_prof_send();
+	}
+}
+
+static void switch_radio_complete_and_b2b_tx(const struct lll_adv_sync *lll,
+					     uint8_t phy_s)
+{
+#if defined(CONFIG_BT_CTLR_DF_ADV_CTE_TX)
+	if (lll->cte_started) {
+		radio_switch_complete_and_phy_end_b2b_tx(phy_s, 0, phy_s, 0);
+	} else
+#endif /* CONFIG_BT_CTLR_DF_ADV_CTE_TX */
+	{
+		radio_switch_complete_and_b2b_tx(phy_s, 0, phy_s, 0);
+	}
+}
+#endif /* CONFIG_BT_CTLR_ADV_SYNC_PDU_BACK2BACK */

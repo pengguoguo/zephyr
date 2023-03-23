@@ -3,9 +3,10 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <zephyr.h>
-#include <init.h>
-#include <power/power.h>
+#include <zephyr/kernel.h>
+#include <zephyr/init.h>
+#include <zephyr/pm/pm.h>
+#include <zephyr/pm/policy.h>
 
 #include <driverlib/pwr_ctrl.h>
 #include <driverlib/sys_ctrl.h>
@@ -19,38 +20,50 @@
 #include <ti/devices/cc13x2_cc26x2/driverlib/vims.h>
 #include <ti/devices/cc13x2_cc26x2/driverlib/sys_ctrl.h>
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 #define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
 LOG_MODULE_REGISTER(soc);
 
+const PowerCC26X2_Config PowerCC26X2_config = {
+#if defined(CONFIG_IEEE802154_CC13XX_CC26XX) \
+	|| defined(CONFIG_BLE_CC13XX_CC26XX) \
+	|| defined(CONFIG_IEEE802154_CC13XX_CC26XX_SUB_GHZ)
+	.policyInitFxn      = NULL,
+	.policyFxn          = NULL,
+	.calibrateFxn       = &PowerCC26XX_calibrate,
+	.enablePolicy       = false,
+	.calibrateRCOSC_LF  = true,
+	.calibrateRCOSC_HF  = true
+#else
 /* Configuring TI Power module to not use its policy function (we use Zephyr's
  * instead), and disable oscillator calibration functionality for now.
  */
-const PowerCC26X2_Config PowerCC26X2_config = {
 	.policyInitFxn      = NULL,
 	.policyFxn          = NULL,
 	.calibrateFxn       = NULL,
 	.enablePolicy       = false,
 	.calibrateRCOSC_LF  = false,
 	.calibrateRCOSC_HF  = false
+#endif
 };
 
 extern PowerCC26X2_ModuleState PowerCC26X2_module;
 
+#ifdef CONFIG_PM
 /*
  * Power state mapping:
- * SYS_POWER_STATE_SLEEP_1: Idle
- * SYS_POWER_STATE_SLEEP_2: Standby
- * SYS_POWER_STATE_DEEP_SLEEP_1: Shutdown
+ * PM_STATE_SUSPEND_TO_IDLE: Idle
+ * PM_STATE_STANDBY: Standby
+ * PM_STATE_SUSPEND_TO_RAM | PM_STATE_SUSPEND_TO_DISK: Shutdown
  */
 
 /* Invoke Low Power/System Off specific Tasks */
-void sys_set_power_state(enum power_states state)
+__weak void pm_state_set(enum pm_state state, uint8_t substate_id)
 {
-#ifdef CONFIG_SYS_POWER_SLEEP_STATES
+	ARG_UNUSED(substate_id);
+
 	uint32_t modeVIMS;
 	uint32_t constraints;
-#endif
 
 	LOG_DBG("SoC entering power state %d", state);
 
@@ -63,8 +76,7 @@ void sys_set_power_state(enum power_states state)
 	irq_unlock(0);
 
 	switch (state) {
-#ifdef CONFIG_SYS_POWER_SLEEP_STATES
-	case SYS_POWER_STATE_SLEEP_1:
+	case PM_STATE_SUSPEND_TO_IDLE:
 		/* query the declared constraints */
 		constraints = Power_getConstraintMask();
 		/* 1. Get the current VIMS mode */
@@ -90,23 +102,17 @@ void sys_set_power_state(enum power_states state)
 		SysCtrlAonUpdate();
 		break;
 
-	case SYS_POWER_STATE_SLEEP_2:
-		/* schedule the wakeup event */
-		ClockP_start(ClockP_handle((ClockP_Struct *)
-			&PowerCC26X2_module.clockObj));
-
+	case PM_STATE_STANDBY:
 		/* go to standby mode */
 		Power_sleep(PowerCC26XX_STANDBY);
-		ClockP_stop(ClockP_handle((ClockP_Struct *)
-			&PowerCC26X2_module.clockObj));
 		break;
-#endif
-
-#ifdef CONFIG_SYS_POWER_DEEP_SLEEP_STATES
-	case SYS_POWER_STATE_DEEP_SLEEP_1:
+	case PM_STATE_SUSPEND_TO_RAM:
+		__fallthrough;
+	case PM_STATE_SUSPEND_TO_DISK:
+		__fallthrough;
+	case PM_STATE_SOFT_OFF:
 		Power_shutdown(0, 0);
 		break;
-#endif
 	default:
 		LOG_DBG("Unsupported power state %u", state);
 		break;
@@ -116,17 +122,21 @@ void sys_set_power_state(enum power_states state)
 }
 
 /* Handle SOC specific activity after Low Power Mode Exit */
-void _sys_pm_power_state_exit_post_ops(enum power_states state)
+__weak void pm_state_exit_post_ops(enum pm_state state, uint8_t substate_id)
 {
+	ARG_UNUSED(state);
+	ARG_UNUSED(substate_id);
+
 	/*
 	 * System is now in active mode. Reenable interrupts which were disabled
 	 * when OS started idling code.
 	 */
 	CPUcpsie();
 }
+#endif /* CONFIG_PM */
 
 /* Initialize TI Power module */
-static int power_initialize(struct device *dev)
+static int power_initialize(const struct device *dev)
 {
 	unsigned int ret;
 
@@ -144,7 +154,7 @@ static int power_initialize(struct device *dev)
  * This needs to be called during POST_KERNEL in order for "Booting Zephyr"
  * message to show up
  */
-static int unlatch_pins(struct device *dev)
+static int unlatch_pins(const struct device *dev)
 {
 	/* Get the reason for reset. */
 	uint32_t rSrc = SysCtrlResetSourceGet();

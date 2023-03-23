@@ -4,21 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @addtogroup t_gpio_basic_api
- * @{
- * @defgroup t_gpio_callback_trigger test_gpio_callback_trigger
- * @brief TestPurpose: verify zephyr gpio callback triggered
- * under different INT modes
- * @}
- */
 
 #include "test_gpio.h"
 
 static struct drv_data data;
 static int cb_cnt;
 
-static void callback(struct device *dev,
+static void callback(const struct device *dev,
 		     struct gpio_callback *gpio_cb, uint32_t pins)
 {
 	const struct drv_data *dd = CONTAINER_OF(gpio_cb,
@@ -41,7 +33,7 @@ static void callback(struct device *dev,
 
 static int test_callback(int mode)
 {
-	struct device *dev = device_get_binding(DEV_NAME);
+	const struct device *const dev = DEVICE_DT_GET(DEV);
 	struct drv_data *drv_data = &data;
 
 	gpio_pin_interrupt_configure(dev, PIN_IN, GPIO_INT_DISABLE);
@@ -62,7 +54,7 @@ static int test_callback(int mode)
 	}
 
 	/* 2. configure PIN_IN callback and trigger condition */
-	rc = gpio_pin_configure(dev, PIN_IN, GPIO_INPUT | GPIO_INT_DEBOUNCE);
+	rc = gpio_pin_configure(dev, PIN_IN, GPIO_INPUT);
 	if (rc != 0) {
 		TC_ERROR("config PIN_IN fail: %d\n", rc);
 		goto err_exit;
@@ -126,7 +118,7 @@ err_exit:
 }
 
 /* export test cases */
-void test_gpio_callback_variants(void)
+ZTEST(gpio_port_cb_vari, test_gpio_callback_variants)
 {
 	zassert_equal(test_callback(GPIO_INT_EDGE_FALLING), TC_PASS,
 		      "falling edge failed");

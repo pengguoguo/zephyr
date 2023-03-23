@@ -23,7 +23,11 @@ config SOC_PART_NUMBER
 config NUM_IRQS
 	default 47
 
-config SYS_CLOCK_HW_CYCLES_PER_SEC
-	default 120000000
+if NETWORKING
+
+config NET_L2_ETHERNET
+	default y
+
+endif # NETWORKING
 
 endif # SOC_SERIES_SAM4E

@@ -18,8 +18,7 @@ the following devices:
 * RADIO (Bluetooth Low Energy)
 * Segger RTT (RTT Console)
 
-.. figure:: img/nrf52_adafruit_feather.png
-     :width: 442px
+.. figure:: img/nrf52_adafruit_feather.jpg
      :align: center
      :alt: nRF52 Adafruit Feather Board
 
@@ -67,7 +66,7 @@ hardware features:
 | RTT       | on-chip    | console              |
 +-----------+------------+----------------------+
 
-Other hardware features are not supported by the Zephyr kernel.
+Other hardware features have not been enabled yet for this board.
 
 Connections and IOs
 ===================
@@ -104,9 +103,8 @@ The ``nrf52_adafruit_feather`` board is available in two different versions:
    needs to be soldered.
 
 Applications for the ``nrf52_adafruit_feather`` board configuration can be
-built and flashed in the usual way (see :ref:`build_an_application`
-and :ref:`application_run` for more details); however, the standard
-debugging targets are not currently available.
+built, flashed, and debugged in the usual way. See :ref:`build_an_application`
+and :ref:`application_run` for more details on building and running.
 
 Flashing
 ========
@@ -150,7 +148,7 @@ Here is an example for the :ref:`hello_world` application.
       :goals: flash
       :compact:
 
-   You should see "Hello World! arm" in your terminal.
+   You should see "Hello World! nrf52_adafruit_feather" in your terminal.
 
 
 Debugging

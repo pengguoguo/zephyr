@@ -11,10 +11,13 @@
 #include "simplelink_log.h"
 LOG_MODULE_DECLARE(LOG_MODULE_NAME);
 
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 #include <stdint.h>
 
 #include <ti/drivers/net/wifi/simplelink.h>
+#include <ti/net/slnetif.h>
+#include <ti/net/slnetutils.h>
+#include <ti/drivers/net/wifi/slnetifwifi.h>
 #include <CC3220SF_LAUNCHXL.h>
 
 #include "simplelink_support.h"
@@ -33,6 +36,9 @@ LOG_MODULE_DECLARE(LOG_MODULE_NAME);
 
 #define CHANNEL_MASK_ALL	    (0x1FFF)
 #define RSSI_TH_MAX		    (-95)
+
+#define SLNET_IF_WIFI_PRIO                    (5)
+#define SLNET_IF_WIFI_NAME                    "CC32xx"
 
 enum status_bits {
 	/* Network Processor is powered up */
@@ -65,14 +71,26 @@ struct sl_connect_state sl_conn;
 /* Network Coprocessor state, including role and connection state: */
 static struct nwp_status nwp;
 
+/* Minimal configuration of SlNetIfWifi for Zephyr */
+static SlNetIf_Config_t slnetifwifi_config_zephyr = {
+	.sockCreate = SlNetIfWifi_socket,
+	.sockClose = SlNetIfWifi_close,
+	.sockSelect = SlNetIfWifi_select,
+	.sockSetOpt = SlNetIfWifi_setSockOpt,
+	.sockGetOpt = SlNetIfWifi_getSockOpt,
+	.sockRecvFrom = SlNetIfWifi_recvFrom,
+	.sockSendTo = SlNetIfWifi_sendTo,
+	.utilGetHostByName = SlNetIfWifi_getHostByName,
+	.ifGetIPAddr = SlNetIfWifi_getIPAddr,
+	.ifGetConnectionStatus = SlNetIfWifi_getConnectionStatus
+};
+
 /* Configure the device to a default state, resetting previous parameters .*/
 static int32_t configure_simplelink(void)
 {
 	int32_t retval = -1;
 	int32_t mode = -1;
-#if !defined(CONFIG_NET_IPV6)
 	uint32_t if_bitmap = 0U;
-#endif
 	SlWlanScanParamCommand_t scan_default = { 0 };
 	SlWlanRxFilterOperationCommandBuff_t rx_filterid_mask = { { 0 } };
 	uint8_t config_opt;
@@ -172,16 +190,17 @@ static int32_t configure_simplelink(void)
 	ASSERT_ON_ERROR(retval, NETAPP_ERROR);
 #endif
 
-
-#if !defined(CONFIG_NET_IPV6)
+#if defined(CONFIG_NET_IPV6)
+	if_bitmap = ~0;
+#else
 	/* Disable ipv6 */
 	if_bitmap = !(SL_NETCFG_IF_IPV6_STA_LOCAL |
 		      SL_NETCFG_IF_IPV6_STA_GLOBAL);
+#endif
 	retval = sl_NetCfgSet(SL_NETCFG_IF, SL_NETCFG_IF_STATE,
 			      sizeof(if_bitmap),
 			      (const unsigned char *)&if_bitmap);
 	ASSERT_ON_ERROR(retval, NETAPP_ERROR);
-#endif
 
 	/* Configure scan parameters to default */
 	scan_default.ChannelsMask = CHANNEL_MASK_ALL;
@@ -273,7 +292,7 @@ void SimpleLinkWlanEventHandler(SlWlanEvent_t *wlan_event)
 
 		LOG_INF("[WLAN EVENT] STA Connected to the AP: %s, "
 			"BSSID: %x:%x:%x:%x:%x:%x",
-			log_strdup(sl_conn.ssid), sl_conn.bssid[0],
+			sl_conn.ssid, sl_conn.bssid[0],
 			sl_conn.bssid[1], sl_conn.bssid[2],
 			sl_conn.bssid[3], sl_conn.bssid[4],
 			sl_conn.bssid[5]);
@@ -297,7 +316,7 @@ void SimpleLinkWlanEventHandler(SlWlanEvent_t *wlan_event)
 		    event_data->ReasonCode) {
 			LOG_INF("[WLAN EVENT] "
 				"Device disconnected from the AP: %s",
-				log_strdup(event_data->SsidName));
+				event_data->SsidName);
 			LOG_INF("BSSID: %x:%x:%x:%x:%x:%x on application's"
 				" request", event_data->Bssid[0],
 				event_data->Bssid[1], event_data->Bssid[2],
@@ -307,7 +326,7 @@ void SimpleLinkWlanEventHandler(SlWlanEvent_t *wlan_event)
 		} else {
 			LOG_ERR("[WLAN ERROR] "
 				"Device disconnected from the AP: %s",
-				log_strdup(event_data->SsidName));
+				event_data->SsidName);
 			LOG_ERR("BSSID: %x:%x:%x:%x:%x:%x on error: %d",
 				event_data->Bssid[0],
 				event_data->Bssid[1], event_data->Bssid[2],
@@ -370,7 +389,7 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *netapp_event)
 	}
 
 	switch (netapp_event->Id) {
-	case SL_DEVICE_EVENT_DROPPED_NETAPP_IPACQUIRED:
+	case SL_NETAPP_EVENT_IPV4_ACQUIRED:
 		SET_STATUS_BIT(nwp.status, STATUS_BIT_IP_ACQUIRED);
 
 		/* Ip Acquired Event Data */
@@ -395,7 +414,7 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *netapp_event)
 		nwp.cb(SIMPLELINK_WIFI_CB_IPACQUIRED, &sl_conn);
 		break;
 
-	case SL_DEVICE_EVENT_DROPPED_NETAPP_IPACQUIRED_V6:
+	case SL_NETAPP_EVENT_IPV6_ACQUIRED:
 		SET_STATUS_BIT(nwp.status, STATUS_BIT_IPV6_ACQUIRED);
 
 		for (i = 0U; i < 4; i++) {
@@ -404,15 +423,20 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *netapp_event)
 		}
 
 		if (LOG_LEVEL >= LOG_LEVEL_INF) {
-			char ipv6_addr[NET_IPV6_ADDR_LEN];
+			LOG_INF("[NETAPP EVENT] IP Acquired: "
+				"IPv6=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+				((sl_conn.ipv6_addr[0] >> 16) & 0xffff),
+				sl_conn.ipv6_addr[0] & 0xffff,
+				((sl_conn.ipv6_addr[1] >> 16) & 0xffff),
+				sl_conn.ipv6_addr[1] & 0xffff,
+				((sl_conn.ipv6_addr[2] >> 16) & 0xffff),
+				sl_conn.ipv6_addr[2] & 0xffff,
+				((sl_conn.ipv6_addr[3] >> 16) & 0xffff),
+				sl_conn.ipv6_addr[3] & 0xffff);
 
-			net_addr_ntop(AF_INET6, sl_conn.ipv6_addr,
-				      ipv6_addr,
-				      sizeof(ipv6_addr));
-			LOG_INF("[NETAPP EVENT] IP Acquired: IPv6= %s",
-				    ipv6_addr);
 		}
 
+		nwp.cb(SIMPLELINK_WIFI_CB_IPV6ACQUIRED, &sl_conn);
 		break;
 
 	case SL_DEVICE_EVENT_DROPPED_NETAPP_IP_LEASED:
@@ -437,6 +461,23 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *netapp_event)
 		LOG_ERR("[NETAPP EVENT] Unexpected event [0x%lx]",
 			netapp_event->Id);
 		break;
+	}
+
+	if ((netapp_event->Id == SL_NETAPP_EVENT_IPV4_ACQUIRED) ||
+		(netapp_event->Id == SL_NETAPP_EVENT_IPV6_ACQUIRED)) {
+		/* Initialize SlNetSock layer for getaddrinfo */
+		SlNetIf_init(0);
+		/*
+		 * We are only using SlNetSock to support getaddrinfo()
+		 * for the WiFi interface, so hardcoding the interface
+		 * id to 1 here.
+		 */
+		SlNetIf_add(SLNETIF_ID_1, SLNET_IF_WIFI_NAME,
+			(const SlNetIf_Config_t *)&slnetifwifi_config_zephyr,
+			SLNET_IF_WIFI_PRIO);
+
+		SlNetSock_init(0);
+		SlNetUtil_init(0);
 	}
 }
 

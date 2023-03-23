@@ -12,12 +12,12 @@
  * for the ti_lm3s6965 platform.
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <soc.h>
 
-#include <arch/cpu.h>
+#include <zephyr/arch/cpu.h>
 
 /**
  *
@@ -30,7 +30,7 @@
  * @return 0
  */
 
-static int ti_lm3s6965_init(struct device *arg)
+static int ti_lm3s6965_init(const struct device *arg)
 {
 	ARG_UNUSED(arg);
 

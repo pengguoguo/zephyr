@@ -17,17 +17,11 @@
 #ifndef _SOC__H_
 #define _SOC__H_
 
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* default system clock */
-
-#define SYSCLK_DEFAULT_IOSC_HZ MHZ(120)
-#define BUSCLK_DEFAULT_IOSC_HZ (SYSCLK_DEFAULT_IOSC_HZ / \
-				CONFIG_K22_BUS_CLOCK_DIVIDER)
 
 /* address bases */
 
@@ -36,9 +30,9 @@ extern "C" {
 #ifndef _ASMLANGUAGE
 
 #include <fsl_common.h>
-#include <device.h>
-#include <sys/util.h>
-#include <random/rand32.h>
+#include <zephyr/device.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/random/rand32.h>
 
 #endif /* !_ASMLANGUAGE */
 

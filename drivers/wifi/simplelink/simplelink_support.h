@@ -8,7 +8,7 @@
 #ifndef ZEPHYR_DRIVERS_WIFI_SIMPLELINK_SIMPLELINK_SUPPORT_H_
 #define ZEPHYR_DRIVERS_WIFI_SIMPLELINK_SIMPLELINK_SUPPORT_H_
 
-#include <net/wifi_mgmt.h>
+#include <zephyr/net/wifi_mgmt.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,7 +19,9 @@ extern "C" {
 
 /* Define ID for simplelink_wifi_cb to not conflict with WLAN event IDs: */
 #define SIMPLELINK_WIFI_CB_IPACQUIRED \
-		(SL_WLAN_EVENT_MAX + SL_DEVICE_EVENT_DROPPED_NETAPP_IPACQUIRED)
+		(SL_WLAN_EVENT_MAX + SL_NETAPP_EVENT_IPV4_ACQUIRED)
+#define SIMPLELINK_WIFI_CB_IPV6ACQUIRED \
+		(SL_WLAN_EVENT_MAX + SL_NETAPP_EVENT_IPV6_ACQUIRED)
 
 struct sl_connect_state {
 	uint32_t gateway_ip;
@@ -42,6 +44,8 @@ extern void z_simplelink_get_mac(unsigned char *mac);
 extern int z_simplelink_init(simplelink_wifi_cb_t wifi_cb);
 extern int z_simplelink_connect(struct wifi_connect_req_params *params);
 extern int z_simplelink_disconnect(void);
+
+int simplelink_socket_create(int family, int type, int proto);
 
 #ifdef __cplusplus
 }

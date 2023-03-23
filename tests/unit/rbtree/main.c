@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <ztest.h>
-#include <sys/rb.h>
+#include <zephyr/ztest.h>
+#include <zephyr/sys/rb.h>
 
 #include "../../../lib/os/rb.c"
 
@@ -20,7 +20,7 @@ static struct rbnode nodes[MAX_NODES];
 /* Bit is set if node is in the tree */
 static unsigned int node_mask[(MAX_NODES + 31)/32];
 
-/* Array of nodes dumed via rb_walk */
+/* Array of nodes dumped via rb_walk */
 static struct rbnode *walked_nodes[MAX_NODES];
 
 /* Node currently being inserted, for testing lessthan() argument order */
@@ -228,7 +228,7 @@ void test_tree(int size)
 	}
 }
 
-void test_rbtree_spam(void)
+ZTEST(rbtree_api, test_rbtree_spam)
 {
 	int size = 1;
 
@@ -245,9 +245,36 @@ void test_rbtree_spam(void)
 	} while (size < MAX_NODES);
 }
 
-void test_main(void)
+/**
+ * @brief Test removing a node with abnormal color.
+ *
+ * @details Initialize a tree and insert it,
+ * and test APIs rb_get_min(), rb_get_max().
+ *
+ * @ingroup lib_rbtree_tests
+ *
+ * @see rb_get_min(), rb_get_max()
+ */
+ZTEST(rbtree_api, test_rb_get_minmax)
 {
-	ztest_test_suite(test_rbtree,
-			 ztest_unit_test(test_rbtree_spam));
-	ztest_run_test_suite(test_rbtree);
+	struct rbnode temp = {0};
+
+	/* Initialize a tree and insert it */
+	(void)memset(&tree, 0, sizeof(tree));
+	tree.lessthan_fn = node_lessthan;
+	(void)memset(nodes, 0, sizeof(nodes));
+
+	zassert_true(rb_get_min(&tree) == NULL, "the tree is invalid");
+
+	for (int i = 0; i < 8; i++) {
+		rb_insert(&tree, &nodes[i]);
+	}
+
+	rb_remove(&tree, &temp);
+
+	/* Check if tree's max and min node are expected */
+	zassert_true(rb_get_min(&tree) == &nodes[0], "the tree is invalid");
+	zassert_true(rb_get_max(&tree) == &nodes[7], "the tree is invalid");
 }
+
+ZTEST_SUITE(rbtree_api, NULL, NULL, NULL, NULL, NULL);

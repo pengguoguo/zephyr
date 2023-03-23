@@ -5,7 +5,7 @@
  */
 
 #include <arm/armv8-a.dtsi>
-#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
 
 #include "viper-common.dtsi"
 
@@ -21,6 +21,19 @@
 		};
 	};
 
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL
+			      IRQ_DEFAULT_PRIORITY>,
+			     <GIC_PPI 14 IRQ_TYPE_LEVEL
+			      IRQ_DEFAULT_PRIORITY>,
+			     <GIC_PPI 11 IRQ_TYPE_LEVEL
+			      IRQ_DEFAULT_PRIORITY>,
+			     <GIC_PPI 10 IRQ_TYPE_LEVEL
+			      IRQ_DEFAULT_PRIORITY>;
+	};
+
 	soc {
 		gic: interrupt-controller@42700000 {
 			compatible = "arm,gic";
@@ -28,24 +41,8 @@
 			      <0x42780000 0x600000>;
 			interrupt-controller;
 			#interrupt-cells = <4>;
-			label = "GIC";
 			status = "okay";
 		};
-
-		arch_timer: timer {
-			compatible = "arm,arm-timer";
-			interrupt-parent = <&gic>;
-			interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL
-				      IRQ_DEFAULT_PRIORITY>,
-				     <GIC_PPI 14 IRQ_TYPE_LEVEL
-				      IRQ_DEFAULT_PRIORITY>,
-				     <GIC_PPI 11 IRQ_TYPE_LEVEL
-				      IRQ_DEFAULT_PRIORITY>,
-				     <GIC_PPI 10 IRQ_TYPE_LEVEL
-				      IRQ_DEFAULT_PRIORITY>;
-			label = "arch_timer";
-		};
-
 	};
 };
 
@@ -57,6 +54,12 @@
 
 &uart1 {
 	interrupt-parent = <&gic>;
-	interrupts = <GIC_SPI 181 IRQ_TYPE_LEVEL
+	interrupts = <GIC_SPI 187 IRQ_TYPE_LEVEL
+		      IRQ_DEFAULT_PRIORITY>;
+};
+
+&paxdma {
+	interrupt-parent = <&gic>;
+	interrupts = <GIC_SPI 212 IRQ_TYPE_LEVEL
 		      IRQ_DEFAULT_PRIORITY>;
 };

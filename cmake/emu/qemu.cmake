@@ -2,6 +2,12 @@
 
 if("${ARCH}" STREQUAL "x86")
   set_ifndef(QEMU_binary_suffix i386)
+elseif("${ARCH}" STREQUAL "mips")
+  if(CONFIG_BIG_ENDIAN)
+    set_ifndef(QEMU_binary_suffix mips)
+  else()
+    set_ifndef(QEMU_binary_suffix mipsel)
+  endif()
 elseif(DEFINED QEMU_ARCH)
   set_ifndef(QEMU_binary_suffix ${QEMU_ARCH})
 else()
@@ -23,9 +29,22 @@ find_program(
   )
 endif()
 
+# We need to set up uefi-run and OVMF environment
+# for testing UEFI method on qemu platforms
+if(CONFIG_QEMU_UEFI_BOOT)
+  find_program(UEFI NAMES uefi-run REQUIRED)
+  if(DEFINED ENV{OVMF_FD_PATH})
+    set(OVMF_FD_PATH $ENV{OVMF_FD_PATH})
+  else()
+    message(FATAL_ERROR "Couldn't find an valid OVMF_FD_PATH.")
+  endif()
+  list(APPEND UEFI -b ${OVMF_FD_PATH} -q ${QEMU})
+  set(QEMU ${UEFI})
+endif()
+
 set(qemu_targets
-  run
-  debugserver
+  run_qemu
+  debugserver_qemu
   )
 
 set(QEMU_FLAGS -pidfile)
@@ -35,6 +54,8 @@ else()
   list(APPEND QEMU_FLAGS qemu${QEMU_INSTANCE}.pid)
 endif()
 
+# If running with sysbuild, we need to ensure this variable is populated
+zephyr_get(QEMU_PIPE)
 # Set up chardev for console.
 if(QEMU_PTY)
   # Redirect console to a pseudo-tty, used for running automated tests.
@@ -51,7 +72,7 @@ endif()
 list(APPEND QEMU_FLAGS -serial chardev:con)
 
 # Connect semihosting console to the console chardev if configured.
-if(CONFIG_SEMIHOST_CONSOLE)
+if(CONFIG_SEMIHOST)
   list(APPEND QEMU_FLAGS
     -semihosting-config enable=on,target=auto,chardev=con
     )
@@ -61,9 +82,15 @@ endif()
 list(APPEND QEMU_FLAGS -mon chardev=con,mode=readline)
 
 if(CONFIG_QEMU_ICOUNT)
-  list(APPEND QEMU_FLAGS
+  if(CONFIG_QEMU_ICOUNT_SLEEP)
+    list(APPEND QEMU_FLAGS
+	  -icount shift=${CONFIG_QEMU_ICOUNT_SHIFT},align=off,sleep=on
+	  -rtc clock=vm)
+  else()
+    list(APPEND QEMU_FLAGS
 	  -icount shift=${CONFIG_QEMU_ICOUNT_SHIFT},align=off,sleep=off
 	  -rtc clock=vm)
+  endif()
 endif()
 
 # Add a BT serial device when building for bluetooth, unless the
@@ -226,17 +253,39 @@ elseif(QEMU_NET_STACK)
     set_ifndef(NET_TOOLS ${ZEPHYR_BASE}/../net-tools) # Default if not set
 
     list(APPEND PRE_QEMU_COMMANDS_FOR_server
-      COMMAND ${NET_TOOLS}/monitor_15_4
-  ${PCAP}
-  /tmp/ip-stack-server
+      COMMAND
+      #This command is run in the background using '&'. This prevents
+      #chaining other commands with '&&'. The command is enclosed in '{}'
+      #to fix this.
+      {
+      ${NET_TOOLS}/monitor_15_4
+      ${PCAP}
+      /tmp/ip-stack-server
       /tmp/ip-stack-client
       > /dev/null &
+      }
       # TODO: Support cleanup of the monitor_15_4 process
       )
   endif()
 endif(QEMU_PIPE_STACK)
 
-if(CONFIG_X86_64)
+if(CONFIG_CAN AND NOT (CONFIG_NIOS2 OR CONFIG_SOC_LEON3))
+  # Add CAN bus 0
+  list(APPEND QEMU_FLAGS -object can-bus,id=canbus0)
+
+  if(NOT "${CONFIG_CAN_QEMU_IFACE_NAME}" STREQUAL "")
+    # Connect CAN bus 0 to host SocketCAN interface
+    list(APPEND QEMU_FLAGS
+      -object can-host-socketcan,id=canhost0,if=${CONFIG_CAN_QEMU_IFACE_NAME},canbus=canbus0)
+  endif()
+
+  if(CONFIG_CAN_KVASER_PCI)
+    # Emulate a single-channel Kvaser PCIcan card connected to CAN bus 0
+    list(APPEND QEMU_FLAGS -device kvaser_pci,canbus=canbus0)
+  endif()
+endif()
+
+if(CONFIG_X86_64 AND NOT CONFIG_QEMU_UEFI_BOOT)
   # QEMU doesn't like 64-bit ELF files. Since we don't use any >4GB
   # addresses, converting it to 32-bit is safe enough for emulation.
   add_custom_target(qemu_image_target
@@ -244,7 +293,7 @@ if(CONFIG_X86_64)
     ${CMAKE_OBJCOPY}
     -O elf32-i386
     $<TARGET_FILE:${logical_target_for_zephyr_elf}>
-    ${CMAKE_BINARY_DIR}/zephyr-qemu.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu.elf
     DEPENDS ${logical_target_for_zephyr_elf}
     )
 
@@ -257,8 +306,8 @@ if(CONFIG_X86_64)
     COMMAND
     ${CMAKE_OBJCOPY}
     -j .locore
-    ${CMAKE_BINARY_DIR}/zephyr-qemu.elf
-    ${CMAKE_BINARY_DIR}/zephyr-qemu-locore.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu-locore.elf
     2>&1 | grep -iv \"empty loadable segment detected\" || true
     DEPENDS qemu_image_target
     )
@@ -267,8 +316,8 @@ if(CONFIG_X86_64)
     COMMAND
     ${CMAKE_OBJCOPY}
     -R .locore
-    ${CMAKE_BINARY_DIR}/zephyr-qemu.elf
-    ${CMAKE_BINARY_DIR}/zephyr-qemu-main.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu.elf
+    ${ZEPHYR_BINARY_DIR}/zephyr-qemu-main.elf
     2>&1 | grep -iv \"empty loadable segment detected\" || true
     DEPENDS qemu_image_target
     )
@@ -278,11 +327,25 @@ if(CONFIG_X86_64)
     DEPENDS qemu_locore_image_target qemu_main_image_target
     )
 
-  set(QEMU_KERNEL_FILE "${CMAKE_BINARY_DIR}/zephyr-qemu-locore.elf")
+  set(QEMU_KERNEL_FILE "${ZEPHYR_BINARY_DIR}/zephyr-qemu-locore.elf")
 
   list(APPEND QEMU_EXTRA_FLAGS
-    "-device;loader,file=${CMAKE_BINARY_DIR}/zephyr-qemu-main.elf"
+    "-device;loader,file=${ZEPHYR_BINARY_DIR}/zephyr-qemu-main.elf"
     )
+endif()
+
+if(CONFIG_IVSHMEM)
+  if(CONFIG_IVSHMEM_DOORBELL)
+    list(APPEND QEMU_FLAGS
+      -device ivshmem-doorbell,vectors=${CONFIG_IVSHMEM_MSI_X_VECTORS},chardev=ivshmem
+      -chardev socket,path=/tmp/ivshmem_socket,id=ivshmem
+    )
+  else()
+    list(APPEND QEMU_FLAGS
+      -device ivshmem-plain,memdev=hostmem
+      -object memory-backend-file,size=${CONFIG_QEMU_IVSHMEM_PLAIN_MEM_SIZE}M,share,mem-path=/dev/shm/ivshmem,id=hostmem
+    )
+  endif()
 endif()
 
 if(NOT QEMU_PIPE)
@@ -292,8 +355,8 @@ endif()
 # Don't just test CONFIG_SMP, there is at least one test of the lower
 # level multiprocessor API that wants an auxiliary CPU but doesn't
 # want SMP using it.
-if(NOT CONFIG_MP_NUM_CPUS MATCHES "1")
-  list(APPEND QEMU_SMP_FLAGS -smp cpus=${CONFIG_MP_NUM_CPUS})
+if(NOT CONFIG_MP_MAX_NUM_CPUS MATCHES "1")
+  list(APPEND QEMU_SMP_FLAGS -smp cpus=${CONFIG_MP_MAX_NUM_CPUS})
 endif()
 
 # Use flags passed in from the environment
@@ -301,13 +364,20 @@ set(env_qemu $ENV{QEMU_EXTRA_FLAGS})
 separate_arguments(env_qemu)
 list(APPEND QEMU_EXTRA_FLAGS ${env_qemu})
 
-list(APPEND MORE_FLAGS_FOR_debugserver -s -S)
+list(APPEND MORE_FLAGS_FOR_debugserver_qemu -S)
+
+if(NOT CONFIG_QEMU_GDBSERVER_LISTEN_DEV STREQUAL "")
+  list(APPEND MORE_FLAGS_FOR_debugserver_qemu -gdb "${CONFIG_QEMU_GDBSERVER_LISTEN_DEV}")
+endif()
 
 # Architectures can define QEMU_KERNEL_FILE to use a specific output
 # file to pass to qemu (and a "qemu_kernel_target" target to generate
 # it), or set QEMU_KERNEL_OPTION if they want to replace the "-kernel
 # ..." option entirely.
-if(DEFINED QEMU_KERNEL_FILE)
+if(CONFIG_QEMU_UEFI_BOOT)
+  set(QEMU_UEFI_OPTION  ${PROJECT_BINARY_DIR}/${CONFIG_KERNEL_BIN_NAME}.efi)
+  list(APPEND QEMU_UEFI_OPTION --)
+elseif(DEFINED QEMU_KERNEL_FILE)
   set(QEMU_KERNEL_OPTION "-kernel;${QEMU_KERNEL_FILE}")
 elseif(NOT DEFINED QEMU_KERNEL_OPTION)
   set(QEMU_KERNEL_OPTION "-kernel;$<TARGET_FILE:${logical_target_for_zephyr_elf}>")
@@ -321,6 +391,7 @@ foreach(target ${qemu_targets})
     ${PRE_QEMU_COMMANDS_FOR_${target}}
     COMMAND
     ${QEMU}
+    ${QEMU_UEFI_OPTION}
     ${QEMU_FLAGS_${ARCH}}
     ${QEMU_FLAGS}
     ${QEMU_EXTRA_FLAGS}

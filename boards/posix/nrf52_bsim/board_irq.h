@@ -8,16 +8,19 @@
 #ifndef BOARDS_POSIX_NRF52_BSIM_BOARD_IRQ_H
 #define BOARDS_POSIX_NRF52_BSIM_BOARD_IRQ_H
 
-#include "sw_isr_table.h"
+#include <zephyr/sw_isr_table.h>
 #include "zephyr/types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void posix_isr_declare(unsigned int irq_p, int flags, void isr_p(void *),
-		       void *isr_param_p);
-void posix_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags);
+void posix_isr_declare(unsigned int irq_p, int flags, void isr_p(const void *),
+		       const void *isr_param_p);
+void posix_irq_priority_set(unsigned int irq, unsigned int prio,
+			    uint32_t flags);
+void nrfbsim_WFE_model(void);
+void nrfbsim_SEV_model(void);
 
 /**
  * Configure a static interrupt.
@@ -42,8 +45,8 @@ void posix_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
  */
 #define ARCH_IRQ_DIRECT_CONNECT(irq_p, priority_p, isr_p, flags_p) \
 { \
-	posix_isr_declare(irq_p, ISR_FLAG_DIRECT, (void (*)(void *))isr_p, \
-			  NULL); \
+	posix_isr_declare(irq_p, ISR_FLAG_DIRECT, \
+			  (void (*)(const void *))isr_p, NULL); \
 	posix_irq_priority_set(irq_p, priority_p, flags_p); \
 }
 
@@ -69,15 +72,17 @@ void posix_irq_priority_set(unsigned int irq, unsigned int prio, uint32_t flags)
 	} \
 	static inline int name##_body(void)
 
-#define ARCH_ISR_DIRECT_HEADER()   do { } while (0)
-#define ARCH_ISR_DIRECT_FOOTER(a)  do { } while (0)
+#define ARCH_ISR_DIRECT_HEADER()   do { } while (false)
+#define ARCH_ISR_DIRECT_FOOTER(a)  do { } while (false)
 
-#ifdef CONFIG_SYS_POWER_MANAGEMENT
+#ifdef CONFIG_PM
 extern void posix_irq_check_idle_exit(void);
 #define ARCH_ISR_DIRECT_PM() posix_irq_check_idle_exit()
 #else
-#define ARCH_ISR_DIRECT_PM() do { } while (0)
+#define ARCH_ISR_DIRECT_PM() do { } while (false)
 #endif
+
+#define IRQ_ZERO_LATENCY	BIT(1) /* Unused in this board*/
 
 #ifdef __cplusplus
 }

@@ -12,19 +12,20 @@
  * - no link monitoring through PHY interrupt
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(eth_gecko, CONFIG_ETHERNET_LOG_LEVEL);
 
 #include <soc.h>
-#include <device.h>
-#include <init.h>
-#include <kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <errno.h>
-#include <net/net_pkt.h>
-#include <net/net_if.h>
-#include <net/ethernet.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/ethernet.h>
 #include <ethernet/eth_stats.h>
 #include <em_cmu.h>
+#include <zephyr/irq.h>
 
 #include "phy_gecko.h"
 #include "eth_gecko_priv.h"
@@ -63,9 +64,9 @@ static void link_configure(ETH_TypeDef *eth, uint32_t flags)
 	eth->NETWORKCTRL |= (ETH_NETWORKCTRL_ENBTX | ETH_NETWORKCTRL_ENBRX);
 }
 
-static void eth_gecko_setup_mac(struct device *dev)
+static void eth_gecko_setup_mac(const struct device *dev)
 {
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 	uint32_t link_status;
 	int result;
@@ -134,10 +135,10 @@ static void rx_error_handler(ETH_TypeDef *eth)
 	ETH_RX_ENABLE(eth);
 }
 
-static struct net_pkt *frame_get(struct device *dev)
+static struct net_pkt *frame_get(const struct device *dev)
 {
-	struct eth_gecko_dev_data *const dev_data = DEV_DATA(dev);
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	struct eth_gecko_dev_data *const dev_data = dev->data;
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 	struct net_pkt *rx_frame = NULL;
 	uint16_t frag_len, total_len;
@@ -148,7 +149,7 @@ static struct net_pkt *frame_get(struct device *dev)
 	__ASSERT_NO_MSG(dev_data != NULL);
 	__ASSERT_NO_MSG(cfg != NULL);
 
-	/* Preset indeces and total frame length */
+	/* Preset indices and total frame length */
 	sofIdx = UINT32_MAX;
 	eofIdx = UINT32_MAX;
 	total_len = 0;
@@ -234,9 +235,9 @@ static struct net_pkt *frame_get(struct device *dev)
 	return rx_frame;
 }
 
-static void eth_rx(struct device *dev)
+static void eth_rx(const struct device *dev)
 {
-	struct eth_gecko_dev_data *const dev_data = DEV_DATA(dev);
+	struct eth_gecko_dev_data *const dev_data = dev->data;
 	struct net_pkt *rx_frame;
 	int res = 0;
 
@@ -260,10 +261,10 @@ static void eth_rx(struct device *dev)
 	}
 }
 
-static int eth_tx(struct device *dev, struct net_pkt *pkt)
+static int eth_tx(const struct device *dev, struct net_pkt *pkt)
 {
-	struct eth_gecko_dev_data *const dev_data = DEV_DATA(dev);
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	struct eth_gecko_dev_data *const dev_data = dev->data;
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 	uint16_t total_len;
 	uint8_t *dma_buffer;
@@ -324,9 +325,9 @@ error:
 
 static void rx_thread(void *arg1, void *unused1, void *unused2)
 {
-	struct device *dev = (struct device *)arg1;
-	struct eth_gecko_dev_data *const dev_data = DEV_DATA(dev);
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct device *dev = (const struct device *)arg1;
+	struct eth_gecko_dev_data *const dev_data = dev->data;
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	int res;
 
 	__ASSERT_NO_MSG(arg1 != NULL);
@@ -367,11 +368,10 @@ static void rx_thread(void *arg1, void *unused1, void *unused2)
 	}
 }
 
-static void eth_isr(void *arg)
+static void eth_isr(const struct device *dev)
 {
-	struct device *dev = (struct device *)arg;
-	struct eth_gecko_dev_data *const dev_data = DEV_DATA(dev);
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	struct eth_gecko_dev_data *const dev_data = dev->data;
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 	uint32_t int_clr = 0;
 	uint32_t int_stat = eth->IFCR;
@@ -381,7 +381,6 @@ static void eth_isr(void *arg)
 				ETH_IENS_AMBAERR);
 	uint32_t rx_irq_mask = (ETH_IENS_RXCMPLT | ETH_IENS_RXUSEDBITREAD);
 
-	__ASSERT_NO_MSG(arg != NULL);
 	__ASSERT_NO_MSG(dev_data != NULL);
 	__ASSERT_NO_MSG(cfg != NULL);
 
@@ -421,7 +420,7 @@ static void eth_isr(void *arg)
 	eth->IFCR = int_clr;
 }
 
-static void eth_init_clocks(struct device *dev)
+static void eth_init_clocks(const struct device *dev)
 {
 	__ASSERT_NO_MSG(dev != NULL);
 
@@ -429,9 +428,9 @@ static void eth_init_clocks(struct device *dev)
 	CMU_ClockEnable(cmuClock_ETH, true);
 }
 
-static void eth_init_pins(struct device *dev)
+static void eth_init_pins(const struct device *dev)
 {
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 	uint32_t idx;
 
@@ -442,8 +441,10 @@ static void eth_init_pins(struct device *dev)
 	eth->ROUTEPEN = 0;
 
 #if DT_INST_NODE_HAS_PROP(0, location_rmii)
-	for (idx = 0; idx < ARRAY_SIZE(cfg->pin_list->rmii); idx++)
-		soc_gpio_configure(&cfg->pin_list->rmii[idx]);
+	for (idx = 0; idx < ARRAY_SIZE(cfg->pin_list->rmii); idx++) {
+		GPIO_PinModeSet(cfg->pin_list->rmii[idx].port, cfg->pin_list->rmii[idx].pin,
+				cfg->pin_list->rmii[idx].mode, cfg->pin_list->rmii[idx].out);
+	}
 
 	eth->ROUTELOC1 |= (DT_INST_PROP(0, location_rmii) <<
 			   _ETH_ROUTELOC1_RMIILOC_SHIFT);
@@ -451,8 +452,10 @@ static void eth_init_pins(struct device *dev)
 #endif
 
 #if DT_INST_NODE_HAS_PROP(0, location_mdio)
-	for (idx = 0; idx < ARRAY_SIZE(cfg->pin_list->mdio); idx++)
-		soc_gpio_configure(&cfg->pin_list->mdio[idx]);
+	for (idx = 0; idx < ARRAY_SIZE(cfg->pin_list->mdio); idx++) {
+		GPIO_PinModeSet(cfg->pin_list->mdio[idx].port, cfg->pin_list->mdio[idx].pin,
+				cfg->pin_list->mdio[idx].mode, cfg->pin_list->mdio[idx].out);
+	}
 
 	eth->ROUTELOC1 |= (DT_INST_PROP(0, location_mdio) <<
 			   _ETH_ROUTELOC1_MDIOLOC_SHIFT);
@@ -461,9 +464,9 @@ static void eth_init_pins(struct device *dev)
 
 }
 
-static int eth_init(struct device *dev)
+static int eth_init(const struct device *dev)
 {
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 
 	__ASSERT_NO_MSG(dev != NULL);
@@ -483,7 +486,7 @@ static int eth_init(struct device *dev)
 	/* Connect and enable IRQ */
 	cfg->config_func();
 
-	LOG_INF("Device %s initialized", DEV_NAME(dev));
+	LOG_INF("Device %s initialized", dev->name);
 
 	return 0;
 }
@@ -492,14 +495,21 @@ static void generate_mac(uint8_t mac_addr[6])
 {
 #if DT_INST_PROP(0, zephyr_random_mac_address)
 	gen_random_mac(mac_addr, SILABS_OUI_B0, SILABS_OUI_B1, SILABS_OUI_B2);
+#elif !NODE_HAS_VALID_MAC_ADDR(DT_DRV_INST(0))
+	mac_addr[0] = DEVINFO->EUI48H >> 8;
+	mac_addr[1] = DEVINFO->EUI48H >> 0;
+	mac_addr[2] = DEVINFO->EUI48L >> 24;
+	mac_addr[3] = DEVINFO->EUI48L >> 16;
+	mac_addr[4] = DEVINFO->EUI48L >> 8;
+	mac_addr[5] = DEVINFO->EUI48L >> 0;
 #endif
 }
 
 static void eth_iface_init(struct net_if *iface)
 {
-	struct device *const dev = net_if_get_device(iface);
-	struct eth_gecko_dev_data *const dev_data = DEV_DATA(dev);
-	const struct eth_gecko_dev_cfg *const cfg = DEV_CFG(dev);
+	const struct device *dev = net_if_get_device(iface);
+	struct eth_gecko_dev_data *const dev_data = dev->data;
+	const struct eth_gecko_dev_cfg *const cfg = dev->config;
 	ETH_TypeDef *eth = cfg->regs;
 	int result;
 
@@ -514,7 +524,7 @@ static void eth_iface_init(struct net_if *iface)
 	dev_data->link_up = false;
 	ethernet_init(iface);
 
-	net_if_flag_set(iface, NET_IF_NO_AUTO_START);
+	net_if_carrier_off(iface);
 
 	/* Generate MAC address, possibly used for filtering */
 	generate_mac(dev_data->mac_addr);
@@ -607,17 +617,17 @@ static void eth_iface_init(struct net_if *iface)
 
 	/* Initialise TX/RX semaphores */
 	k_sem_init(&dev_data->tx_sem, 1, ETH_TX_BUF_COUNT);
-	k_sem_init(&dev_data->rx_sem, 0, UINT_MAX);
+	k_sem_init(&dev_data->rx_sem, 0, K_SEM_MAX_LIMIT);
 
 	/* Start interruption-poll thread */
 	k_thread_create(&dev_data->rx_thread, dev_data->rx_thread_stack,
-			K_THREAD_STACK_SIZEOF(dev_data->rx_thread_stack),
+			K_KERNEL_STACK_SIZEOF(dev_data->rx_thread_stack),
 			rx_thread, (void *) dev, NULL, NULL,
 			K_PRIO_COOP(CONFIG_ETH_GECKO_RX_THREAD_PRIO),
 			0, K_NO_WAIT);
 }
 
-static enum ethernet_hw_caps eth_gecko_get_capabilities(struct device *dev)
+static enum ethernet_hw_caps eth_gecko_get_capabilities(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 
@@ -631,13 +641,11 @@ static const struct ethernet_api eth_api = {
 	.send = eth_tx,
 };
 
-DEVICE_DECLARE(eth_gecko);
-
 static void eth0_irq_config(void)
 {
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority), eth_isr,
-		    DEVICE_GET(eth_gecko), 0);
+		    DEVICE_DT_INST_GET(0), 0);
 	irq_enable(DT_INST_IRQN(0));
 }
 
@@ -664,6 +672,6 @@ static struct eth_gecko_dev_data eth0_data = {
 #endif
 };
 
-ETH_NET_DEVICE_INIT(eth_gecko, CONFIG_ETH_GECKO_NAME, eth_init,
-		    device_pm_control_nop, &eth0_data, &eth0_config,
+ETH_NET_DEVICE_DT_INST_DEFINE(0, eth_init,
+		    NULL, &eth0_data, &eth0_config,
 		    CONFIG_ETH_INIT_PRIORITY, &eth_api, ETH_GECKO_MTU);

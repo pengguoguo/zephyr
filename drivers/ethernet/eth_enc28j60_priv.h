@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
-#include <drivers/gpio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/spi.h>
 
 #ifndef _ENC28J60_
 #define _ENC28J60_
@@ -153,6 +154,7 @@
 #define ENC28J60_BIT_EIR_PKTIF     (0x40)
 #define ENC28J60_BIT_EIE_TXIE      (0x08)
 #define ENC28J60_BIT_EIE_PKTIE     (0x40)
+#define ENC28J60_BIT_EIE_LINKIE    (0x10)
 #define ENC28J60_BIT_EIE_INTIE     (0x80)
 #define ENC28J60_BIT_EIR_PKTIF     (0x40)
 #define ENC28J60_BIT_EIR_DMAIF     (0x20)
@@ -165,6 +167,9 @@
 #define ENC28J60_BIT_ESTAT_LATECOL (0x10)
 #define ENC28J60_BIT_PHCON1_PDPXMD (0x0100)
 #define ENC28J60_BIT_PHCON2_HDLDIS (0x0001)
+#define ENC28J60_BIT_PHSTAT2_LSTAT (0x0400)
+#define ENC28J60_BIT_PHIE_PGEIE    (0x0002)
+#define ENC28J60_BIT_PHIE_PLNKIE   (0x0010)
 
 /* Driver Static Configuration */
 
@@ -214,31 +219,22 @@
 #define MAX_BUFFER_LENGTH 128
 
 struct eth_enc28j60_config {
-	const char *gpio_port;
-	uint8_t gpio_pin;
-	gpio_dt_flags_t gpio_flags;
-	const char *spi_port;
-	uint8_t spi_cs_pin;
-	const char *spi_cs_port;
-	uint32_t spi_freq;
-	uint8_t spi_slave;
+	struct spi_dt_spec spi;
+	struct gpio_dt_spec interrupt;
 	uint8_t full_duplex;
 	int32_t timeout;
 };
 
 struct eth_enc28j60_runtime {
 	struct net_if *iface;
-	K_THREAD_STACK_MEMBER(thread_stack,
+	K_KERNEL_STACK_MEMBER(thread_stack,
 			      CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE);
 	struct k_thread thread;
 	uint8_t mac_address[6];
-	struct device *gpio;
-	struct device *spi;
-	struct spi_cs_control spi_cs;
-	struct spi_config spi_cfg;
 	struct gpio_callback gpio_cb;
 	struct k_sem tx_rx_sem;
 	struct k_sem int_sem;
+	bool iface_initialized : 1;
 };
 
 #endif /*_ENC28J60_*/

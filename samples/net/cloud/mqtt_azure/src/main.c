@@ -4,14 +4,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(mqtt_azure, LOG_LEVEL_DBG);
 
-#include <zephyr.h>
-#include <net/socket.h>
-#include <net/mqtt.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/net/mqtt.h>
 
-#include <sys/printk.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/random/rand32.h>
 #include <string.h>
 #include <errno.h>
 
@@ -33,14 +34,14 @@ static struct sockaddr socks5_proxy;
 #endif
 
 /* Socket Poll */
-static struct pollfd fds[1];
+static struct zsock_pollfd fds[1];
 static int nfds;
 
 static bool mqtt_connected;
 
-static struct k_delayed_work pub_message;
+static struct k_work_delayable pub_message;
 #if defined(CONFIG_NET_DHCPV4)
-static struct k_delayed_work check_network_conn;
+static struct k_work_delayable check_network_conn;
 
 /* Network Management events */
 #define L4_EVENT_MASK (NET_EVENT_L4_CONNECTED | NET_EVENT_L4_DISCONNECTED)
@@ -49,8 +50,8 @@ static struct net_mgmt_event_callback l4_mgmt_cb;
 #endif
 
 #if defined(CONFIG_DNS_RESOLVER)
-static struct addrinfo hints;
-static struct addrinfo *haddr;
+static struct zsock_addrinfo hints;
+static struct zsock_addrinfo *haddr;
 #endif
 
 static K_SEM_DEFINE(mqtt_start, 0, 1);
@@ -107,7 +108,7 @@ static int wait(int timeout)
 		return rc;
 	}
 
-	rc = poll(fds, nfds, timeout);
+	rc = zsock_poll(fds, nfds, timeout);
 	if (rc < 0) {
 		LOG_ERR("poll error: %d", errno);
 		return -errno;
@@ -127,7 +128,7 @@ static void broker_init(void)
 	net_ipaddr_copy(&broker4->sin_addr,
 			&net_sin(haddr->ai_addr)->sin_addr);
 #else
-	inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
+	zsock_inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
 #endif
 
 #if defined(CONFIG_SOCKS)
@@ -135,7 +136,7 @@ static void broker_init(void)
 
 	proxy4->sin_family = AF_INET;
 	proxy4->sin_port = htons(SOCKS5_PROXY_PORT);
-	inet_pton(AF_INET, SOCKS5_PROXY_ADDR, &proxy4->sin_addr);
+	zsock_inet_pton(AF_INET, SOCKS5_PROXY_ADDR, &proxy4->sin_addr);
 #endif
 }
 
@@ -254,7 +255,7 @@ static void mqtt_event_handler(struct mqtt_client *const client,
 			}
 
 			data[bytes_read] = '\0';
-			LOG_INF("   payload: %s", log_strdup(data));
+			LOG_INF("   payload: %s", data);
 			len -= bytes_read;
 		}
 
@@ -342,7 +343,7 @@ static void publish_timeout(struct k_work *work)
 
 	LOG_DBG("mqtt_publish OK");
 end:
-	k_delayed_work_submit(&pub_message, K_SECONDS(timeout_for_publish()));
+	k_work_reschedule(&pub_message, K_SECONDS(timeout_for_publish()));
 }
 
 static int try_to_connect(struct mqtt_client *client)
@@ -373,8 +374,8 @@ static int try_to_connect(struct mqtt_client *client)
 
 		if (mqtt_connected) {
 			subscribe(client);
-			k_delayed_work_submit(&pub_message,
-					      K_SECONDS(timeout_for_publish()));
+			k_work_reschedule(&pub_message,
+					  K_SECONDS(timeout_for_publish()));
 			return 0;
 		}
 
@@ -397,8 +398,8 @@ static int get_mqtt_broker_addrinfo(void)
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_protocol = 0;
 
-		rc = getaddrinfo(CONFIG_SAMPLE_CLOUD_AZURE_HOSTNAME, "8883",
-				 &hints, &haddr);
+		rc = zsock_getaddrinfo(CONFIG_SAMPLE_CLOUD_AZURE_HOSTNAME, "8883",
+				       &hints, &haddr);
 		if (rc == 0) {
 			LOG_INF("DNS resolved for %s:%d",
 			CONFIG_SAMPLE_CLOUD_AZURE_HOSTNAME,
@@ -470,7 +471,7 @@ static void check_network_connection(struct k_work *work)
 	LOG_INF("waiting for DHCP to acquire addr");
 
 end:
-	k_delayed_work_submit(&check_network_conn, K_SECONDS(3));
+	k_work_reschedule(&check_network_conn, K_SECONDS(3));
 }
 #endif
 
@@ -480,7 +481,7 @@ static void abort_mqtt_connection(void)
 	if (mqtt_connected) {
 		mqtt_connected = false;
 		mqtt_abort(&client_ctx);
-		k_delayed_work_cancel(&pub_message);
+		k_work_cancel_delayable(&pub_message);
 	}
 }
 
@@ -493,14 +494,14 @@ static void l4_event_handler(struct net_mgmt_event_callback *cb,
 
 	if (mgmt_event == NET_EVENT_L4_CONNECTED) {
 		/* Wait for DHCP to be back in BOUND state */
-		k_delayed_work_submit(&check_network_conn, K_SECONDS(3));
+		k_work_reschedule(&check_network_conn, K_SECONDS(3));
 
 		return;
 	}
 
 	if (mgmt_event == NET_EVENT_L4_DISCONNECTED) {
 		abort_mqtt_connection();
-		k_delayed_work_cancel(&check_network_conn);
+		k_work_cancel_delayable(&check_network_conn);
 
 		return;
 	}
@@ -518,10 +519,10 @@ void main(void)
 		return;
 	}
 
-	k_delayed_work_init(&pub_message, publish_timeout);
+	k_work_init_delayable(&pub_message, publish_timeout);
 
 #if defined(CONFIG_NET_DHCPV4)
-	k_delayed_work_init(&check_network_conn, check_network_connection);
+	k_work_init_delayable(&check_network_conn, check_network_connection);
 
 	net_mgmt_init_event_callback(&l4_mgmt_cb, l4_event_handler,
 				     L4_EVENT_MASK);

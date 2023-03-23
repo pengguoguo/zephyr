@@ -6,26 +6,25 @@
 
 #define DT_DRV_COMPAT adi_adt7420
 
-#include <device.h>
-#include <drivers/i2c.h>
-#include <sys/byteorder.h>
-#include <sys/util.h>
-#include <kernel.h>
-#include <drivers/sensor.h>
-#include <sys/__assert.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/sys/__assert.h>
 
 #include "adt7420.h"
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ADT7420, CONFIG_SENSOR_LOG_LEVEL);
 
-static int adt7420_temp_reg_read(struct device *dev, uint8_t reg, int16_t *val)
+static int adt7420_temp_reg_read(const struct device *dev, uint8_t reg,
+				 int16_t *val)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	const struct adt7420_dev_config *cfg = dev->config;
 
-	if (i2c_burst_read(drv_data->i2c, cfg->i2c_addr,
-			   reg, (uint8_t *) val, 2) < 0) {
+	if (i2c_burst_read_dt(&cfg->i2c, reg, (uint8_t *) val, 2) < 0) {
 		return -EIO;
 	}
 
@@ -34,22 +33,21 @@ static int adt7420_temp_reg_read(struct device *dev, uint8_t reg, int16_t *val)
 	return 0;
 }
 
-static int adt7420_temp_reg_write(struct device *dev, uint8_t reg, int16_t val)
+static int adt7420_temp_reg_write(const struct device *dev, uint8_t reg,
+				  int16_t val)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	const struct adt7420_dev_config *cfg = dev->config;
 	uint8_t buf[3] = {reg, val >> 8, val & 0xFF};
 
-	return i2c_write(drv_data->i2c, buf, sizeof(buf), cfg->i2c_addr);
+	return i2c_write_dt(&cfg->i2c, buf, sizeof(buf));
 }
 
-static int adt7420_attr_set(struct device *dev,
-			   enum sensor_channel chan,
-			   enum sensor_attribute attr,
-			   const struct sensor_value *val)
+static int adt7420_attr_set(const struct device *dev,
+			    enum sensor_channel chan,
+			    enum sensor_attribute attr,
+			    const struct sensor_value *val)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	const struct adt7420_dev_config *cfg = dev->config;
 	uint8_t val8, reg = 0U;
 	uint16_t rate;
 	int64_t value;
@@ -73,10 +71,10 @@ static int adt7420_attr_set(struct device *dev,
 			return -EINVAL;
 		}
 
-		if (i2c_reg_update_byte(drv_data->i2c, cfg->i2c_addr,
-					ADT7420_REG_CONFIG,
-					ADT7420_CONFIG_OP_MODE(~0),
-					ADT7420_CONFIG_OP_MODE(val8)) < 0) {
+		if (i2c_reg_update_byte_dt(&cfg->i2c,
+					   ADT7420_REG_CONFIG,
+					   ADT7420_CONFIG_OP_MODE(~0),
+					   ADT7420_CONFIG_OP_MODE(val8)) < 0) {
 			LOG_DBG("Failed to set attribute!");
 			return -EIO;
 		}
@@ -84,7 +82,7 @@ static int adt7420_attr_set(struct device *dev,
 		return 0;
 	case SENSOR_ATTR_UPPER_THRESH:
 		reg = ADT7420_REG_T_HIGH_MSB;
-		/* Fallthrough */
+		__fallthrough;
 	case SENSOR_ATTR_LOWER_THRESH:
 		if (!reg) {
 			reg = ADT7420_REG_T_LOW_MSB;
@@ -110,9 +108,10 @@ static int adt7420_attr_set(struct device *dev,
 	return 0;
 }
 
-static int adt7420_sample_fetch(struct device *dev, enum sensor_channel chan)
+static int adt7420_sample_fetch(const struct device *dev,
+				enum sensor_channel chan)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
+	struct adt7420_data *drv_data = dev->data;
 	int16_t value;
 
 	__ASSERT_NO_MSG(chan == SENSOR_CHAN_ALL ||
@@ -127,11 +126,11 @@ static int adt7420_sample_fetch(struct device *dev, enum sensor_channel chan)
 	return 0;
 }
 
-static int adt7420_channel_get(struct device *dev,
-		enum sensor_channel chan,
-		struct sensor_value *val)
+static int adt7420_channel_get(const struct device *dev,
+			       enum sensor_channel chan,
+			       struct sensor_value *val)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
+	struct adt7420_data *drv_data = dev->data;
 	int32_t value;
 
 	if (chan != SENSOR_CHAN_AMBIENT_TEMP) {
@@ -154,15 +153,13 @@ static const struct sensor_driver_api adt7420_driver_api = {
 #endif
 };
 
-static int adt7420_probe(struct device *dev)
+static int adt7420_probe(const struct device *dev)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	const struct adt7420_dev_config *cfg = dev->config;
 	uint8_t value;
 	int ret;
 
-	ret = i2c_reg_read_byte(drv_data->i2c, cfg->i2c_addr,
-				ADT7420_REG_ID, &value);
+	ret = i2c_reg_read_byte_dt(&cfg->i2c, ADT7420_REG_ID, &value);
 	if (ret) {
 		return ret;
 	}
@@ -171,15 +168,15 @@ static int adt7420_probe(struct device *dev)
 		return -ENODEV;
 	}
 
-	ret = i2c_reg_write_byte(drv_data->i2c, cfg->i2c_addr,
+	ret = i2c_reg_write_byte_dt(&cfg->i2c,
 			ADT7420_REG_CONFIG, ADT7420_CONFIG_RESOLUTION |
 			ADT7420_CONFIG_OP_MODE(ADT7420_OP_MODE_CONT_CONV));
 	if (ret) {
 		return ret;
 	}
 
-	ret = i2c_reg_write_byte(drv_data->i2c, cfg->i2c_addr,
-				 ADT7420_REG_HIST, CONFIG_ADT7420_TEMP_HYST);
+	ret = i2c_reg_write_byte_dt(&cfg->i2c,
+				    ADT7420_REG_HIST, CONFIG_ADT7420_TEMP_HYST);
 	if (ret) {
 		return ret;
 	}
@@ -191,42 +188,42 @@ static int adt7420_probe(struct device *dev)
 	}
 
 #ifdef CONFIG_ADT7420_TRIGGER
-	if (adt7420_init_interrupt(dev) < 0) {
-		LOG_ERR("Failed to initialize interrupt!");
-		return -EIO;
+	if (cfg->int_gpio.port) {
+		ret = adt7420_init_interrupt(dev);
+		if (ret < 0) {
+			LOG_ERR("Failed to initialize interrupt!");
+			return ret;
+		}
 	}
 #endif
 
 	return 0;
 }
 
-static int adt7420_init(struct device *dev)
+static int adt7420_init(const struct device *dev)
 {
-	struct adt7420_data *drv_data = dev->driver_data;
-	const struct adt7420_dev_config *cfg = dev->config_info;
+	const struct adt7420_dev_config *cfg = dev->config;
 
-	drv_data->i2c = device_get_binding(cfg->i2c_port);
-	if (drv_data->i2c == NULL) {
-		LOG_DBG("Failed to get pointer to %s device!",
-			    cfg->i2c_port);
+	if (!device_is_ready(cfg->i2c.bus)) {
+		LOG_ERR("Bus device is not ready");
 		return -EINVAL;
 	}
 
 	return adt7420_probe(dev);
 }
 
-static struct adt7420_data adt7420_driver;
+#define ADT7420_DEFINE(inst)								\
+	static struct adt7420_data adt7420_data_##inst;					\
+											\
+	static const struct adt7420_dev_config adt7420_config_##inst = {		\
+		.i2c = I2C_DT_SPEC_INST_GET(inst),					\
+											\
+	IF_ENABLED(CONFIG_ADT7420_TRIGGER,						\
+		   (.int_gpio = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, { 0 }),))	\
+	};										\
+											\
+	SENSOR_DEVICE_DT_INST_DEFINE(inst, adt7420_init, NULL, &adt7420_data_##inst,	\
+			      &adt7420_config_##inst, POST_KERNEL,			\
+			      CONFIG_SENSOR_INIT_PRIORITY, &adt7420_driver_api);	\
 
-static const struct adt7420_dev_config adt7420_config = {
-	.i2c_port = DT_INST_BUS_LABEL(0),
-	.i2c_addr = DT_INST_REG_ADDR(0),
-#ifdef CONFIG_ADT7420_TRIGGER
-	.int_pin = DT_INST_GPIO_PIN(0, int_gpios),
-	.int_flags = DT_INST_GPIO_FLAGS(0, int_gpios),
-	.int_name = DT_INST_GPIO_LABEL(0, int_gpios),
-#endif
-};
-
-DEVICE_AND_API_INIT(adt7420, DT_INST_LABEL(0), adt7420_init, &adt7420_driver,
-		    &adt7420_config, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
-		    &adt7420_driver_api);
+DT_INST_FOREACH_STATUS_OKAY(ADT7420_DEFINE)

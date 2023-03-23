@@ -13,14 +13,14 @@ SDHC controller.
 Requirements
 ************
 
-This project requires a SDHC or microSD card formatted with FAT filesystem.
-See the :ref:`sdhc_api` documentation for Zephyr implementation details.
+This project requires SD card support and microSD card formatted with FAT filesystem.
+See the :ref:`disk_access_api` documentation for Zephyr implementation details.
 
 Building and Running
 ********************
 
 This sample can be built for a variety of boards, including ``nrf52840_blip``,
-``mimxrt1050_evk``, and ``olimexino_stm32``.
+``mimxrt1050_evk``, ``olimexino_stm32``, ``esp_wrover_kit`` and ``arduino_mkrzero``.
 
 .. zephyr-app-commands::
    :zephyr-app: samples/subsys/fs/fat_fs

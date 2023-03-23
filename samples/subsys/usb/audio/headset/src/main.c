@@ -9,10 +9,10 @@
  * @brief Sample app for Audio class
  */
 
-#include <zephyr.h>
-#include <logging/log.h>
-#include <usb/usb_device.h>
-#include <usb/class/usb_audio.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/usb/class/usb_audio.h>
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -40,7 +40,7 @@ static void data_received(const struct device *dev,
 	}
 }
 
-static void feature_update(struct device *dev,
+static void feature_update(const struct device *dev,
 			   const struct usb_audio_fu_evt *evt)
 {
 	LOG_DBG("Control selector %d for channel %d updated",
@@ -59,16 +59,18 @@ static const struct usb_audio_ops ops = {
 
 void main(void)
 {
-	struct device *hs_dev;
+	const struct device *hs_dev;
 	int ret;
 
 	LOG_INF("Entered %s", __func__);
-	hs_dev = device_get_binding("HEADSET");
+	hs_dev = DEVICE_DT_GET_ONE(usb_audio_hs);
 
-	if (!hs_dev) {
-		LOG_ERR("Can not get USB Headset Device");
+	if (!device_is_ready(hs_dev)) {
+		LOG_ERR("Device USB Headset is not ready");
 		return;
 	}
+
+	LOG_INF("Found USB Headset Device");
 
 	usb_audio_register(hs_dev, &ops);
 
@@ -77,4 +79,6 @@ void main(void)
 		LOG_ERR("Failed to enable USB");
 		return;
 	}
+
+	LOG_INF("USB enabled");
 }

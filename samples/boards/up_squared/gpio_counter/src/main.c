@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 
 #include <board.h>
 #include <soc.h>
-#include <drivers/gpio.h>
+#include <zephyr/drivers/gpio.h>
 
-#include <sys/printk.h>
-#include <sys/util.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
 
 /**
  * @file
@@ -40,37 +40,36 @@
 struct _pin {
 	uint32_t		hat_num;
 	uint32_t		pin;
-	const char	*gpio_dev_name;
-	struct device	*gpio_dev;
+	const struct device *gpio_dev;
 };
 
 struct _pin counter_pins[] = {
 	{
 		.hat_num = 35,
 		.pin = UP2_HAT_PIN_35,
-		.gpio_dev_name = UP2_HAT_PIN_35_DEV,
+		.gpio_dev = DEVICE_DT_GET(UP2_HAT_PIN_35_DEV),
 	},
 	{
 		.hat_num = 37,
 		.pin = UP2_HAT_PIN_37,
-		.gpio_dev_name = UP2_HAT_PIN_37_DEV,
+		.gpio_dev = DEVICE_DT_GET(UP2_HAT_PIN_37_DEV),
 	},
 	{
 		.hat_num = 38,
 		.pin = UP2_HAT_PIN_38,
-		.gpio_dev_name = UP2_HAT_PIN_38_DEV,
+		.gpio_dev = DEVICE_DT_GET(UP2_HAT_PIN_38_DEV),
 	},
 	{
 		.hat_num = 40,
 		.pin = UP2_HAT_PIN_40,
-		.gpio_dev_name = UP2_HAT_PIN_40_DEV,
+		.gpio_dev = DEVICE_DT_GET(UP2_HAT_PIN_40_DEV),
 	},
 };
 
 struct _pin intr_pin = {
 	.hat_num = 16,
 	.pin = UP2_HAT_PIN_16,
-	.gpio_dev_name = UP2_HAT_PIN_16_DEV,
+	.gpio_dev = DEVICE_DT_GET(UP2_HAT_PIN_16_DEV),
 };
 
 static struct gpio_callback gpio_cb;
@@ -82,7 +81,8 @@ K_SEM_DEFINE(counter_sem, 0, 1);
 #define NUM_PINS	ARRAY_SIZE(counter_pins)
 #define MASK		(BIT(NUM_PINS) - 1)
 
-void button_cb(struct device *gpiodev, struct gpio_callback *cb, uint32_t pin)
+void button_cb(const struct device *gpiodev, struct gpio_callback *cb,
+	       uint32_t pin)
 {
 	counter++;
 	k_sem_give(&counter_sem);
@@ -90,10 +90,8 @@ void button_cb(struct device *gpiodev, struct gpio_callback *cb, uint32_t pin)
 
 int get_gpio_dev(struct _pin *pin)
 {
-	pin->gpio_dev = device_get_binding(pin->gpio_dev_name);
-	if (!pin->gpio_dev) {
-		printk("ERROR: cannot get device binding for %s\n",
-		       pin->gpio_dev_name);
+	if (!device_is_ready(pin->gpio_dev)) {
+		printk("ERROR: GPIO device is not ready for %s\n", pin->gpio_dev->name);
 		return -1;
 	}
 
@@ -168,5 +166,5 @@ void main(void)
 
 		k_sem_take(&counter_sem, K_FOREVER);
 		val = counter & MASK;
-	};
+	}
 }

@@ -13,8 +13,7 @@ microcontrollers. LPCXpresso is an end-to-end solution enabling embedded
 engineers to develop their applications from initial evaluation to final
 production.
 
-.. image:: ./lpcxpresso54114_m4.png
-   :width: 720px
+.. image:: lpcxpresso54114_m4.jpg
    :align: center
    :alt: LPCXPRESSO54114
 
@@ -67,6 +66,10 @@ features:
 | SPI       | on-chip    | spi                                 |
 +-----------+------------+-------------------------------------+
 | USART     | on-chip    | serial port-polling                 |
++-----------+------------+-------------------------------------+
+| CLOCK     | on-chip    | clock_control                       |
++-----------+------------+-------------------------------------+
+| IAP       | on-chip    | flash programming                   |
 +-----------+------------+-------------------------------------+
 
 The default configuration for each core can be found in the defconfig files:

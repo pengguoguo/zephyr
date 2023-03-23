@@ -3,17 +3,15 @@
 
 menuconfig NORDIC_QSPI_NOR
 	bool "QSPI NOR Flash"
+	default y
+	depends on DT_HAS_NORDIC_QSPI_NOR_ENABLED
 	select FLASH_HAS_DRIVER_ENABLED
 	select NRFX_QSPI
-	depends on HAS_HW_NRF_QSPI
+	select FLASH_JESD216
 	help
 	  Enable support for nrfx QSPI driver with EasyDMA.
 
 if NORDIC_QSPI_NOR
-
-config NORDIC_QSPI_NOR_QE_BIT
-	int "Quad Enable bit number in Status Register"
-	default 6
 
 config NORDIC_QSPI_NOR_INIT_PRIORITY
 	int
@@ -31,7 +29,7 @@ config NORDIC_QSPI_NOR_FLASH_LAYOUT_PAGE_SIZE
 
 config NORDIC_QSPI_NOR_STACK_WRITE_BUFFER_SIZE
 	int "Size of a stack-based buffer to support writes from NVMC"
-	default 0
+	default 4
 	help
 	  The QSPI peripheral uses DMA and cannot write data that is
 	  read from the internal flash.  A non-zero value here enables

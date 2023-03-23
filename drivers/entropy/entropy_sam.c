@@ -1,24 +1,24 @@
 /*
  * Copyright (c) 2018 Aurelien Jarno
+ * Copyright (c) 2023 Gerson Fernando Budke
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #define DT_DRV_COMPAT atmel_sam_trng
 
-#include <device.h>
-#include <drivers/entropy.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/entropy.h>
+#include <zephyr/drivers/clock_control/atmel_sam_pmc.h>
 #include <errno.h>
-#include <init.h>
+#include <zephyr/init.h>
+#include <zephyr/kernel.h>
 #include <soc.h>
 #include <string.h>
 
 struct trng_sam_dev_cfg {
 	Trng *regs;
 };
-
-#define DEV_CFG(dev) \
-	((const struct trng_sam_dev_cfg *const)(dev)->config_info)
 
 static inline bool _ready(Trng * const trng)
 {
@@ -72,10 +72,12 @@ static int entropy_sam_wait_ready(Trng * const trng, uint32_t flags)
 	return 0;
 }
 
-static int entropy_sam_get_entropy_internal(struct device *dev, uint8_t *buffer,
-				   uint16_t length, uint32_t flags)
+static int entropy_sam_get_entropy_internal(const struct device *dev,
+					    uint8_t *buffer,
+					    uint16_t length, uint32_t flags)
 {
-	Trng *const trng = DEV_CFG(dev)->regs;
+	const struct trng_sam_dev_cfg *config = dev->config;
+	Trng *const trng = config->regs;
 
 	while (length > 0) {
 		size_t to_copy;
@@ -98,23 +100,24 @@ static int entropy_sam_get_entropy_internal(struct device *dev, uint8_t *buffer,
 	return 0;
 }
 
-static int entropy_sam_get_entropy(struct device *dev, uint8_t *buffer,
+static int entropy_sam_get_entropy(const struct device *dev, uint8_t *buffer,
 				   uint16_t length)
 {
 	return entropy_sam_get_entropy_internal(dev, buffer, length, 0);
 }
 
-static int entropy_sam_get_entropy_isr(struct device *dev, uint8_t *buffer,
-				   uint16_t length, uint32_t flags)
+static int entropy_sam_get_entropy_isr(const struct device *dev,
+				       uint8_t *buffer,
+				       uint16_t length, uint32_t flags)
 {
 	uint16_t cnt = length;
 
 
 	if ((flags & ENTROPY_BUSYWAIT) == 0U) {
-
+		const struct trng_sam_dev_cfg *config = dev->config;
 		/* No busy wait; return whatever data is available. */
 
-		Trng * const trng = DEV_CFG(dev)->regs;
+		Trng * const trng = config->regs;
 
 		do {
 			size_t to_copy;
@@ -152,9 +155,10 @@ static int entropy_sam_get_entropy_isr(struct device *dev, uint8_t *buffer,
 	}
 }
 
-static int entropy_sam_init(struct device *dev)
+static int entropy_sam_init(const struct device *dev)
 {
-	Trng *const trng = DEV_CFG(dev)->regs;
+	const struct trng_sam_dev_cfg *config = dev->config;
+	Trng *const trng = config->regs;
 
 #ifdef MCLK
 	/* Enable the MCLK */
@@ -163,8 +167,10 @@ static int entropy_sam_init(struct device *dev)
 	/* Enable the TRNG */
 	trng->CTRLA.bit.ENABLE = 1;
 #else
-	/* Enable the user interface clock */
-	soc_pmc_peripheral_enable(DT_INST_PROP(0, peripheral_id));
+	/* Enable TRNG in PMC */
+	const struct atmel_sam_pmc_config clock_cfg = SAM_DT_INST_CLOCK_PMC_CFG(0);
+	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
+			       (clock_control_subsys_t *)&clock_cfg);
 
 	/* Enable the TRNG */
 	trng->TRNG_CR = TRNG_CR_KEY_PASSWD | TRNG_CR_ENABLE;
@@ -181,7 +187,8 @@ static const struct trng_sam_dev_cfg trng_sam_cfg = {
 	.regs = (Trng *)DT_INST_REG_ADDR(0),
 };
 
-DEVICE_AND_API_INIT(entropy_sam, DT_INST_LABEL(0),
-		    entropy_sam_init, NULL, &trng_sam_cfg,
-		    PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
+DEVICE_DT_INST_DEFINE(0,
+		    entropy_sam_init, NULL,
+		    NULL, &trng_sam_cfg,
+		    PRE_KERNEL_1, CONFIG_ENTROPY_INIT_PRIORITY,
 		    &entropy_sam_api);

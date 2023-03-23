@@ -7,9 +7,9 @@
 #ifndef ZEPHYR_DRIVERS_IPM_IPM_MHU_H_
 #define ZEPHYR_DRIVERS_IPM_IPM_MHU_H_
 
-#include <kernel.h>
-#include <drivers/ipm.h>
-#include <device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/ipm.h>
+#include <zephyr/device.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,13 +59,13 @@ enum ipm_mhu_cpu_id_t {
 
 struct ipm_mhu_device_config {
 	uint8_t *base;
-	void (*irq_config_func)(struct device *d);
+	void (*irq_config_func)(const struct device *d);
 };
 
 /* Device data structure */
 struct ipm_mhu_data {
 	ipm_callback_t callback;
-	void *callback_ctx;
+	void *user_data;
 };
 
 #ifdef __cplusplus

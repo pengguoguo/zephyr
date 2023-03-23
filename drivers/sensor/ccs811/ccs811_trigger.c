@@ -6,22 +6,25 @@
 
 #define DT_DRV_COMPAT ams_ccs811
 
-#include <drivers/sensor.h>
+#include <zephyr/drivers/sensor.h>
 #include "ccs811.h"
 
 #define LOG_LEVEL CONFIG_SENSOR_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(CCS811);
 
-#define IRQ_PIN DT_INST_GPIO_PIN(0, irq_gpios)
-
-int ccs811_attr_set(struct device *dev,
+int ccs811_attr_set(const struct device *dev,
 		    enum sensor_channel chan,
 		    enum sensor_attribute attr,
 		    const struct sensor_value *thr)
 {
-	struct ccs811_data *drv_data = dev->driver_data;
+	struct ccs811_data *drv_data = dev->data;
+	const struct ccs811_config *config = dev->config;
 	int rc;
+
+	if (!config->irq_gpio.port) {
+		return -ENOTSUP;
+	}
 
 	if (chan != SENSOR_CHAN_CO2) {
 		rc = -ENOTSUP;
@@ -45,20 +48,20 @@ int ccs811_attr_set(struct device *dev,
 	return rc;
 }
 
-static inline void setup_irq(struct device *dev,
+static inline void setup_irq(const struct device *dev,
 			     bool enable)
 {
-	struct ccs811_data *data = dev->driver_data;
+	const struct ccs811_config *config = dev->config;
 	unsigned int flags = enable
 			     ? GPIO_INT_LEVEL_ACTIVE
 			     : GPIO_INT_DISABLE;
 
-	gpio_pin_interrupt_configure(data->irq_gpio, IRQ_PIN, flags);
+	gpio_pin_interrupt_configure_dt(&config->irq_gpio, flags);
 }
 
-static inline void handle_irq(struct device *dev)
+static inline void handle_irq(const struct device *dev)
 {
-	struct ccs811_data *data = dev->driver_data;
+	struct ccs811_data *data = dev->data;
 
 	setup_irq(dev, false);
 
@@ -69,12 +72,12 @@ static inline void handle_irq(struct device *dev)
 #endif
 }
 
-static void process_irq(struct device *dev)
+static void process_irq(const struct device *dev)
 {
-	struct ccs811_data *data = dev->driver_data;
+	struct ccs811_data *data = dev->data;
 
 	if (data->handler != NULL) {
-		data->handler(dev, &data->trigger);
+		data->handler(dev, data->trigger);
 	}
 
 	if (data->handler != NULL) {
@@ -82,7 +85,7 @@ static void process_irq(struct device *dev)
 	}
 }
 
-static void gpio_callback(struct device *dev,
+static void gpio_callback(const struct device *dev,
 			  struct gpio_callback *cb,
 			  uint32_t pins)
 {
@@ -95,16 +98,13 @@ static void gpio_callback(struct device *dev,
 }
 
 #ifdef CONFIG_CCS811_TRIGGER_OWN_THREAD
-static void irq_thread(int dev_ptr, int unused)
+static void irq_thread(struct ccs811_data *dev)
 {
-	struct device *dev = INT_TO_POINTER(dev_ptr);
-	struct ccs811_data *drv_data = dev->driver_data;
-
-	ARG_UNUSED(unused);
+	struct ccs811_data *drv_data = dev->data;
 
 	while (1) {
 		k_sem_take(&drv_data->gpio_sem, K_FOREVER);
-		process_irq(dev);
+		process_irq(drv_data->dev);
 	}
 }
 #elif defined(CONFIG_CCS811_TRIGGER_GLOBAL_THREAD)
@@ -118,13 +118,18 @@ static void work_cb(struct k_work *work)
 #error Unhandled trigger configuration
 #endif
 
-int ccs811_trigger_set(struct device *dev,
+int ccs811_trigger_set(const struct device *dev,
 		       const struct sensor_trigger *trig,
 		       sensor_trigger_handler_t handler)
 {
-	struct ccs811_data *drv_data = dev->driver_data;
+	struct ccs811_data *drv_data = dev->data;
+	const struct ccs811_config *config = dev->config;
 	uint8_t drdy_thresh = CCS811_MODE_THRESH | CCS811_MODE_DATARDY;
 	int rc;
+
+	if (!config->irq_gpio.port) {
+		return -ENOTSUP;
+	}
 
 	LOG_DBG("CCS811 trigger set");
 	setup_irq(dev, false);
@@ -154,10 +159,10 @@ int ccs811_trigger_set(struct device *dev,
 	}
 
 	if (rc == 0) {
-		drv_data->trigger = *trig;
+		drv_data->trigger = trig;
 		setup_irq(dev, true);
 
-		if (gpio_pin_get(drv_data->irq_gpio, IRQ_PIN) > 0) {
+		if (gpio_pin_get_dt(&config->irq_gpio) > 0) {
 			handle_irq(dev);
 		}
 	} else {
@@ -168,29 +173,29 @@ int ccs811_trigger_set(struct device *dev,
 	return rc;
 }
 
-int ccs811_init_interrupt(struct device *dev)
+int ccs811_init_interrupt(const struct device *dev)
 {
-	struct ccs811_data *drv_data = dev->driver_data;
+	struct ccs811_data *drv_data = dev->data;
+	const struct ccs811_config *config = dev->config;
 
 	drv_data->dev = dev;
 
-	gpio_pin_configure(drv_data->irq_gpio, IRQ_PIN,
-			   GPIO_INPUT | DT_INST_GPIO_FLAGS(0, irq_gpios));
+	gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT);
 
-	gpio_init_callback(&drv_data->gpio_cb, gpio_callback, BIT(IRQ_PIN));
+	gpio_init_callback(&drv_data->gpio_cb, gpio_callback, BIT(config->irq_gpio.pin));
 
-	if (gpio_add_callback(drv_data->irq_gpio, &drv_data->gpio_cb) < 0) {
+	if (gpio_add_callback(config->irq_gpio.port, &drv_data->gpio_cb) < 0) {
 		LOG_DBG("Failed to set gpio callback!");
 		return -EIO;
 	}
 
 #if defined(CONFIG_CCS811_TRIGGER_OWN_THREAD)
-	k_sem_init(&drv_data->gpio_sem, 0, UINT_MAX);
+	k_sem_init(&drv_data->gpio_sem, 0, K_SEM_MAX_LIMIT);
 
 	k_thread_create(&drv_data->thread, drv_data->thread_stack,
 			CONFIG_CCS811_THREAD_STACK_SIZE,
 			(k_thread_entry_t)irq_thread, dev,
-			0, NULL, K_PRIO_COOP(CONFIG_CCS811_THREAD_PRIORITY),
+			NULL, NULL, K_PRIO_COOP(CONFIG_CCS811_THREAD_PRIORITY),
 			0, K_NO_WAIT);
 #elif defined(CONFIG_CCS811_TRIGGER_GLOBAL_THREAD)
 	drv_data->work.handler = work_cb;

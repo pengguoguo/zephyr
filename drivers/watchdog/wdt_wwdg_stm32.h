@@ -8,8 +8,8 @@
 #define ZEPHYR_DRIVERS_WATCHDOG_WWDG_STM32_H_
 
 #include <zephyr/types.h>
-#include <drivers/clock_control/stm32_clock_control.h>
-#include <drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/stm32_clock_control.h>
+#include <zephyr/drivers/clock_control.h>
 
 /**
  * @brief Driver for System Window Watchdog (WWDG) for STM32 MCUs
@@ -37,10 +37,10 @@ struct wwdg_stm32_data {
 };
 
 #define WWDG_STM32_CFG(dev) \
-	((const struct wwdg_stm32_config *const)(dev)->config_info)
+	((const struct wwdg_stm32_config *const)(dev)->config)
 
 #define WWDG_STM32_DATA(dev) \
-	((struct wwdg_stm32_data *const)(dev)->driver_data)
+	((struct wwdg_stm32_data *const)(dev)->data)
 
 #define WWDG_STM32_STRUCT(dev) \
 	((WWDG_TypeDef *)(WWDG_STM32_CFG(dev))->Instance)

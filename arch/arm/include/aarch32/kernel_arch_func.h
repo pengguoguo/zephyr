@@ -33,7 +33,11 @@ extern void z_arm_cpu_idle_init(void);
 #ifdef CONFIG_ARM_MPU
 extern void z_arm_configure_static_mpu_regions(void);
 extern void z_arm_configure_dynamic_mpu_regions(struct k_thread *thread);
+extern int z_arm_mpu_init(void);
 #endif /* CONFIG_ARM_MPU */
+#ifdef CONFIG_ARM_AARCH32_MMU
+extern int z_arm_mmu_init(void);
+#endif /* CONFIG_ARM_AARCH32_MMU */
 
 static ALWAYS_INLINE void arch_kernel_init(void)
 {
@@ -42,6 +46,19 @@ static ALWAYS_INLINE void arch_kernel_init(void)
 	z_arm_fault_init();
 	z_arm_cpu_idle_init();
 	z_arm_clear_faults();
+#if defined(CONFIG_ARM_MPU)
+	z_arm_mpu_init();
+	/* Configure static memory map. This will program MPU regions,
+	 * to set up access permissions for fixed memory sections, such
+	 * as Application Memory or No-Cacheable SRAM area.
+	 *
+	 * This function is invoked once, upon system initialization.
+	 */
+	z_arm_configure_static_mpu_regions();
+#endif /* CONFIG_ARM_MPU */
+#if defined(CONFIG_ARM_AARCH32_MMU)
+	z_arm_mmu_init();
+#endif /* CONFIG_ARM_AARCH32_MMU */
 }
 
 static ALWAYS_INLINE void
@@ -49,6 +66,16 @@ arch_thread_return_value_set(struct k_thread *thread, unsigned int value)
 {
 	thread->arch.swap_return_value = value;
 }
+
+#if !defined(CONFIG_MULTITHREADING) && defined(CONFIG_CPU_CORTEX_M)
+extern FUNC_NORETURN void z_arm_switch_to_main_no_multithreading(
+	k_thread_entry_t main_func,
+	void *p1, void *p2, void *p3);
+
+#define ARCH_SWITCH_TO_MAIN_NO_MULTITHREADING \
+	z_arm_switch_to_main_no_multithreading
+
+#endif /* !CONFIG_MULTITHREADING && CONFIG_CPU_CORTEX_M */
 
 extern FUNC_NORETURN void z_arm_userspace_enter(k_thread_entry_t user_entry,
 					       void *p1, void *p2, void *p3,

@@ -13,11 +13,11 @@
  * for the Nordic Semiconductor nRF51 family processor.
  */
 
-#include <kernel.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/init.h>
 #include <hal/nrf_power.h>
 #include <soc/nrfx_coredep.h>
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 
 #ifdef CONFIG_RUNTIME_NMI
 extern void z_arm_nmi_init(void);
@@ -38,7 +38,7 @@ void sys_arch_reboot(int type)
 	NVIC_SystemReset();
 }
 
-static int nordicsemi_nrf51_init(struct device *arg)
+static int nordicsemi_nrf51_init(const struct device *arg)
 {
 	uint32_t key;
 
@@ -66,11 +66,6 @@ void arch_busy_wait(uint32_t time_us)
 
 	time_us -= DELAY_CALL_OVERHEAD_US;
 	nrfx_coredep_delay_us(time_us);
-}
-
-void z_platform_init(void)
-{
-	SystemInit();
 }
 
 SYS_INIT(nordicsemi_nrf51_init, PRE_KERNEL_1, 0);

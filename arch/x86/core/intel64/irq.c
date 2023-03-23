@@ -3,13 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 #include <ksched.h>
-#include <arch/cpu.h>
+#include <zephyr/arch/cpu.h>
 #include <kernel_arch_data.h>
-#include <drivers/interrupt_controller/sysapic.h>
-#include <drivers/interrupt_controller/loapic.h>
-#include <irq.h>
+#include <kernel_arch_func.h>
+#include <zephyr/drivers/interrupt_controller/sysapic.h>
+#include <zephyr/drivers/interrupt_controller/loapic.h>
+#include <zephyr/irq.h>
+#include <zephyr/logging/log.h>
+#include <x86_mmu.h>
+
+LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
 unsigned char _irq_to_interrupt_vector[CONFIG_MAX_IRQ_LINES];
 
@@ -17,36 +22,56 @@ unsigned char _irq_to_interrupt_vector[CONFIG_MAX_IRQ_LINES];
  * The low-level interrupt code consults these arrays to dispatch IRQs, so
  * so be sure to keep locore.S up to date with any changes. Note the indices:
  * use (vector - IV_IRQS), since exception vectors do not appear here.
- *
- * Entries which are NULL in x86_irq_funcs[] correspond to unassigned vectors.
- * The locore IRQ handler should (read: doesn't currently) raise an exception
- * rather than attempt to dispatch to a NULL x86_irq_func[]. FIXME.
  */
 
 #define NR_IRQ_VECTORS (IV_NR_VECTORS - IV_IRQS)  /* # vectors free for IRQs */
 
-void (*x86_irq_funcs[NR_IRQ_VECTORS])(void *);
-void *x86_irq_args[NR_IRQ_VECTORS];
+void (*x86_irq_funcs[NR_IRQ_VECTORS])(const void *arg);
+const void *x86_irq_args[NR_IRQ_VECTORS];
 
-/*
- * Find a free IRQ vector at the specified priority, or return -1 if none left.
- */
+#if defined(CONFIG_INTEL_VTD_ICTL)
 
-static int allocate_vector(unsigned int priority)
+#include <zephyr/device.h>
+#include <zephyr/drivers/interrupt_controller/intel_vtd.h>
+
+static const struct device *const vtd = DEVICE_DT_GET_ONE(intel_vt_d);
+
+#endif /* CONFIG_INTEL_VTD_ICTL */
+
+static void irq_spurious(const void *arg)
+{
+	LOG_ERR("Spurious interrupt, vector %d\n", (uint32_t)(uint64_t)arg);
+	z_fatal_error(K_ERR_SPURIOUS_IRQ, NULL);
+}
+
+void x86_64_irq_init(void)
+{
+	for (int i = 0; i < NR_IRQ_VECTORS; i++) {
+		x86_irq_funcs[i] = irq_spurious;
+		x86_irq_args[i] = (const void *)(long)(i + IV_IRQS);
+	}
+}
+
+int z_x86_allocate_vector(unsigned int priority, int prev_vector)
 {
 	const int VECTORS_PER_PRIORITY = 16;
 	const int MAX_PRIORITY = 13;
-
-	int vector;
+	int vector = prev_vector;
 	int i;
 
 	if (priority >= MAX_PRIORITY) {
 		priority = MAX_PRIORITY;
 	}
 
-	vector = (priority * VECTORS_PER_PRIORITY) + IV_IRQS;
+	if (vector == -1) {
+		vector = (priority * VECTORS_PER_PRIORITY) + IV_IRQS;
+	}
 
 	for (i = 0; i < VECTORS_PER_PRIORITY; ++i, ++vector) {
+		if (prev_vector != 1 && vector == prev_vector) {
+			continue;
+		}
+
 #ifdef CONFIG_IRQ_OFFLOAD
 		if (vector == CONFIG_IRQ_OFFLOAD_VECTOR) {
 			continue;
@@ -55,12 +80,23 @@ static int allocate_vector(unsigned int priority)
 		if (vector == Z_X86_OOPS_VECTOR) {
 			continue;
 		}
-		if (x86_irq_funcs[vector - IV_IRQS] == NULL) {
+
+		if (x86_irq_funcs[vector - IV_IRQS] == irq_spurious) {
 			return vector;
 		}
 	}
 
 	return -1;
+}
+
+void z_x86_irq_connect_on_vector(unsigned int irq,
+				 uint8_t vector,
+				 void (*func)(const void *arg),
+				 const void *arg)
+{
+	_irq_to_interrupt_vector[irq] = vector;
+	x86_irq_funcs[vector - IV_IRQS] = func;
+	x86_irq_args[vector - IV_IRQS] = arg;
 }
 
 /*
@@ -70,7 +106,8 @@ static int allocate_vector(unsigned int priority)
  */
 
 int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
-		void (*func)(void *arg), void *arg, uint32_t flags)
+			     void (*func)(const void *arg),
+			     const void *arg, uint32_t flags)
 {
 	uint32_t key;
 	int vector;
@@ -79,12 +116,21 @@ int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
 
 	key = irq_lock();
 
-	vector = allocate_vector(priority);
+	vector = z_x86_allocate_vector(priority, -1);
 	if (vector >= 0) {
-		_irq_to_interrupt_vector[irq] = vector;
+#if defined(CONFIG_INTEL_VTD_ICTL)
+		if (device_is_ready(vtd)) {
+			int irte = vtd_allocate_entries(vtd, 1);
+
+			__ASSERT(irte >= 0, "IRTE allocation must succeed");
+
+			vtd_set_irte_vector(vtd, irte, vector);
+			vtd_set_irte_irq(vtd, irte, irq);
+		}
+#endif /* CONFIG_INTEL_VTD_ICTL */
+
 		z_irq_controller_irq_config(vector, irq, flags);
-		x86_irq_funcs[vector - IV_IRQS] = func;
-		x86_irq_args[vector - IV_IRQS] = arg;
+		z_x86_irq_connect_on_vector(irq, vector, func, arg);
 	}
 
 	irq_unlock(key);
@@ -92,9 +138,9 @@ int arch_irq_connect_dynamic(unsigned int irq, unsigned int priority,
 }
 
 #ifdef CONFIG_IRQ_OFFLOAD
-#include <irq_offload.h>
+#include <zephyr/irq_offload.h>
 
-void arch_irq_offload(irq_offload_routine_t routine, void *parameter)
+void arch_irq_offload(irq_offload_routine_t routine, const void *parameter)
 {
 	x86_irq_funcs[CONFIG_IRQ_OFFLOAD_VECTOR - IV_IRQS] = routine;
 	x86_irq_args[CONFIG_IRQ_OFFLOAD_VECTOR - IV_IRQS] = parameter;
@@ -116,6 +162,9 @@ void z_x86_ipi_setup(void)
 
 	x86_irq_funcs[CONFIG_SCHED_IPI_VECTOR - IV_IRQS] =
 		(void *) z_sched_ipi;
+
+	/* TLB shootdown handling */
+	x86_irq_funcs[CONFIG_TLB_IPI_VECTOR - IV_IRQS] = z_x86_tlb_ipi;
 }
 
 /*
@@ -127,3 +176,67 @@ void arch_sched_ipi(void)
 	z_loapic_ipi(0, LOAPIC_ICR_IPI_OTHERS, CONFIG_SCHED_IPI_VECTOR);
 }
 #endif
+
+/* The first bit is used to indicate whether the list of reserved interrupts
+ * have been initialized based on content stored in the irq_alloc linker
+ * section in ROM.
+ */
+#define IRQ_LIST_INITIALIZED 0
+
+static ATOMIC_DEFINE(irq_reserved, CONFIG_MAX_IRQ_LINES);
+
+static void irq_init(void)
+{
+	extern uint8_t __irq_alloc_start[];
+	extern uint8_t __irq_alloc_end[];
+	const uint8_t *irq;
+
+	for (irq = __irq_alloc_start; irq < __irq_alloc_end; irq++) {
+		__ASSERT_NO_MSG(*irq < CONFIG_MAX_IRQ_LINES);
+		atomic_set_bit(irq_reserved, *irq);
+	}
+}
+
+unsigned int arch_irq_allocate(void)
+{
+	unsigned int key = irq_lock();
+	int i;
+
+	if (!atomic_test_and_set_bit(irq_reserved, IRQ_LIST_INITIALIZED)) {
+		irq_init();
+	}
+
+	for (i = 0; i < ARRAY_SIZE(irq_reserved); i++) {
+		unsigned int fz, irq;
+
+		while ((fz = find_lsb_set(~atomic_get(&irq_reserved[i])))) {
+			irq = (fz - 1) + (i * sizeof(atomic_val_t) * 8);
+			if (irq >= CONFIG_MAX_IRQ_LINES) {
+				break;
+			}
+
+			if (!atomic_test_and_set_bit(irq_reserved, irq)) {
+				irq_unlock(key);
+				return irq;
+			}
+		}
+	}
+
+	irq_unlock(key);
+
+	return UINT_MAX;
+}
+
+void arch_irq_set_used(unsigned int irq)
+{
+	unsigned int key = irq_lock();
+
+	atomic_set_bit(irq_reserved, irq);
+
+	irq_unlock(key);
+}
+
+bool arch_irq_is_used(unsigned int irq)
+{
+	return atomic_test_bit(irq_reserved, irq);
+}

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 #include <aarch32/cortex_m/cmse.h>
 
 int arm_cmse_mpu_region_get(uint32_t addr)
@@ -45,7 +45,7 @@ static int arm_cmse_addr_range_read_write_ok(uint32_t addr, uint32_t size,
 {
 	int flags = 0;
 
-	if (force_npriv) {
+	if (force_npriv != 0) {
 		flags |= CMSE_MPU_UNPRIV;
 	}
 	if (rw) {
@@ -141,7 +141,7 @@ static int arm_cmse_addr_range_nonsecure_read_write_ok(uint32_t addr, uint32_t s
 {
 	int flags = CMSE_NONSECURE;
 
-	if (force_npriv) {
+	if (force_npriv != 0) {
 		flags |= CMSE_MPU_UNPRIV;
 	}
 	if (rw) {

@@ -7,12 +7,29 @@
 #define ADC_CONTEXT_USES_KERNEL_TIMER
 #include "adc_context.h"
 #include <hal/nrf_saadc.h>
+#include <zephyr/dt-bindings/adc/nrf-adc.h>
 
 #define LOG_LEVEL CONFIG_ADC_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 LOG_MODULE_REGISTER(adc_nrfx_saadc);
 
 #define DT_DRV_COMPAT nordic_nrf_saadc
+
+BUILD_ASSERT((NRF_SAADC_AIN0 == NRF_SAADC_INPUT_AIN0) &&
+	     (NRF_SAADC_AIN1 == NRF_SAADC_INPUT_AIN1) &&
+	     (NRF_SAADC_AIN2 == NRF_SAADC_INPUT_AIN2) &&
+	     (NRF_SAADC_AIN3 == NRF_SAADC_INPUT_AIN3) &&
+	     (NRF_SAADC_AIN4 == NRF_SAADC_INPUT_AIN4) &&
+	     (NRF_SAADC_AIN5 == NRF_SAADC_INPUT_AIN5) &&
+	     (NRF_SAADC_AIN6 == NRF_SAADC_INPUT_AIN6) &&
+	     (NRF_SAADC_AIN7 == NRF_SAADC_INPUT_AIN7) &&
+	     (NRF_SAADC_AIN7 == NRF_SAADC_INPUT_AIN7) &&
+#if defined(SAADC_CH_PSELP_PSELP_VDDHDIV5)
+	     (NRF_SAADC_VDDHDIV5 == NRF_SAADC_INPUT_VDDHDIV5) &&
+#endif
+	     (NRF_SAADC_VDD == NRF_SAADC_INPUT_VDD),
+	     "Definitions from nrf-adc.h do not match those from nrf_saadc.h");
 
 struct driver_data {
 	struct adc_context ctx;
@@ -28,7 +45,7 @@ static struct driver_data m_data = {
 
 
 /* Implementation of the ADC driver API function: adc_channel_setup. */
-static int adc_nrfx_channel_setup(struct device *dev,
+static int adc_nrfx_channel_setup(const struct device *dev,
 				  const struct adc_channel_cfg *channel_cfg)
 {
 	nrf_saadc_channel_config_t config = {
@@ -253,7 +270,8 @@ static int check_buffer_size(const struct adc_sequence *sequence,
 	return 0;
 }
 
-static int start_read(struct device *dev, const struct adc_sequence *sequence)
+static int start_read(const struct device *dev,
+		      const struct adc_sequence *sequence)
 {
 	int error;
 	uint32_t selected_channels = sequence->channels;
@@ -337,7 +355,7 @@ static int start_read(struct device *dev, const struct adc_sequence *sequence)
 }
 
 /* Implementation of the ADC driver API function: adc_read. */
-static int adc_nrfx_read(struct device *dev,
+static int adc_nrfx_read(const struct device *dev,
 			 const struct adc_sequence *sequence)
 {
 	int error;
@@ -351,7 +369,7 @@ static int adc_nrfx_read(struct device *dev,
 
 #ifdef CONFIG_ADC_ASYNC
 /* Implementation of the ADC driver API function: adc_read_async. */
-static int adc_nrfx_read_async(struct device *dev,
+static int adc_nrfx_read_async(const struct device *dev,
 			       const struct adc_sequence *sequence,
 			       struct k_poll_signal *async)
 {
@@ -365,10 +383,8 @@ static int adc_nrfx_read_async(struct device *dev,
 }
 #endif /* CONFIG_ADC_ASYNC */
 
-static void saadc_irq_handler(void *param)
+static void saadc_irq_handler(const struct device *dev)
 {
-	struct device *dev = (struct device *)param;
-
 	if (nrf_saadc_event_check(NRF_SAADC, NRF_SAADC_EVENT_END)) {
 		nrf_saadc_event_clear(NRF_SAADC, NRF_SAADC_EVENT_END);
 
@@ -391,9 +407,7 @@ static void saadc_irq_handler(void *param)
 	}
 }
 
-DEVICE_DECLARE(adc_0);
-
-static int init_saadc(struct device *dev)
+static int init_saadc(const struct device *dev)
 {
 	nrf_saadc_event_clear(NRF_SAADC, NRF_SAADC_EVENT_END);
 	nrf_saadc_event_clear(NRF_SAADC, NRF_SAADC_EVENT_CALIBRATEDONE);
@@ -402,7 +416,7 @@ static int init_saadc(struct device *dev)
 	NRFX_IRQ_ENABLE(DT_INST_IRQN(0));
 
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority),
-		    saadc_irq_handler, DEVICE_GET(adc_0), 0);
+		    saadc_irq_handler, DEVICE_DT_INST_GET(0), 0);
 
 	adc_context_unlock_unconditionally(&m_data.ctx);
 
@@ -430,13 +444,13 @@ static const struct adc_driver_api adc_nrfx_driver_api = {
 #define SAADC_INIT(inst)						\
 	BUILD_ASSERT((inst) == 0,					\
 		     "multiple instances not supported");		\
-	DEVICE_AND_API_INIT(adc_0,					\
-			    DT_INST_LABEL(0),				\
+	DEVICE_DT_INST_DEFINE(0,					\
 			    init_saadc,					\
 			    NULL,					\
 			    NULL,					\
+			    NULL,					\
 			    POST_KERNEL,				\
-			    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,		\
+			    CONFIG_ADC_INIT_PRIORITY,			\
 			    &adc_nrfx_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(SAADC_INIT)

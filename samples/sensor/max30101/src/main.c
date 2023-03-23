@@ -4,17 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
 
 void main(void)
 {
 	struct sensor_value green;
-	struct device *dev = device_get_binding(DT_LABEL(DT_INST(0, max_max30101)));
+	const struct device *const dev = DEVICE_DT_GET_ANY(maxim_max30101);
 
 	if (dev == NULL) {
 		printf("Could not get max30101 device\n");
+		return;
+	}
+	if (!device_is_ready(dev)) {
+		printf("max30101 device %s is not ready\n", dev->name);
 		return;
 	}
 

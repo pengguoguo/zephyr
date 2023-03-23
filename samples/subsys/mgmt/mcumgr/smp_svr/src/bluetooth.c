@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/conn.h>
-#include <bluetooth/gatt.h>
-#include <mgmt/smp_bt.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/mgmt/mcumgr/transport/smp_bt.h>
 
 #define LOG_LEVEL LOG_LEVEL_DBG
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(smp_bt_sample);
 
 static struct k_work advertise_work;
@@ -53,37 +53,28 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	k_work_submit(&advertise_work);
 }
 
-static struct bt_conn_cb conn_callbacks = {
+BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
 };
 
 static void bt_ready(int err)
 {
-	if (err) {
-		LOG_ERR("Bluetooth init failed (err %d)", err);
-		return;
+	if (err != 0) {
+		LOG_ERR("Bluetooth failed to initialise: %d", err);
+	} else {
+		k_work_submit(&advertise_work);
 	}
-
-	LOG_INF("Bluetooth initialized");
-
-	k_work_submit(&advertise_work);
 }
 
-void start_smp_bluetooth(void)
+void start_smp_bluetooth_adverts(void)
 {
-	k_work_init(&advertise_work, advertise);
+	int rc;
 
-	/* Enable Bluetooth. */
-	int rc = bt_enable(bt_ready);
+	k_work_init(&advertise_work, advertise);
+	rc = bt_enable(bt_ready);
 
 	if (rc != 0) {
-		LOG_ERR("Bluetooth init failed (err %d)", rc);
-		return;
+		LOG_ERR("Bluetooth enable failed: %d", rc);
 	}
-
-	bt_conn_cb_register(&conn_callbacks);
-
-	/* Initialize the Bluetooth mcumgr transport. */
-	smp_bt_register();
 }

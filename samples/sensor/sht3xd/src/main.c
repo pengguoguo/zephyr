@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/sensor.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/sensor.h>
 #include <stdio.h>
 
 #define ALERT_HUMIDITY_LO 50
@@ -15,7 +15,8 @@
 #ifdef CONFIG_SHT3XD_TRIGGER
 static volatile bool alerted;
 
-static void trigger_handler(struct device *dev, struct sensor_trigger *trig)
+static void trigger_handler(const struct device *dev,
+			    const struct sensor_trigger *trig)
 {
 	alerted = !alerted;
 }
@@ -24,11 +25,11 @@ static void trigger_handler(struct device *dev, struct sensor_trigger *trig)
 
 void main(void)
 {
-	struct device *dev = device_get_binding("SHT3XD");
+	const struct device *const dev = DEVICE_DT_GET_ONE(sensirion_sht3xd);
 	int rc;
 
-	if (dev == NULL) {
-		printf("Could not get SHT3XD device\n");
+	if (!device_is_ready(dev)) {
+		printf("Device %s is not ready\n", dev->name);
 		return;
 	}
 
@@ -49,6 +50,10 @@ void main(void)
 	}
 	if (rc == 0) {
 		rc = sensor_trigger_set(dev, &trig, trigger_handler);
+	}
+	if (rc != 0) {
+		printf("SHT3XD: trigger config failed: %d\n", rc);
+		return;
 	}
 	printf("Alert outside %d..%d %%RH got %d\n", lo_thr.val1,
 	       hi_thr.val1, rc);

@@ -7,12 +7,12 @@
 #ifndef ZEPHYR_DRIVERS_SENSOR_BMA280_BMA280_H_
 #define ZEPHYR_DRIVERS_SENSOR_BMA280_BMA280_H_
 
-#include <device.h>
-#include <sys/util.h>
+#include <zephyr/device.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/types.h>
-#include <drivers/gpio.h>
-
-#define BMA280_I2C_ADDRESS		DT_INST_REG_ADDR(0)
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/kernel.h>
 
 #define BMA280_REG_CHIP_ID		0x00
 #if DT_INST_PROP(0, is_bmc150)
@@ -41,7 +41,7 @@
 #endif
 
 /*
- * BMA280_PMU_FULL_RANGE measured in mili-m/s^2 instead
+ * BMA280_PMU_FULL_RANGE measured in milli-m/s^2 instead
  * of m/s^2 to avoid using struct sensor_value for it
  */
 #define BMA280_REG_PMU_RANGE		0x0F
@@ -114,25 +114,23 @@
 #define BMA280_THREAD_STACKSIZE_UNIT	1024
 
 struct bma280_data {
-	struct device *i2c;
 	int16_t x_sample;
 	int16_t y_sample;
 	int16_t z_sample;
 	int8_t temp_sample;
 
 #ifdef CONFIG_BMA280_TRIGGER
-	struct device *dev;
-	struct device *gpio;
+	const struct device *dev;
 	struct gpio_callback gpio_cb;
 
-	struct sensor_trigger data_ready_trigger;
+	const struct sensor_trigger *data_ready_trigger;
 	sensor_trigger_handler_t data_ready_handler;
 
-	struct sensor_trigger any_motion_trigger;
+	const struct sensor_trigger *any_motion_trigger;
 	sensor_trigger_handler_t any_motion_handler;
 
 #if defined(CONFIG_BMA280_TRIGGER_OWN_THREAD)
-	K_THREAD_STACK_MEMBER(thread_stack, CONFIG_BMA280_THREAD_STACK_SIZE);
+	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_BMA280_THREAD_STACK_SIZE);
 	struct k_thread thread;
 	struct k_sem gpio_sem;
 #elif defined(CONFIG_BMA280_TRIGGER_GLOBAL_THREAD)
@@ -142,17 +140,24 @@ struct bma280_data {
 #endif /* CONFIG_BMA280_TRIGGER */
 };
 
+struct bma280_config {
+	struct i2c_dt_spec i2c;
 #ifdef CONFIG_BMA280_TRIGGER
-int bma280_trigger_set(struct device *dev,
+	struct gpio_dt_spec int1_gpio;
+#endif
+};
+
+#ifdef CONFIG_BMA280_TRIGGER
+int bma280_trigger_set(const struct device *dev,
 		       const struct sensor_trigger *trig,
 		       sensor_trigger_handler_t handler);
 
-int bma280_attr_set(struct device *dev,
+int bma280_attr_set(const struct device *dev,
 		    enum sensor_channel chan,
 		    enum sensor_attribute attr,
 		    const struct sensor_value *val);
 
-int bma280_init_interrupt(struct device *dev);
+int bma280_init_interrupt(const struct device *dev);
 #endif
 
 #endif /* ZEPHYR_DRIVERS_SENSOR_BMA280_BMA280_H_ */

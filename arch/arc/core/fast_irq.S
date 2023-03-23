@@ -13,18 +13,17 @@
  * See isr_wrapper.S for details.
  */
 
-#include <kernel_structs.h>
+#include <zephyr/kernel_structs.h>
 #include <offsets_short.h>
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <arch/cpu.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/linker/sections.h>
+#include <zephyr/arch/cpu.h>
 #include <swap_macros.h>
 
 GTEXT(_firq_enter)
 GTEXT(_firq_exit)
 
 /**
- *
  * @brief Work to be done before handing control to a FIRQ ISR
  *
  * The processor switches to a second register bank so registers from the
@@ -41,8 +40,6 @@ GTEXT(_firq_exit)
  * interrupt. An exception, however, can be taken.
  *
  * Assumption by _isr_demux: r3 is untouched by _firq_enter.
- *
- * @return N/A
  */
 
 SECTION_FUNC(TEXT, _firq_enter)
@@ -126,15 +123,12 @@ firq_nest_1:
 firq_nest:
 #endif
 	push_s r0
-	j @_isr_demux
+	j _isr_demux
 
 
 
 /**
- *
  * @brief Work to be done exiting a FIRQ
- *
- * @return N/A
  */
 
 SECTION_FUNC(TEXT, _firq_exit)
@@ -151,23 +145,21 @@ SECTION_FUNC(TEXT, _firq_exit)
 
 	jne _firq_no_switch
 
-	/* sp is struct k_thread **old of z_arc_switch_in_isr
-	 * which is a wrapper of z_get_next_switch_handle.
-	 * r0 contains the 1st thread in ready queue. if
-	 * it equals _current(r2) ,then do swap, or no swap.
+	/* sp is struct k_thread **old of z_arc_switch_in_isr which is a wrapper of
+	 * z_get_next_switch_handle. r0 contains the 1st thread in ready queue. If it isn't NULL,
+	 * then do switch to this thread.
 	 */
 	_get_next_switch_handle
 
-	/* restore interrupted context' sp */
-	pop sp
-
-	cmp r0, r2
+	CMPR r0, 0
 	bne _firq_switch
 
 	/* fall to no switch */
 
-.balign 4
+.align 4
 _firq_no_switch:
+	/* restore interrupted context' sp */
+	pop sp
 	/*
 	 * Keeping this code block close to those that use it allows using brxx
 	 * instruction instead of a pair of cmp and bxx
@@ -177,8 +169,10 @@ _firq_no_switch:
 #endif
 	rtie
 
-.balign 4
+.align 4
 _firq_switch:
+	/* restore interrupted context' sp */
+	pop sp
 
 #if CONFIG_RGF_NUM_BANKS != 1
 /*
@@ -244,9 +238,9 @@ _firq_create_irq_stack_frame:
 	ld r2, [r1, -8]
 #endif
 	/* r2 is old thread */
-	_irq_store_old_thread_callee_regs
-
 	st _CAUSE_FIRQ, [r2, _thread_offset_to_relinquish_cause]
+
+	_irq_store_old_thread_callee_regs
 
 	/* mov new thread (r0) to r2 */
 
@@ -260,21 +254,28 @@ _firq_create_irq_stack_frame:
 
 	/* fall through */
 
-.balign 4
+.align 4
 _firq_switch_from_coop:
 
 	_set_misc_regs_irq_switch_from_coop
 
 	/* pc into ilink */
 	pop_s r0
-	mov_s ilink, r0
+	mov ilink, r0
 
 	pop_s r0 /* status32 into r0 */
 	sr r0, [_ARC_V2_STATUS32_P0]
 
+#ifdef CONFIG_INSTRUMENT_THREAD_SWITCHING
+	push_s blink
+
+	bl z_thread_mark_switched_in
+
+	pop_s blink
+#endif
 	rtie
 
-.balign 4
+.align 4
 _firq_switch_from_rirq:
 _firq_switch_from_firq:
 
@@ -286,5 +287,12 @@ _firq_switch_from_firq:
 	sr ilink, [_ARC_V2_STATUS32_P0]
 	ld ilink, [sp, -8] /* pc into ilink */
 
+#ifdef CONFIG_INSTRUMENT_THREAD_SWITCHING
+	push_s blink
+
+	bl z_thread_mark_switched_in
+
+	pop_s blink
+#endif
 	/* LP registers are already restored, just switch back to bank 0 */
 	rtie

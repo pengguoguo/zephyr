@@ -6,11 +6,12 @@
 
 #define DT_DRV_COMPAT st_stm32_eeprom
 
-#include <drivers/eeprom.h>
+#include <zephyr/drivers/eeprom.h>
 #include <soc.h>
+#include <zephyr/kernel.h>
 
 #define LOG_LEVEL CONFIG_EEPROM_LOG_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(eeprom_stm32);
 
 K_MUTEX_DEFINE(lock);
@@ -20,10 +21,11 @@ struct eeprom_stm32_config {
 	size_t size;
 };
 
-static int eeprom_stm32_read(struct device *dev, off_t offset, void *buf,
+static int eeprom_stm32_read(const struct device *dev, off_t offset,
+				void *buf,
 				size_t len)
 {
-	const struct eeprom_stm32_config *config = dev->config_info;
+	const struct eeprom_stm32_config *config = dev->config;
 	uint8_t *pbuf = buf;
 
 	if (!len) {
@@ -50,10 +52,10 @@ static int eeprom_stm32_read(struct device *dev, off_t offset, void *buf,
 	return 0;
 }
 
-static int eeprom_stm32_write(struct device *dev, off_t offset,
+static int eeprom_stm32_write(const struct device *dev, off_t offset,
 				const void *buf, size_t len)
 {
-	const struct eeprom_stm32_config *config = dev->config_info;
+	const struct eeprom_stm32_config *config = dev->config;
 	const uint8_t *pbuf = buf;
 	HAL_StatusTypeDef ret = HAL_OK;
 
@@ -98,14 +100,14 @@ static int eeprom_stm32_write(struct device *dev, off_t offset,
 	return ret;
 }
 
-static size_t eeprom_stm32_size(struct device *dev)
+static size_t eeprom_stm32_size(const struct device *dev)
 {
-	const struct eeprom_stm32_config *config = dev->config_info;
+	const struct eeprom_stm32_config *config = dev->config;
 
 	return config->size;
 }
 
-static int eeprom_stm32_init(struct device *dev)
+static int eeprom_stm32_init(const struct device *dev)
 {
 	return 0;
 }
@@ -121,7 +123,6 @@ static const struct eeprom_stm32_config eeprom_config = {
 	.size = DT_INST_REG_SIZE(0),
 };
 
-DEVICE_AND_API_INIT(eeprom_stm32, DT_INST_LABEL(0),
-		    &eeprom_stm32_init, NULL,
+DEVICE_DT_INST_DEFINE(0, &eeprom_stm32_init, NULL, NULL,
 		    &eeprom_config, POST_KERNEL,
-		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &eeprom_stm32_api);
+		    CONFIG_EEPROM_INIT_PRIORITY, &eeprom_stm32_api);

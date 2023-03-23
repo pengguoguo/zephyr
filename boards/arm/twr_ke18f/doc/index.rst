@@ -11,8 +11,7 @@ MCU-based platforms. The onboard OpenSDAv2 serial and debug adapter,
 running an open source bootloader, offers options for serial
 communication, flash programming, and run-control debugging.
 
-.. figure:: ./TWR-KE18F-DEVICE.jpg
-   :width: 800px
+.. figure:: TWR-KE18F-DEVICE.jpg
    :align: center
    :alt: TWR-KE18F
 
@@ -85,6 +84,8 @@ features:
 | PWM       | on-chip    | pwm                                 |
 +-----------+------------+-------------------------------------+
 | DAC       | on-chip    | dac                                 |
++-----------+------------+-------------------------------------+
+| ACMP      | on-chip    | analog comparator                   |
 +-----------+------------+-------------------------------------+
 
 The default configuration can be found in the defconfig file:
@@ -163,13 +164,14 @@ path.
 Follow the instructions in :ref:`opensda-jlink-onboard-debug-probe` to program
 the `OpenSDA J-Link Firmware for TWR-KE18F`_.
 
-Add the argument ``-DOPENSDA_FW=jlink`` when you invoke ``west build`` to
-override the default runner from pyOCD to J-Link:
+Add the arguments ``-DBOARD_FLASH_RUNNER=jlink`` and
+``-DBOARD_DEBUG_RUNNER=jlink`` when you invoke ``west build`` to override the
+default runner from pyOCD to J-Link:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/hello_world
    :board: twr_ke18f
-   :gen-args: -DOPENSDA_FW=jlink
+   :gen-args: -DBOARD_FLASH_RUNNER=jlink -DBOARD_DEBUG_RUNNER=jlink
    :goals: build
 
 Configuring a Console

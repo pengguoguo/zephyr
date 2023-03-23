@@ -8,7 +8,7 @@
 
 #define NET_LOG_LEVEL CONFIG_NET_HOSTNAME_LOG_LEVEL
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 
 #include <zephyr/types.h>
@@ -16,15 +16,16 @@ LOG_MODULE_REGISTER(net_test, NET_LOG_LEVEL);
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/printk.h>
-#include <linker/sections.h>
+#include <zephyr/random/rand32.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/linker/sections.h>
 
-#include <ztest.h>
+#include <zephyr/ztest.h>
 
-#include <net/ethernet.h>
-#include <net/buf.h>
-#include <net/net_ip.h>
-#include <net/net_if.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_if.h>
 
 #define NET_LOG_ENABLED 1
 #include "net_private.h"
@@ -61,14 +62,14 @@ struct net_if_test {
 	struct net_linkaddr ll_addr;
 };
 
-static int net_iface_dev_init(struct device *dev)
+static int net_iface_dev_init(const struct device *dev)
 {
 	return 0;
 }
 
-static uint8_t *net_iface_get_mac(struct device *dev)
+static uint8_t *net_iface_get_mac(const struct device *dev)
 {
-	struct net_if_test *data = dev->driver_data;
+	struct net_if_test *data = dev->data;
 
 	if (data->mac_addr[2] == 0x00) {
 		/* 00-00-5E-00-53-xx Documentation RFC 7042 */
@@ -94,7 +95,7 @@ static void net_iface_init(struct net_if *iface)
 			     NET_LINK_ETHERNET);
 }
 
-static int sender_iface(struct device *dev, struct net_pkt *pkt)
+static int sender_iface(const struct device *dev, struct net_pkt *pkt)
 {
 	if (!pkt->buffer) {
 		DBG("No data to send!\n");
@@ -120,7 +121,7 @@ NET_DEVICE_INIT_INSTANCE(net_iface1_test,
 			 "iface1",
 			 iface1,
 			 net_iface_dev_init,
-			 device_pm_control_nop,
+			 NULL,
 			 &net_iface1_data,
 			 NULL,
 			 CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
@@ -139,8 +140,8 @@ static struct eth_fake_context eth_fake_data;
 
 static void eth_fake_iface_init(struct net_if *iface)
 {
-	struct device *dev = net_if_get_device(iface);
-	struct eth_fake_context *ctx = dev->driver_data;
+	const struct device *dev = net_if_get_device(iface);
+	struct eth_fake_context *ctx = dev->data;
 
 	ctx->iface = iface;
 
@@ -159,7 +160,7 @@ static void eth_fake_iface_init(struct net_if *iface)
 	ethernet_init(iface);
 }
 
-static int eth_fake_send(struct device *dev,
+static int eth_fake_send(const struct device *dev,
 			 struct net_pkt *pkt)
 {
 	ARG_UNUSED(dev);
@@ -173,16 +174,16 @@ static struct ethernet_api eth_fake_api_funcs = {
 	.send = eth_fake_send,
 };
 
-static int eth_fake_init(struct device *dev)
+static int eth_fake_init(const struct device *dev)
 {
-	struct eth_fake_context *ctx = dev->driver_data;
+	struct eth_fake_context *ctx = dev->data;
 
 	ctx->promisc_mode = false;
 
 	return 0;
 }
 
-ETH_NET_DEVICE_INIT(eth_fake, "eth_fake", eth_fake_init, device_pm_control_nop,
+ETH_NET_DEVICE_INIT(eth_fake, "eth_fake", eth_fake_init, NULL,
 		    &eth_fake_data, NULL, CONFIG_ETH_INIT_PRIORITY,
 		    &eth_fake_api_funcs, NET_ETH_MTU);
 
@@ -215,7 +216,7 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	}
 }
 
-static void test_iface_setup(void)
+static void *test_iface_setup(void)
 {
 	struct net_if_mcast_addr *maddr;
 	struct net_if_addr *ifaddr;
@@ -228,7 +229,7 @@ static void test_iface_setup(void)
 
 	idx = net_if_get_by_iface(iface1);
 	((struct net_if_test *)
-	 net_if_get_device(iface1)->driver_data)->idx = idx;
+	 net_if_get_device(iface1)->data)->idx = idx;
 
 	DBG("Interfaces: [%d] iface1 %p\n",
 	    net_if_get_by_iface(iface1), iface1);
@@ -251,7 +252,7 @@ static void test_iface_setup(void)
 		zassert_not_null(ifaddr, "ipv4 addr1");
 	}
 
-	/* For testing purposes we need to set the adddresses preferred */
+	/* For testing purposes we need to set the addresses preferred */
 	ifaddr->addr_state = NET_ADDR_PREFERRED;
 
 	ifaddr = net_if_ipv6_addr_add(iface1, &ll_addr,
@@ -276,6 +277,8 @@ static void test_iface_setup(void)
 	net_if_up(iface1);
 
 	test_started = true;
+
+	return NULL;
 }
 
 static int bytes_from_hostname_unique(uint8_t *buf, int buf_len, const char *src)
@@ -312,7 +315,7 @@ static int bytes_from_hostname_unique(uint8_t *buf, int buf_len, const char *src
 	return 0;
 }
 
-static void test_hostname_get(void)
+ZTEST(net_hostname, test_hostname_get)
 {
 	const char *hostname;
 	const char *config_hostname = CONFIG_NET_HOSTNAME;
@@ -335,7 +338,7 @@ static void test_hostname_get(void)
 	}
 }
 
-static void test_hostname_set(void)
+ZTEST(net_hostname, test_hostname_set)
 {
 	if (IS_ENABLED(CONFIG_NET_HOSTNAME_UNIQUE)) {
 		int ret;
@@ -346,13 +349,4 @@ static void test_hostname_set(void)
 	}
 }
 
-void test_main(void)
-{
-	ztest_test_suite(net_hostname_test,
-			 ztest_unit_test(test_iface_setup),
-			 ztest_unit_test(test_hostname_get),
-			 ztest_unit_test(test_hostname_set)
-		);
-
-	ztest_run_test_suite(net_hostname_test);
-}
+ZTEST_SUITE(net_hostname, NULL, test_iface_setup, NULL, NULL, NULL);

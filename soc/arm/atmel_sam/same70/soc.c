@@ -10,12 +10,13 @@
  * for the Atmel SAM E70 MCU.
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <soc.h>
-#include <arch/arm/aarch32/cortex_m/cmsis.h>
-#include <logging/log.h>
+#include <zephyr/arch/arm/aarch32/cortex_m/cmsis.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/irq.h>
 
 #define LOG_LEVEL CONFIG_SOC_LOG_LEVEL
 LOG_MODULE_REGISTER(soc);
@@ -177,6 +178,14 @@ static ALWAYS_INLINE void clock_init(void)
 		;
 	}
 
+	/* Setup UPLL */
+	PMC->CKGR_UCKR = CKGR_UCKR_UPLLCOUNT(0x3Fu) | CKGR_UCKR_UPLLEN;
+
+	/* Wait for PLL lock */
+	while (!(PMC->PMC_SR & PMC_SR_LOCKU)) {
+		;
+	}
+
 	/*
 	 * Final setup of the Master Clock
 	 */
@@ -223,7 +232,7 @@ static ALWAYS_INLINE void clock_init(void)
  *
  * @return 0
  */
-static int atmel_same70_init(struct device *arg)
+static int atmel_same70_init(const struct device *arg)
 {
 	uint32_t key;
 

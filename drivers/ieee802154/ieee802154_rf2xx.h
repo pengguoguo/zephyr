@@ -74,56 +74,48 @@ enum rf2xx_trx_model_t {
 	RF2XX_TRX_MODEL_233     = 0x0B,
 };
 
-struct rf2xx_dt_gpio_t {
-	const char *devname;
-	uint32_t pin;
-	uint32_t flags;
-};
-
-struct rf2xx_dt_spi_t {
-	const char *devname;
-	uint32_t freq;
-	uint32_t addr;
-	struct rf2xx_dt_gpio_t cs;
+enum rf2xx_trx_channel_page_t {
+	RF2XX_TRX_CC_PAGE_0     = 0x00,
+	RF2XX_TRX_CC_PAGE_2     = 0x02,
+	RF2XX_TRX_CC_PAGE_5     = 0x05,
 };
 
 struct rf2xx_config {
-	struct rf2xx_dt_gpio_t irq;
-	struct rf2xx_dt_gpio_t reset;
-	struct rf2xx_dt_gpio_t slptr;
-	struct rf2xx_dt_gpio_t dig2;
-	struct rf2xx_dt_gpio_t clkm;
+	struct gpio_dt_spec irq_gpio;
+	struct gpio_dt_spec reset_gpio;
+	struct gpio_dt_spec slptr_gpio;
+	struct gpio_dt_spec dig2_gpio;
+	struct gpio_dt_spec clkm_gpio;
 
-	struct rf2xx_dt_spi_t spi;
+	struct spi_dt_spec spi;
 
 	uint8_t inst;
 	uint8_t has_mac;
+
+	uint8_t const *tx_pwr_table;
+	uint8_t tx_pwr_table_size;
+	int8_t tx_pwr_min[2];
+	int8_t tx_pwr_max[2];
 };
 
 struct rf2xx_context {
 	struct net_if *iface;
 
-	struct device *irq_gpio;
-	struct device *reset_gpio;
-	struct device *slptr_gpio;
-	struct device *dig2_gpio;
-	struct device *clkm_gpio;
-
-	struct device *spi;
-	struct spi_config spi_cfg;
-	struct spi_cs_control spi_cs;
+	const struct device *dev;
 
 	struct gpio_callback irq_cb;
 
 	struct k_thread trx_thread;
-	K_THREAD_STACK_MEMBER(trx_stack,
+	K_KERNEL_STACK_MEMBER(trx_stack,
 			      CONFIG_IEEE802154_RF2XX_RX_STACK_SIZE);
 	struct k_sem trx_isr_lock;
 	struct k_sem trx_tx_sync;
 
 	enum rf2xx_trx_model_t trx_model;
+	enum rf2xx_trx_channel_page_t cc_page;
 	enum rf2xx_trx_state_trac_t trx_trac;
 
+	enum ieee802154_tx_mode tx_mode;
 	uint8_t mac_addr[8];
 	uint8_t pkt_lqi;
 	uint8_t pkt_ed;

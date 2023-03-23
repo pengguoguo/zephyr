@@ -4,20 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @addtogroup t_gpio_api
- * @{
- * @defgroup t_gpio_api_pin test_gpio_api_pin
- * @brief TestPurpose: verify all gpio pin functions using single pin configured
- *        as input/output.
- * @}
- */
 
 #include <limits.h>
-#include <sys/util.h>
+#include <zephyr/sys/util.h>
 #include "test_gpio_api.h"
 
-static void pin_get_raw_and_verify(struct device *port, unsigned int pin,
+static void pin_get_raw_and_verify(const struct device *port,
+				   unsigned int pin,
 				   int val_expected, int idx)
 {
 	int val_actual;
@@ -29,7 +22,7 @@ static void pin_get_raw_and_verify(struct device *port, unsigned int pin,
 		      "Test point %d: invalid physical pin get value", idx);
 }
 
-static void pin_get_and_verify(struct device *port, unsigned int pin,
+static void pin_get_and_verify(const struct device *port, unsigned int pin,
 			       int val_expected, int idx)
 {
 	int val_actual;
@@ -41,7 +34,8 @@ static void pin_get_and_verify(struct device *port, unsigned int pin,
 		      "Test point %d: invalid logical pin get value", idx);
 }
 
-static void pin_set_raw_and_verify(struct device *port, unsigned int pin,
+static void pin_set_raw_and_verify(const struct device *port,
+				   unsigned int pin,
 				   int val, int idx)
 {
 	zassert_equal(gpio_pin_set_raw(port, pin, val), 0,
@@ -49,7 +43,8 @@ static void pin_set_raw_and_verify(struct device *port, unsigned int pin,
 	k_busy_wait(TEST_GPIO_MAX_RISE_FALL_TIME_US);
 }
 
-static void pin_set_and_verify(struct device *port, unsigned int pin, int val,
+static void pin_set_and_verify(const struct device *port, unsigned int pin,
+			       int val,
 			       int idx)
 {
 	zassert_equal(gpio_pin_set(port, pin, val), 0,
@@ -62,16 +57,16 @@ static void pin_set_and_verify(struct device *port, unsigned int pin, int val,
  * - Verify that gpio_pin_toggle function changes pin state from active to
  *   inactive and vice versa.
  */
-void test_gpio_pin_toggle(void)
+ZTEST(gpio_api_1pin_pin, test_gpio_pin_toggle)
 {
-	struct device *port;
+	const struct device *port;
 	int val_expected;
 	int ret;
 
-	port = device_get_binding(TEST_DEV);
-	zassert_not_null(port, "device " TEST_DEV " not found");
+	port = DEVICE_DT_GET(TEST_NODE);
+	zassert_true(device_is_ready(port), "GPIO dev is not ready");
 
-	TC_PRINT("Running test on port=%s, pin=%d\n", TEST_DEV, TEST_PIN);
+	TC_PRINT("Running test on port=%s, pin=%d\n", port->name, TEST_PIN);
 
 	ret = gpio_pin_configure(port, TEST_PIN, GPIO_OUTPUT | GPIO_INPUT);
 	if (ret == -ENOTSUP) {
@@ -104,16 +99,16 @@ void test_gpio_pin_toggle(void)
  * - Verify visually that gpio_pin_toggle function changes pin state from active
  *   to inactive and vice versa.
  */
-void test_gpio_pin_toggle_visual(void)
+ZTEST(gpio_api_1pin_pin, test_gpio_pin_toggle_visual)
 {
-	struct device *port;
+	const struct device *port;
 	int val_expected;
 	int ret;
 
-	port = device_get_binding(TEST_DEV);
-	zassert_not_null(port, "device " TEST_DEV " not found");
+	port = DEVICE_DT_GET(TEST_NODE);
+	zassert_true(device_is_ready(port), "GPIO dev is not ready");
 
-	TC_PRINT("Running test on port=%s, pin=%d\n", TEST_DEV, TEST_PIN);
+	TC_PRINT("Running test on port=%s, pin=%d\n", port->name, TEST_PIN);
 
 	ret = gpio_pin_configure(port, TEST_PIN, GPIO_OUTPUT |
 				 TEST_PIN_DTS_FLAGS);
@@ -139,9 +134,9 @@ void test_gpio_pin_toggle_visual(void)
  * - Verify that gpio_pin_get_raw reads the same value as set by
  *   gpio_pin_set_raw function.
  */
-void test_gpio_pin_set_get_raw(void)
+ZTEST(gpio_api_1pin_pin, test_gpio_pin_set_get_raw)
 {
-	struct device *port;
+	const struct device *port;
 	int val_expected;
 	int ret;
 
@@ -149,10 +144,10 @@ void test_gpio_pin_set_get_raw(void)
 		4, 1, 45, 0, 0, -7, 0, 0, 0, INT_MAX, INT_MIN, 0
 	};
 
-	port = device_get_binding(TEST_DEV);
-	zassert_not_null(port, "device " TEST_DEV " not found");
+	port = DEVICE_DT_GET(TEST_NODE);
+	zassert_true(device_is_ready(port), "GPIO dev is not ready");
 
-	TC_PRINT("Running test on port=%s, pin=%d\n", TEST_DEV, TEST_PIN);
+	TC_PRINT("Running test on port=%s, pin=%d\n", port->name, TEST_PIN);
 
 	ret = gpio_pin_configure(port, TEST_PIN, GPIO_OUTPUT | GPIO_INPUT);
 	if (ret == -ENOTSUP) {
@@ -176,9 +171,9 @@ void test_gpio_pin_set_get_raw(void)
  * - Verify that gpio_pin_get reads the same value as set by gpio_pin_set
  *   function.
  */
-void test_gpio_pin_set_get(void)
+ZTEST(gpio_api_1pin_pin, test_gpio_pin_set_get)
 {
-	struct device *port;
+	const struct device *port;
 	int val_expected;
 	int ret;
 
@@ -186,10 +181,10 @@ void test_gpio_pin_set_get(void)
 		1, 2, 3, 0, 4, 0, 0, 0, 17, INT_MAX, INT_MIN, 0
 	};
 
-	port = device_get_binding(TEST_DEV);
-	zassert_not_null(port, "device " TEST_DEV " not found");
+	port = DEVICE_DT_GET(TEST_NODE);
+	zassert_true(device_is_ready(port), "GPIO dev is not ready");
 
-	TC_PRINT("Running test on port=%s, pin=%d\n", TEST_DEV, TEST_PIN);
+	TC_PRINT("Running test on port=%s, pin=%d\n", port->name, TEST_PIN);
 
 	ret = gpio_pin_configure(port, TEST_PIN, GPIO_OUTPUT | GPIO_INPUT);
 	if (ret == -ENOTSUP) {
@@ -215,18 +210,18 @@ void test_gpio_pin_set_get(void)
  * - Verify that there is no functional difference between gpio_pin_get_raw and
  *   gpio_pin_get functions if the pin is configured as Active High.
  */
-void test_gpio_pin_set_get_active_high(void)
+ZTEST(gpio_api_1pin_pin, test_gpio_pin_set_get_active_high)
 {
-	struct device *port;
+	const struct device *port;
 	int val_expected;
 	int ret;
 
 	const int test_vector[] = {0, 2, 0, 9, -1, 0, 0, 1, INT_MAX, INT_MIN};
 
-	port = device_get_binding(TEST_DEV);
-	zassert_not_null(port, "device " TEST_DEV " not found");
+	port = DEVICE_DT_GET(TEST_NODE);
+	zassert_true(device_is_ready(port), "GPIO dev is not ready");
 
-	TC_PRINT("Running test on port=%s, pin=%d\n", TEST_DEV, TEST_PIN);
+	TC_PRINT("Running test on port=%s, pin=%d\n", port->name, TEST_PIN);
 
 	ret = gpio_pin_configure(port, TEST_PIN, GPIO_OUTPUT | GPIO_INPUT |
 				 GPIO_ACTIVE_HIGH);
@@ -265,18 +260,18 @@ void test_gpio_pin_set_get_active_high(void)
  * - Verify that value read by gpio_pin_get function is inverted compared to
  *   gpio_pin_get_raw if the pin is configured as Active Low.
  */
-void test_gpio_pin_set_get_active_low(void)
+ZTEST(gpio_api_1pin_pin, test_gpio_pin_set_get_active_low)
 {
-	struct device *port;
+	const struct device *port;
 	int val_expected, val_raw_expected;
 	int ret;
 
 	const int test_vector[] = {0, 4, 0, 0, 1, 8, -3, -12, 0};
 
-	port = device_get_binding(TEST_DEV);
-	zassert_not_null(port, "device " TEST_DEV " not found");
+	port = DEVICE_DT_GET(TEST_NODE);
+	zassert_true(device_is_ready(port), "GPIO dev is not ready");
 
-	TC_PRINT("Running test on port=%s, pin=%d\n", TEST_DEV, TEST_PIN);
+	TC_PRINT("Running test on port=%s, pin=%d\n", port->name, TEST_PIN);
 
 	ret = gpio_pin_configure(port, TEST_PIN, GPIO_OUTPUT | GPIO_INPUT |
 				 GPIO_ACTIVE_LOW);
@@ -309,3 +304,5 @@ void test_gpio_pin_set_get_active_low(void)
 		pin_get_raw_and_verify(port, TEST_PIN, val_raw_expected, i);
 	}
 }
+
+ZTEST_SUITE(gpio_api_1pin_pin, NULL, NULL, NULL, NULL, NULL);

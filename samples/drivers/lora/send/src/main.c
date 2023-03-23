@@ -4,34 +4,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <device.h>
-#include <drivers/lora.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/lora.h>
 #include <errno.h>
-#include <sys/util.h>
-#include <zephyr.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/kernel.h>
 
 #define DEFAULT_RADIO_NODE DT_ALIAS(lora0)
 BUILD_ASSERT(DT_NODE_HAS_STATUS(DEFAULT_RADIO_NODE, okay),
 	     "No default LoRa radio specified in DT");
-#define DEFAULT_RADIO DT_LABEL(DEFAULT_RADIO_NODE)
 
 #define MAX_DATA_LEN 10
 
 #define LOG_LEVEL CONFIG_LOG_DEFAULT_LEVEL
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(lora_send);
 
 char data[MAX_DATA_LEN] = {'h', 'e', 'l', 'l', 'o', 'w', 'o', 'r', 'l', 'd'};
 
 void main(void)
 {
-	struct device *lora_dev;
+	const struct device *const lora_dev = DEVICE_DT_GET(DEFAULT_RADIO_NODE);
 	struct lora_modem_config config;
 	int ret;
 
-	lora_dev = device_get_binding(DEFAULT_RADIO);
-	if (!lora_dev) {
-		LOG_ERR("%s Device not found", DEFAULT_RADIO);
+	if (!device_is_ready(lora_dev)) {
+		LOG_ERR("%s Device not ready", lora_dev->name);
 		return;
 	}
 
@@ -40,6 +38,8 @@ void main(void)
 	config.datarate = SF_10;
 	config.preamble_len = 8;
 	config.coding_rate = CR_4_5;
+	config.iq_inverted = false;
+	config.public_network = false;
 	config.tx_power = 4;
 	config.tx = true;
 

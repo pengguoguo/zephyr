@@ -11,20 +11,20 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <zephyr.h>
+#include <zephyr/kernel.h>
 
-#include <bluetooth/hci.h>
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
 
-#include <shell/shell.h>
+#include <zephyr/shell/shell.h>
 
 #include "../controller/util/memq.h"
 #include "../controller/include/ll.h"
 
 #include "bt.h"
 
-int cmd_ll_addr_get(const struct shell *shell, size_t argc, char *argv[])
+int cmd_ll_addr_read(const struct shell *sh, size_t argc, char *argv[])
 {
 	uint8_t addr_type;
 	const char *str_type;
@@ -44,10 +44,10 @@ int cmd_ll_addr_get(const struct shell *shell, size_t argc, char *argv[])
 		return -EINVAL;
 	}
 
-	(void)ll_addr_get(addr_type, addr.val);
+	(void)ll_addr_read(addr_type, addr.val);
 	bt_addr_to_str(&addr, str_addr, sizeof(str_addr));
 
-	shell_print(shell, "Current %s address: %s", str_type, str_addr);
+	shell_print(sh, "Current %s address: %s", str_type, str_addr);
 
 	return 0;
 }
@@ -55,10 +55,10 @@ int cmd_ll_addr_get(const struct shell *shell, size_t argc, char *argv[])
 #if defined(CONFIG_BT_CTLR_DTM)
 #include "../controller/ll_sw/ll_test.h"
 
-int cmd_test_tx(const struct shell *shell, size_t  argc, char *argv[])
+int cmd_test_tx(const struct shell *sh, size_t  argc, char *argv[])
 {
 	uint8_t chan, len, type, phy;
-	uint32_t err;
+	uint8_t err;
 
 	if (argc < 5) {
 		return -EINVAL;
@@ -69,20 +69,22 @@ int cmd_test_tx(const struct shell *shell, size_t  argc, char *argv[])
 	type = strtoul(argv[3], NULL, 16);
 	phy  = strtoul(argv[4], NULL, 16);
 
-	err = ll_test_tx(chan, len, type, phy);
+	err = ll_test_tx(chan, len, type, phy, BT_HCI_LE_TEST_CTE_DISABLED,
+			 BT_HCI_LE_TEST_CTE_TYPE_ANY, BT_HCI_LE_TEST_SWITCH_PATTERN_LEN_ANY,
+			 NULL, BT_HCI_TX_TEST_POWER_MAX_SET);
 	if (err) {
 		return -EINVAL;
 	}
 
-	shell_print(shell, "test_tx...");
+	shell_print(sh, "test_tx...");
 
 	return 0;
 }
 
-int cmd_test_rx(const struct shell *shell, size_t  argc, char *argv[])
+int cmd_test_rx(const struct shell *sh, size_t  argc, char *argv[])
 {
 	uint8_t chan, phy, mod_idx;
-	uint32_t err;
+	uint8_t err;
 
 	if (argc < 4) {
 		return -EINVAL;
@@ -92,27 +94,29 @@ int cmd_test_rx(const struct shell *shell, size_t  argc, char *argv[])
 	phy     = strtoul(argv[2], NULL, 16);
 	mod_idx = strtoul(argv[3], NULL, 16);
 
-	err = ll_test_rx(chan, phy, mod_idx);
+	err = ll_test_rx(chan, phy, mod_idx, BT_HCI_LE_TEST_CTE_DISABLED,
+			 BT_HCI_LE_TEST_CTE_TYPE_ANY, BT_HCI_LE_TEST_SLOT_DURATION_ANY,
+			 BT_HCI_LE_TEST_SWITCH_PATTERN_LEN_ANY, NULL);
 	if (err) {
 		return -EINVAL;
 	}
 
-	shell_print(shell, "test_rx...");
+	shell_print(sh, "test_rx...");
 
 	return 0;
 }
 
-int cmd_test_end(const struct shell *shell, size_t  argc, char *argv[])
+int cmd_test_end(const struct shell *sh, size_t  argc, char *argv[])
 {
 	uint16_t num_rx;
-	uint32_t err;
+	uint8_t err;
 
 	err = ll_test_end(&num_rx);
 	if (err) {
 		return -EINVAL;
 	}
 
-	shell_print(shell, "num_rx= %u.", num_rx);
+	shell_print(sh, "num_rx= %u.", num_rx);
 
 	return 0;
 }
@@ -136,13 +140,11 @@ int cmd_test_end(const struct shell *shell, size_t  argc, char *argv[])
 #define AD_OP 0x03
 #define AD_FRAG_PREF 0x00
 
-#if defined(CONFIG_BT_LL_SW_SPLIT)
 static const struct bt_data adv_data[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_NO_BREDR),
 	};
-#endif
 
-int cmd_advx(const struct shell *shell, size_t argc, char *argv[])
+int cmd_advx(const struct shell *sh, size_t argc, char *argv[])
 {
 	uint16_t adv_interval = 0x20;
 	uint16_t handle = 0U;
@@ -247,7 +249,7 @@ int cmd_advx(const struct shell *shell, size_t argc, char *argv[])
 	}
 
 do_enable:
-	shell_print(shell, "adv param set...");
+	shell_print(sh, "adv param set...");
 	err = ll_adv_params_set(handle, evt_prop, adv_interval, adv_type,
 				OWN_ADDR_TYPE, PEER_ADDR_TYPE, PEER_ADDR,
 				ADV_CHAN_MAP, FILTER_POLICY, ADV_TX_PWR,
@@ -257,9 +259,8 @@ do_enable:
 		goto exit;
 	}
 
-#if defined(CONFIG_BT_LL_SW_SPLIT)
 	if (ad) {
-		shell_print(shell, "ad data set...");
+		shell_print(sh, "ad data set...");
 		err = ll_adv_aux_ad_data_set(handle, AD_OP, AD_FRAG_PREF,
 					     ARRAY_SIZE(adv_data),
 					     (void *)adv_data);
@@ -267,21 +268,27 @@ do_enable:
 			goto exit;
 		}
 	}
-#endif
 
 disable:
-	shell_print(shell, "adv enable (%u)...", enable);
+	shell_print(sh, "adv enable (%u)...", enable);
 #if defined(CONFIG_BT_HCI_MESH_EXT)
 	err = ll_adv_enable(handle, enable, 0, 0, 0, 0, 0);
 #else /* !CONFIG_BT_HCI_MESH_EXT */
-	err = ll_adv_enable(handle, enable);
+	err = ll_adv_enable(handle, enable, 0, 0);
 #endif /* !CONFIG_BT_HCI_MESH_EXT */
 	if (err) {
 		goto exit;
 	}
 
+	if (!enable) {
+		err = ll_adv_aux_set_remove(handle);
+		if (err) {
+			goto exit;
+		}
+	}
+
 exit:
-	shell_print(shell, "done (err= %d).", err);
+	shell_print(sh, "done (err= %d).", err);
 
 	return 0;
 }
@@ -293,7 +300,7 @@ exit:
 #define SCAN_OWN_ADDR_TYPE 1
 #define SCAN_FILTER_POLICY 0
 
-int cmd_scanx(const struct shell *shell, size_t  argc, char *argv[])
+int cmd_scanx(const struct shell *sh, size_t  argc, char *argv[])
 {
 	uint8_t type = 0U;
 	uint8_t enable;
@@ -329,7 +336,7 @@ int cmd_scanx(const struct shell *shell, size_t  argc, char *argv[])
 		}
 	}
 
-	shell_print(shell, "scan param set...");
+	shell_print(sh, "scan param set...");
 	err = ll_scan_params_set(type, SCAN_INTERVAL, SCAN_WINDOW,
 				 SCAN_OWN_ADDR_TYPE, SCAN_FILTER_POLICY);
 	if (err) {
@@ -337,26 +344,16 @@ int cmd_scanx(const struct shell *shell, size_t  argc, char *argv[])
 	}
 
 disable:
-	shell_print(shell, "scan enable (%u)...", enable);
-	err = ll_scan_enable(enable);
+	shell_print(sh, "scan enable (%u)...", enable);
+	err = ll_scan_enable(enable, 0, 0);
 	if (err) {
 		goto exit;
 	}
 
 exit:
-	shell_print(shell, "done (err= %d).", err);
+	shell_print(sh, "done (err= %d).", err);
 
 	return err;
 }
 #endif /* CONFIG_BT_OBSERVER */
 #endif /* CONFIG_BT_CTLR_ADV_EXT */
-
-#if defined(CONFIG_BT_LL_SW_SPLIT)
-int cmd_ull_reset(const struct shell *shell, size_t  argc, char *argv[])
-{
-	ll_reset();
-
-	return 0;
-}
-
-#endif /* CONFIG_BT_LL_SW_SPLIT */

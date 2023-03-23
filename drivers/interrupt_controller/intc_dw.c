@@ -13,10 +13,11 @@
  * This implementation works only when sw_isr_table is enabled in zephyr
  */
 
-#include <device.h>
-#include <irq_nextlevel.h>
+#include <zephyr/device.h>
+#include <zephyr/irq_nextlevel.h>
 #include "intc_dw.h"
 #include <soc.h>
+#include <zephyr/irq.h>
 
 static ALWAYS_INLINE void dw_ictl_dispatch_child_isrs(uint32_t intr_status,
 						      uint32_t isr_base_offset)
@@ -33,9 +34,9 @@ static ALWAYS_INLINE void dw_ictl_dispatch_child_isrs(uint32_t intr_status,
 	}
 }
 
-static int dw_ictl_initialize(struct device *dev)
+static int dw_ictl_initialize(const struct device *dev)
 {
-	const struct dw_ictl_config *config = dev->config_info;
+	const struct dw_ictl_config *config = dev->config;
 	volatile struct dw_ictl_registers * const regs =
 			(struct dw_ictl_registers *)config->base_addr;
 
@@ -46,25 +47,25 @@ static int dw_ictl_initialize(struct device *dev)
 	return 0;
 }
 
-static void dw_ictl_isr(void *arg)
+static void dw_ictl_isr(const struct device *dev)
 {
-	struct device *dev = (struct device *)arg;
-	const struct dw_ictl_config *config = dev->config_info;
+	const struct dw_ictl_config *config = dev->config;
 	volatile struct dw_ictl_registers * const regs =
 			(struct dw_ictl_registers *)config->base_addr;
 
-	dw_ictl_dispatch_child_isrs(regs->irq_maskstatus_l,
+	dw_ictl_dispatch_child_isrs(regs->irq_finalstatus_l,
 				    config->isr_table_offset);
 
 	if (config->numirqs > 32) {
-		dw_ictl_dispatch_child_isrs(regs->irq_maskstatus_h,
+		dw_ictl_dispatch_child_isrs(regs->irq_finalstatus_h,
 					    config->isr_table_offset + 32);
 	}
 }
 
-static inline void dw_ictl_intr_enable(struct device *dev, unsigned int irq)
+static inline void dw_ictl_intr_enable(const struct device *dev,
+				       unsigned int irq)
 {
-	const struct dw_ictl_config *config = dev->config_info;
+	const struct dw_ictl_config *config = dev->config;
 	volatile struct dw_ictl_registers * const regs =
 		(struct dw_ictl_registers *)config->base_addr;
 
@@ -75,9 +76,10 @@ static inline void dw_ictl_intr_enable(struct device *dev, unsigned int irq)
 	}
 }
 
-static inline void dw_ictl_intr_disable(struct device *dev, unsigned int irq)
+static inline void dw_ictl_intr_disable(const struct device *dev,
+					unsigned int irq)
 {
-	const struct dw_ictl_config *config = dev->config_info;
+	const struct dw_ictl_config *config = dev->config;
 	volatile struct dw_ictl_registers * const regs =
 		(struct dw_ictl_registers *)config->base_addr;
 
@@ -88,9 +90,9 @@ static inline void dw_ictl_intr_disable(struct device *dev, unsigned int irq)
 	}
 }
 
-static inline unsigned int dw_ictl_intr_get_state(struct device *dev)
+static inline unsigned int dw_ictl_intr_get_state(const struct device *dev)
 {
-	const struct dw_ictl_config *config = dev->config_info;
+	const struct dw_ictl_config *config = dev->config;
 	volatile struct dw_ictl_registers * const regs =
 		(struct dw_ictl_registers *)config->base_addr;
 
@@ -106,9 +108,10 @@ static inline unsigned int dw_ictl_intr_get_state(struct device *dev)
 	return 0;
 }
 
-static int dw_ictl_intr_get_line_state(struct device *dev, unsigned int irq)
+static int dw_ictl_intr_get_line_state(const struct device *dev,
+				       unsigned int irq)
 {
-	const struct dw_ictl_config *config = dev->config_info;
+	const struct dw_ictl_config *config = dev->config;
 	volatile struct dw_ictl_registers * const regs =
 		(struct dw_ictl_registers *)config->base_addr;
 
@@ -125,7 +128,7 @@ static int dw_ictl_intr_get_line_state(struct device *dev, unsigned int irq)
 	return 0;
 }
 
-static void dw_ictl_config_irq(struct device *dev);
+static void dw_ictl_config_irq(const struct device *dev);
 
 static const struct dw_ictl_config dw_config = {
 	.base_addr = DT_INST_REG_ADDR(0),
@@ -141,15 +144,15 @@ static const struct irq_next_level_api dw_ictl_apis = {
 	.intr_get_line_state = dw_ictl_intr_get_line_state,
 };
 
-DEVICE_AND_API_INIT(dw_ictl, DT_INST_LABEL(0),
-		    dw_ictl_initialize, NULL, &dw_config,
-		    PRE_KERNEL_1, CONFIG_DW_ICTL_INIT_PRIORITY, &dw_ictl_apis);
+DEVICE_DT_INST_DEFINE(0, dw_ictl_initialize, NULL,
+		NULL, &dw_config, PRE_KERNEL_1,
+		CONFIG_DW_ICTL_INIT_PRIORITY, &dw_ictl_apis);
 
-static void dw_ictl_config_irq(struct device *port)
+static void dw_ictl_config_irq(const struct device *port)
 {
 	IRQ_CONNECT(DT_INST_IRQN(0),
 		    DT_INST_IRQ(0, priority),
 		    dw_ictl_isr,
-		    DEVICE_GET(dw_ictl),
+		    DEVICE_DT_INST_GET(0),
 		    DT_INST_IRQ(0, sense));
 }

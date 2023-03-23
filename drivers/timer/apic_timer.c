@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <drivers/timer/system_timer.h>
-#include <sys_clock.h>
-#include <spinlock.h>
-#include <drivers/interrupt_controller/loapic.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/timer/system_timer.h>
+#include <zephyr/sys_clock.h>
+#include <zephyr/spinlock.h>
+#include <zephyr/drivers/interrupt_controller/loapic.h>
+#include <zephyr/irq.h>
 
 BUILD_ASSERT(!IS_ENABLED(CONFIG_SMP), "APIC timer doesn't support SMP");
 
@@ -16,7 +18,7 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_SMP), "APIC timer doesn't support SMP");
  * This driver enables the local APIC as the Zephyr system timer. It supports
  * both legacy ("tickful") mode as well as TICKLESS_KERNEL. The driver will
  * work with any APIC that has the ARAT "always running APIC timer" feature
- * (CPUID 0x06, EAX bit 2); for the more accurate z_timer_cycle_get_32(),
+ * (CPUID 0x06, EAX bit 2); for the more accurate sys_clock_cycle_get_32(),
  * the invariant TSC feature (CPUID 0x80000007: EDX bit 8) is also required.
  * (Ultimately systems with invariant TSCs should use a TSC-based driver,
  * and the TSC-related parts should be stripped from this implementation.)
@@ -31,7 +33,7 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_SMP), "APIC timer doesn't support SMP");
  *     by the local APIC timer block (before it gets to the timer divider).
  *
  * CONFIG_APIC_TIMER_TSC=y enables the more accurate TSC-based cycle counter
- *     for z_timer_cycle_get_32(). This also requires the next options be set.
+ *     for sys_clock_cycle_get_32(). This also requires the next options be set.
  *
  * CONFIG_APIC_TIMER_TSC_N=<n>
  * CONFIG_APIC_TIMER_TSC_M=<m>
@@ -47,6 +49,9 @@ BUILD_ASSERT(!IS_ENABLED(CONFIG_SMP), "APIC timer doesn't support SMP");
 #define LVT_MODE_MASK		0x00060000	/* timer mode bits */
 #define LVT_MODE		0x00000000	/* one-shot */
 
+#if defined(CONFIG_TEST)
+const int32_t z_sys_timer_irq_for_test = CONFIG_APIC_TIMER_IRQ;
+#endif
 /*
  * CYCLES_PER_TICK must always be at least '2', otherwise MAX_TICKS
  * will overflow int32_t, which is how 'ticks' are currently represented.
@@ -76,9 +81,9 @@ static uint32_t cached_icr = CYCLES_PER_TICK;
 
 #ifdef CONFIG_TICKLESS_KERNEL
 
-static uint64_t last_announcement;	/* last time we called z_clock_announce() */
+static uint64_t last_announcement;	/* last time we called sys_clock_announce() */
 
-void z_clock_set_timeout(int32_t n, bool idle)
+void sys_clock_set_timeout(int32_t n, bool idle)
 {
 	ARG_UNUSED(idle);
 
@@ -117,7 +122,7 @@ void z_clock_set_timeout(int32_t n, bool idle)
 	k_spin_unlock(&lock, key);
 }
 
-uint32_t z_clock_elapsed(void)
+uint32_t sys_clock_elapsed(void)
 {
 	uint32_t ccr;
 	uint32_t ticks;
@@ -132,7 +137,7 @@ uint32_t z_clock_elapsed(void)
 	return ticks;
 }
 
-static void isr(void *arg)
+static void isr(const void *arg)
 {
 	ARG_UNUSED(arg);
 
@@ -143,7 +148,7 @@ static void isr(void *arg)
 
 	/*
 	 * If we get here and the CCR isn't zero, then this interrupt is
-	 * stale: it was queued while z_clock_set_timeout() was setting
+	 * stale: it was queued while sys_clock_set_timeout() was setting
 	 * a new counter. Just ignore it. See above for more info.
 	 */
 
@@ -161,12 +166,12 @@ static void isr(void *arg)
 	ticks = (total_cycles - last_announcement) / CYCLES_PER_TICK;
 	last_announcement = total_cycles;
 	k_spin_unlock(&lock, key);
-	z_clock_announce(ticks);
+	sys_clock_announce(ticks);
 }
 
 #else
 
-static void isr(void *arg)
+static void isr(const void *arg)
 {
 	ARG_UNUSED(arg);
 
@@ -175,10 +180,10 @@ static void isr(void *arg)
 	x86_write_loapic(LOAPIC_TIMER_ICR, cached_icr);
 	k_spin_unlock(&lock, key);
 
-	z_clock_announce(1);
+	sys_clock_announce(1);
 }
 
-uint32_t z_clock_elapsed(void)
+uint32_t sys_clock_elapsed(void)
 {
 	return 0U;
 }
@@ -187,7 +192,7 @@ uint32_t z_clock_elapsed(void)
 
 #ifdef CONFIG_APIC_TIMER_TSC
 
-uint32_t z_timer_cycle_get_32(void)
+uint32_t sys_clock_cycle_get_32(void)
 {
 	uint64_t tsc = z_tsc_read();
 	uint32_t cycles;
@@ -198,7 +203,7 @@ uint32_t z_timer_cycle_get_32(void)
 
 #else
 
-uint32_t z_timer_cycle_get_32(void)
+uint32_t sys_clock_cycle_get_32(void)
 {
 	uint32_t ret;
 	uint32_t ccr;
@@ -213,9 +218,11 @@ uint32_t z_timer_cycle_get_32(void)
 
 #endif
 
-int z_clock_driver_init(struct device *device)
+static int sys_clock_driver_init(const struct device *dev)
 {
 	uint32_t val;
+
+	ARG_UNUSED(dev);
 
 	val = x86_read_loapic(LOAPIC_TIMER_CONFIG);	/* set divider */
 	val &= ~DCR_DIVIDER_MASK;
@@ -238,3 +245,6 @@ int z_clock_driver_init(struct device *device)
 
 	return 0;
 }
+
+SYS_INIT(sys_clock_driver_init, PRE_KERNEL_2,
+	 CONFIG_SYSTEM_CLOCK_INIT_PRIORITY);

@@ -19,22 +19,16 @@
 #define MQTT_OS_H_
 
 #include <stddef.h>
-#include <kernel.h>
-#include <sys/mutex.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/mutex.h>
 
-#include <net/net_core.h>
+#include <zephyr/net/net_core.h>
 
 #include "mqtt_internal.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**@brief Method to get trace logs from the module. */
-#define MQTT_TRC(...) NET_DBG(__VA_ARGS__)
-
-/**@brief Method to error logs from the module. */
-#define MQTT_ERR(...) NET_ERR(__VA_ARGS__)
 
 /**@brief Initialize the mutex for the module, if any.
  *

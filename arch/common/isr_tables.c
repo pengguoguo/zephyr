@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <toolchain.h>
-#include <linker/sections.h>
-#include <sw_isr_table.h>
-#include <arch/cpu.h>
+#include <zephyr/toolchain.h>
+#include <zephyr/linker/sections.h>
+#include <zephyr/sw_isr_table.h>
+#include <zephyr/arch/cpu.h>
 
 /* There is an additional member at the end populated by the linker script
  * which indicates the number of interrupts specified
@@ -50,9 +50,26 @@ Z_GENERIC_SECTION(.irq_info) struct int_list_header _iheader = {
 #define IRQ_VECTOR_TABLE_DEFAULT_ISR	z_irq_spurious
 #endif /* CONFIG_GEN_SW_ISR_TABLE */
 
-uint32_t __irq_vector_table _irq_vector_table[IRQ_TABLE_SIZE] = {
-	[0 ...(IRQ_TABLE_SIZE - 1)] = (uint32_t)&IRQ_VECTOR_TABLE_DEFAULT_ISR,
+#ifdef CONFIG_IRQ_VECTOR_TABLE_JUMP_BY_CODE
+
+/* Assembly code for a jump instruction. Must be set by the architecture. */
+#ifndef ARCH_IRQ_VECTOR_JUMP_CODE
+#error "ARCH_IRQ_VECTOR_JUMP_CODE not defined"
+#endif
+
+#define BUILD_VECTOR(n, _) __asm(ARCH_IRQ_VECTOR_JUMP_CODE(IRQ_VECTOR_TABLE_DEFAULT_ISR))
+
+/* The IRQ vector table contains the jump opcodes towards the vector routine */
+void __irq_vector_table __attribute__((naked)) _irq_vector_table(void) {
+	 LISTIFY(CONFIG_NUM_IRQS, BUILD_VECTOR, (;));
 };
+#else
+
+/* The IRQ vector table is an array of vector addresses */
+uintptr_t __irq_vector_table _irq_vector_table[IRQ_TABLE_SIZE] = {
+	[0 ...(IRQ_TABLE_SIZE - 1)] = (uintptr_t)&IRQ_VECTOR_TABLE_DEFAULT_ISR,
+};
+#endif /* CONFIG_IRQ_VECTOR_TABLE_JUMP_BY_CODE */
 #endif /* CONFIG_GEN_IRQ_VECTOR_TABLE */
 
 /* If there are no interrupts at all, or all interrupts are of the 'direct'
@@ -60,6 +77,7 @@ uint32_t __irq_vector_table _irq_vector_table[IRQ_TABLE_SIZE] = {
  */
 #ifdef CONFIG_GEN_SW_ISR_TABLE
 struct _isr_table_entry __sw_isr_table _sw_isr_table[IRQ_TABLE_SIZE] = {
-	[0 ...(IRQ_TABLE_SIZE - 1)] = {(void *)0x42, (void *)&z_irq_spurious},
+	[0 ...(IRQ_TABLE_SIZE - 1)] = {(const void *)0x42,
+				       (void *)&z_irq_spurious},
 };
 #endif

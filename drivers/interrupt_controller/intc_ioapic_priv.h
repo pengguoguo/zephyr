@@ -33,12 +33,9 @@
 /* Version register bits */
 
 #define IOAPIC_MRE_MASK 0x00ff0000 /* Max Red. entry mask */
+#define IOAPIC_MRE_POS 16
 #define IOAPIC_PRQ 0x00008000      /* this has IRQ reg */
 #define IOAPIC_VERSION 0x000000ff  /* version number */
-
-/* Redirection table entry number */
-
-#define MAX_REDTABLE_ENTRIES 24
 
 /* Redirection table entry bits: upper 32 bit */
 
@@ -47,5 +44,14 @@
 /* Redirection table entry bits: lower 32 bit */
 
 #define IOAPIC_VEC_MASK 0x000000ff
+
+/* VTD related macros */
+
+#define IOAPIC_VTD_REMAP_FORMAT BIT(16)
+/* We care only about the first 14 bits.
+ * The 15th bits is in the first 32bits of RTE but since
+ * we don't go up to that value, let's ignore it.
+ */
+#define IOAPIC_VTD_INDEX(index) (index << 17)
 
 #endif /* ZEPHYR_DRIVERS_INTERRUPT_CONTROLLER_INTC_IOAPIC_PRIV_H_ */

@@ -11,7 +11,7 @@
  *
  * An implementation of the architecture-specific
  * arch_cpu_idle() primitive required by the kernel idle loop component.
- * It can be called within an implementation of _sys_power_save_idle(),
+ * It can be called within an implementation of _pm_save_idle(),
  * which is provided for the kernel by the platform.
  *
  * An implementation of arch_cpu_atomic_idle(), which
@@ -21,8 +21,17 @@
  */
 
 #include "posix_core.h"
-#include <arch/posix/posix_soc_if.h>
-#include <tracing/tracing.h>
+#include "posix_board_if.h"
+#include <zephyr/arch/posix/posix_soc_if.h>
+#include <zephyr/tracing/tracing.h>
+
+#if !defined(CONFIG_ARCH_HAS_CUSTOM_BUSY_WAIT)
+#error "The POSIX architecture needs a custom busy_wait implementation. \
+CONFIG_ARCH_HAS_CUSTOM_BUSY_WAIT must be selected"
+/* Each POSIX arch board (or SOC) must provide an implementation of
+ * arch_busy_wait()
+ */
+#endif
 
 void arch_cpu_idle(void)
 {
@@ -39,12 +48,9 @@ void arch_cpu_atomic_idle(unsigned int key)
 
 #if defined(CONFIG_REBOOT)
 /**
- *
  * @brief Stub for sys_arch_reboot
  *
  * Does nothing
- *
- * @return N/A
  */
 void __weak sys_arch_reboot(int type)
 {
