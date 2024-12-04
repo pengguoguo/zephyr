@@ -1,7 +1,10 @@
 common:
-  tags: drivers sensors
-  platform_allow: native_posix
+  tags:
+    - drivers
+    - sensors
+  platform_allow:
+    - native_sim
   build_only: true
 tests:
-  fpga.build:
+  drivers.fpga.build:
     tags: fpga

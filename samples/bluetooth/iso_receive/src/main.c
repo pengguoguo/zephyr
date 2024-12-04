@@ -22,7 +22,7 @@
 
 #define PA_RETRY_COUNT 6
 
-#define BIS_ISO_CHAN_COUNT 2
+#define BIS_ISO_CHAN_COUNT MIN(2U, CONFIG_BT_ISO_MAX_CHAN)
 
 static bool         per_adv_found;
 static bool         per_adv_lost;
@@ -42,7 +42,7 @@ static K_SEM_DEFINE(sem_big_sync_lost, 0, BIS_ISO_CHAN_COUNT);
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-#if DT_NODE_HAS_STATUS(LED0_NODE, okay)
+#if DT_NODE_HAS_STATUS_OKAY(LED0_NODE)
 static const struct gpio_dt_spec led_gpio = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 #define HAS_LED     1
 #define BLINK_ONOFF K_MSEC(500)
@@ -276,12 +276,22 @@ static struct bt_iso_chan *bis[] = {
 static struct bt_iso_big_sync_param big_sync_param = {
 	.bis_channels = bis,
 	.num_bis = BIS_ISO_CHAN_COUNT,
-	.bis_bitfield = (BIT_MASK(BIS_ISO_CHAN_COUNT) << 1),
-	.mse = 1,
+	.bis_bitfield = (BIT_MASK(BIS_ISO_CHAN_COUNT)),
+	.mse = BT_ISO_SYNC_MSE_ANY, /* any number of subevents */
 	.sync_timeout = 100, /* in 10 ms units */
 };
 
-void main(void)
+static void reset_semaphores(void)
+{
+	k_sem_reset(&sem_per_adv);
+	k_sem_reset(&sem_per_sync);
+	k_sem_reset(&sem_per_sync_lost);
+	k_sem_reset(&sem_per_big_info);
+	k_sem_reset(&sem_big_sync);
+	k_sem_reset(&sem_big_sync_lost);
+}
+
+int main(void)
 {
 	struct bt_le_per_adv_sync_param sync_create_param;
 	struct bt_le_per_adv_sync *sync;
@@ -296,16 +306,16 @@ void main(void)
 #if defined(HAS_LED)
 	printk("Get reference to LED device...");
 
-	if (!device_is_ready(led_gpio.port)) {
+	if (!gpio_is_ready_dt(&led_gpio)) {
 		printk("LED gpio device not ready.\n");
-		return;
+		return 0;
 	}
 	printk("done.\n");
 
 	printk("Configure GPIO pin...");
 	err = gpio_pin_configure_dt(&led_gpio, GPIO_OUTPUT_ACTIVE);
 	if (err) {
-		return;
+		return 0;
 	}
 	printk("done.\n");
 
@@ -316,7 +326,7 @@ void main(void)
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return 0;
 	}
 
 	printk("Scan callbacks register...");
@@ -328,13 +338,14 @@ void main(void)
 	printk("Success.\n");
 
 	do {
+		reset_semaphores();
 		per_adv_lost = false;
 
 		printk("Start scanning...");
 		err = bt_le_scan_start(BT_LE_SCAN_CUSTOM, NULL);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
@@ -351,7 +362,7 @@ void main(void)
 		err = k_sem_take(&sem_per_adv, K_FOREVER);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("Found periodic advertising.\n");
 
@@ -359,7 +370,7 @@ void main(void)
 		err = bt_le_scan_stop();
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
@@ -375,7 +386,7 @@ void main(void)
 		err = bt_le_per_adv_sync_create(&sync_create_param, &sync);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
@@ -388,7 +399,7 @@ void main(void)
 			err = bt_le_per_adv_sync_delete(sync);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			continue;
 		}
@@ -407,7 +418,7 @@ void main(void)
 			err = bt_le_per_adv_sync_delete(sync);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			continue;
 		}
@@ -418,7 +429,7 @@ big_sync_create:
 		err = bt_iso_big_sync(sync, &big_sync_param, &big);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
@@ -437,7 +448,7 @@ big_sync_create:
 			err = bt_iso_big_terminate(big);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			printk("done.\n");
 
@@ -463,7 +474,7 @@ big_sync_create:
 			err = k_sem_take(&sem_big_sync_lost, K_FOREVER);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			printk("BIG sync lost chan %u.\n", chan);
 		}

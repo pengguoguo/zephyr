@@ -4,16 +4,25 @@
 
 /*
  * Copyright (c) 2020 Intel Corporation
- * Copyright (c) 2021-2022 Nordic Semiconductor ASA
+ * Copyright (c) 2021-2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdint.h>
+
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/buf.h>
 #include <zephyr/bluetooth/iso.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net_buf.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/slist.h>
+#include <zephyr/sys_clock.h>
 
 struct iso_data {
-	/** BT_BUF_ISO_IN */
-	uint8_t  type;
+	/* Extend the bt_buf user data */
+	struct bt_buf_data buf_data;
 
 	/* Index into the bt_conn storage array */
 	uint8_t  index;
@@ -72,10 +81,6 @@ struct bt_iso_big {
 
 #define iso(buf) ((struct iso_data *)net_buf_user_data(buf))
 
-#if defined(CONFIG_BT_ISO_MAX_CHAN)
-extern struct bt_conn iso_conns[CONFIG_BT_ISO_MAX_CHAN];
-#endif
-
 /* Process ISO buffer */
 void hci_iso(struct net_buf *buf);
 
@@ -109,47 +114,6 @@ void bt_iso_disconnected(struct bt_conn *iso);
 /* Notify ISO connected channels of security changed */
 void bt_iso_security_changed(struct bt_conn *acl, uint8_t hci_status);
 
-/* Allocate ISO PDU */
-#if defined(CONFIG_NET_BUF_LOG)
-struct net_buf *bt_iso_create_pdu_timeout_debug(struct net_buf_pool *pool,
-						size_t reserve,
-						k_timeout_t timeout,
-						const char *func, int line);
-#define bt_iso_create_pdu_timeout(_pool, _reserve, _timeout) \
-	bt_iso_create_pdu_timeout_debug(_pool, _reserve, _timeout, \
-					__func__, __LINE__)
-
-#define bt_iso_create_pdu(_pool, _reserve) \
-	bt_iso_create_pdu_timeout_debug(_pool, _reserve, K_FOREVER, \
-					__func__, __line__)
-#else
-struct net_buf *bt_iso_create_pdu_timeout(struct net_buf_pool *pool,
-					  size_t reserve, k_timeout_t timeout);
-
-#define bt_iso_create_pdu(_pool, _reserve) \
-	bt_iso_create_pdu_timeout(_pool, _reserve, K_FOREVER)
-#endif
-
-/* Allocate ISO Fragment */
-#if defined(CONFIG_NET_BUF_LOG)
-struct net_buf *bt_iso_create_frag_timeout_debug(size_t reserve,
-						 k_timeout_t timeout,
-						 const char *func, int line);
-
-#define bt_iso_create_frag_timeout(_reserve, _timeout) \
-	bt_iso_create_frag_timeout_debug(_reserve, _timeout, \
-					 __func__, __LINE__)
-
-#define bt_iso_create_frag(_reserve) \
-	bt_iso_create_frag_timeout_debug(_reserve, K_FOREVER, \
-					 __func__, __LINE__)
-#else
-struct net_buf *bt_iso_create_frag_timeout(size_t reserve, k_timeout_t timeout);
-
-#define bt_iso_create_frag(_reserve) \
-	bt_iso_create_frag_timeout(_reserve, K_FOREVER)
-#endif
-
 #if defined(CONFIG_BT_ISO_LOG_LEVEL_DBG)
 void bt_iso_chan_set_state_debug(struct bt_iso_chan *chan,
 				 enum bt_iso_state state,
@@ -162,3 +126,11 @@ void bt_iso_chan_set_state(struct bt_iso_chan *chan, enum bt_iso_state state);
 
 /* Process incoming data for a connection */
 void bt_iso_recv(struct bt_conn *iso, struct net_buf *buf, uint8_t flags);
+
+/* Whether the HCI ISO data packet contains a timestamp or not.
+ * Per spec, the TS flag can only be set for the first fragment.
+ */
+enum bt_iso_timestamp {
+	BT_ISO_TS_ABSENT = 0,
+	BT_ISO_TS_PRESENT,
+};

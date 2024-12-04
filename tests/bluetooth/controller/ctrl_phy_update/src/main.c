@@ -37,6 +37,7 @@
 #include "ull_iso_types.h"
 #include "ull_conn_iso_types.h"
 
+#include "ull_internal.h"
 #include "ull_conn_types.h"
 #include "ull_llcp.h"
 #include "ull_conn_internal.h"
@@ -120,7 +121,7 @@ ZTEST(phy_central, test_phy_update_central_loc)
 	struct pdu_data_llctrl_phy_req req = { .rx_phys = PHY_2M, .tx_phys = PHY_2M };
 	struct pdu_data_llctrl_phy_req rsp = { .rx_phys = PHY_1M | PHY_2M,
 					       .tx_phys = PHY_1M | PHY_2M };
-	struct pdu_data_llctrl_phy_upd_ind ind = { .instant = 7,
+	struct pdu_data_llctrl_phy_upd_ind ind = { .instant = 8,
 						   .c_to_p_phy = PHY_2M,
 						   .p_to_c_phy = PHY_2M };
 	struct pdu_data_llctrl_length_rsp length_ntf = {
@@ -144,12 +145,22 @@ ZTEST(phy_central, test_phy_update_central_loc)
 	err = ull_cp_phy_update(&conn, PHY_2M, PREFER_S8_CODING, PHY_2M, HOST_INITIATED);
 	zassert_equal(err, BT_HCI_ERR_SUCCESS);
 
+	/* Steal all ntf buffers, to trigger TX stall on non avail of NTF buffer for DLE */
+	while (ll_pdu_rx_alloc_peek(1)) {
+		ntf = ll_pdu_rx_alloc();
+		/* Make sure we use a correct type or the release won't work */
+		ntf->hdr.type = NODE_RX_TYPE_DC_PDU;
+	}
+
 	/* Prepare */
 	event_prepare(&conn);
 
 	/* Tx Queue should have one LL Control PDU */
 	lt_rx(LL_PHY_REQ, &conn, &tx, &req);
 	lt_rx_q_is_empty(&conn);
+
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
 
 	/* Rx */
 	lt_tx(LL_PHY_RSP, &conn, &rsp);
@@ -165,6 +176,18 @@ ZTEST(phy_central, test_phy_update_central_loc)
 
 	/* Release Tx */
 	ull_cp_release_tx(&conn, tx);
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* No TX yet as unable to pre-allocate NTF buffer for DLE */
+	lt_rx_q_is_empty(&conn);
+
+	/* Done */
+	event_done(&conn);
+
+	/* Release RX node to now allow pre-alloc for DLE NTF */
+	release_ntf(ntf);
 
 	/* Prepare */
 	event_prepare(&conn);
@@ -217,11 +240,15 @@ ZTEST(phy_central, test_phy_update_central_loc)
 
 	/* There should be two host notifications, one pu and one dle */
 	ut_rx_node(NODE_PHY_UPDATE, &ntf, &pu);
+	/* Release Ntf */
+	release_ntf(ntf);
+
 	ut_rx_pdu(LL_LENGTH_RSP, &ntf, &length_ntf);
+	/* Release Ntf */
+	release_ntf(ntf);
+
 	ut_rx_q_is_empty();
 
-	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
 
 	CHECK_CURRENT_PHY_STATE(conn, PHY_2M, PREFER_S8_CODING, PHY_2M);
 	CHECK_PREF_PHY_STATE(conn, PHY_2M, PHY_2M);
@@ -255,6 +282,9 @@ ZTEST(phy_central, test_phy_update_central_loc_invalid)
 	lt_rx(LL_PHY_REQ, &conn, &tx, &req);
 	lt_rx_q_is_empty(&conn);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* Rx */
 	lt_tx(LL_REJECT_IND, &conn, &reject_ind);
 
@@ -263,6 +293,9 @@ ZTEST(phy_central, test_phy_update_central_loc_invalid)
 
 	/* Done */
 	event_done(&conn);
+
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
 
 	/* Release Tx */
 	ull_cp_release_tx(&conn, tx);
@@ -306,6 +339,9 @@ ZTEST(phy_central, test_phy_update_central_loc_unsupp_feat)
 	lt_rx(LL_PHY_REQ, &conn, &tx, &req);
 	lt_rx_q_is_empty(&conn);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* Rx */
 	lt_tx(LL_UNKNOWN_RSP, &conn, &unknown_rsp);
 
@@ -315,15 +351,24 @@ ZTEST(phy_central, test_phy_update_central_loc_unsupp_feat)
 	/* Done */
 	event_done(&conn);
 
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
+
 	/* Release Tx */
 	ull_cp_release_tx(&conn, tx);
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Done */
+	event_done(&conn);
 
 	/* There should be one host notification */
 	ut_rx_node(NODE_PHY_UPDATE, &ntf, &pu);
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	zassert_equal(llcp_ctx_buffers_free(), test_ctx_buffers_cnt(),
 				  "Free CTX buffers %d", llcp_ctx_buffers_free());
@@ -335,7 +380,7 @@ ZTEST(phy_central, test_phy_update_central_rem)
 	struct node_rx_pdu *ntf;
 	struct pdu_data *pdu;
 	struct pdu_data_llctrl_phy_req req = { .rx_phys = PHY_1M, .tx_phys = PHY_2M };
-	struct pdu_data_llctrl_phy_upd_ind ind = { .instant = 7,
+	struct pdu_data_llctrl_phy_upd_ind ind = { .instant = 8,
 						   .c_to_p_phy = 0,
 						   .p_to_c_phy = PHY_2M };
 	uint16_t instant;
@@ -348,6 +393,13 @@ ZTEST(phy_central, test_phy_update_central_rem)
 	/* Connect */
 	ull_cp_state_set(&conn, ULL_CP_CONNECTED);
 
+	/* Steal all ntf buffers, to trigger TX stall on non avail of NTF buffer for DLE */
+	while (ll_pdu_rx_alloc_peek(1)) {
+		ntf = ll_pdu_rx_alloc();
+		/* Make sure we use a correct type or the release won't work */
+		ntf->hdr.type = NODE_RX_TYPE_DC_PDU;
+	}
+
 	/* Prepare */
 	event_prepare(&conn);
 
@@ -359,6 +411,18 @@ ZTEST(phy_central, test_phy_update_central_rem)
 
 	/* Done */
 	event_done(&conn);
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* No TX yet as unable to pre-allocate NTF buffer for DLE */
+	lt_rx_q_is_empty(&conn);
+
+	/* Done */
+	event_done(&conn);
+
+	/* Release RX node to now allow pre-alloc for DLE NTF */
+	release_ntf(ntf);
 
 	/* Check that data tx was paused */
 	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
@@ -415,7 +479,7 @@ ZTEST(phy_central, test_phy_update_central_rem)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 	CHECK_CURRENT_PHY_STATE(conn, PHY_1M, PREFER_S8_CODING, PHY_2M);
 	CHECK_PREF_PHY_STATE(conn, PHY_1M | PHY_2M | PHY_CODED, PHY_1M | PHY_2M | PHY_CODED);
 
@@ -453,8 +517,14 @@ ZTEST(phy_periph, test_phy_update_periph_loc)
 	lt_rx(LL_PHY_REQ, &conn, &tx, &req);
 	lt_rx_q_is_empty(&conn);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* TX Ack */
 	event_tx_ack(&conn, tx);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* Done */
 	event_done(&conn);
@@ -474,6 +544,9 @@ ZTEST(phy_periph, test_phy_update_periph_loc)
 
 	/* Done */
 	event_done(&conn);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* */
 	while (!is_instant_reached(&conn, instant)) {
@@ -504,12 +577,101 @@ ZTEST(phy_periph, test_phy_update_periph_loc)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 	CHECK_CURRENT_PHY_STATE(conn, PHY_2M, PREFER_S8_CODING, PHY_2M);
 	CHECK_PREF_PHY_STATE(conn, PHY_2M, PHY_2M);
 
 	zassert_equal(llcp_ctx_buffers_free(), test_ctx_buffers_cnt(),
 				  "Free CTX buffers %d", llcp_ctx_buffers_free());
+}
+
+ZTEST(phy_periph, test_phy_update_periph_loc_invalid_central)
+{
+	uint8_t err;
+	struct node_tx *tx;
+	struct node_rx_pdu *ntf;
+	struct pdu_data_llctrl_phy_req req = { .rx_phys = PHY_2M, .tx_phys = PHY_2M };
+	uint16_t instant;
+	struct pdu_data_llctrl_conn_param_req conn_param_req = {  };
+
+	struct node_rx_pu pu = { .status = BT_HCI_ERR_SUCCESS };
+
+	struct pdu_data_llctrl_phy_upd_ind phy_update_ind = { .c_to_p_phy = PHY_2M,
+							      .p_to_c_phy = PHY_2M };
+
+	/* Role */
+	test_set_role(&conn, BT_HCI_ROLE_PERIPHERAL);
+
+	/* Connect */
+	ull_cp_state_set(&conn, ULL_CP_CONNECTED);
+
+	/* Initiate an PHY Update Procedure */
+	err = ull_cp_phy_update(&conn, PHY_2M, PREFER_S8_CODING, PHY_2M, HOST_INITIATED);
+	zassert_equal(err, BT_HCI_ERR_SUCCESS);
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Tx Queue should have one LL Control PDU */
+	lt_rx(LL_PHY_REQ, &conn, &tx, &req);
+	lt_rx_q_is_empty(&conn);
+
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
+	/* TX Ack */
+	event_tx_ack(&conn, tx);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
+
+	/* Done */
+	event_done(&conn);
+
+	/* Release Tx */
+	ull_cp_release_tx(&conn, tx);
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Tx Queue should NOT have a LL Control PDU */
+	lt_rx_q_is_empty(&conn);
+
+	/* Rx */
+	phy_update_ind.instant = instant = event_counter(&conn) + 6;
+	lt_tx(LL_PHY_UPDATE_IND, &conn, &phy_update_ind);
+
+	/* Done */
+	event_done(&conn);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
+
+	/* One event ahead */
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Tx Queue should NOT have a LL Control PDU */
+	lt_rx_q_is_empty(&conn);
+
+	/* Done */
+	event_done(&conn);
+
+	/* There should NOT be a host notification */
+	ut_rx_q_is_empty();
+
+	/* 'Inject' invalid param request from central */
+	/* Prepare */
+	event_prepare(&conn);
+	/* Rx */
+	lt_tx(LL_CONNECTION_PARAM_REQ, &conn, &conn_param_req);
+
+	/* Done */
+	event_done(&conn);
+
+	/* Termination 'triggered' */
+	zassert_equal(conn.llcp_terminate.reason_final, BT_HCI_ERR_DIFF_TRANS_COLLISION,
+		      "Terminate reason %d", conn.llcp_terminate.reason_final);
 }
 
 ZTEST(phy_periph, test_phy_update_periph_rem)
@@ -602,7 +764,7 @@ ZTEST(phy_periph, test_phy_update_periph_rem)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	CHECK_CURRENT_PHY_STATE(conn, PHY_2M, PREFER_S8_CODING, PHY_1M);
 	CHECK_PREF_PHY_STATE(conn, PHY_1M | PHY_2M | PHY_CODED, PHY_1M | PHY_2M | PHY_CODED);
@@ -642,21 +804,36 @@ ZTEST(phy_periph, test_phy_update_periph_loc_unsupp_feat)
 	/* Rx */
 	lt_tx(LL_UNKNOWN_RSP, &conn, &unknown_rsp);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* TX Ack */
 	event_tx_ack(&conn, tx);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* Done */
 	event_done(&conn);
 
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
+
 	/* Release Tx */
 	ull_cp_release_tx(&conn, tx);
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Done */
+	event_done(&conn);
 
 	/* There should be one host notification */
 	ut_rx_node(NODE_PHY_UPDATE, &ntf, &pu);
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	zassert_equal(llcp_ctx_buffers_free(), test_ctx_buffers_cnt(),
 				  "Free CTX buffers %d", llcp_ctx_buffers_free());
@@ -770,13 +947,13 @@ ZTEST(phy_central, test_phy_update_central_loc_collision)
 	/* TX Ack */
 	event_tx_ack(&conn, tx);
 
-	/* Check that data tx is not paused */
+	/* Check that data tx is paused */
 	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
 
 	/* Done */
 	event_done(&conn);
 
-	/* Check that data tx is not paused */
+	/* Check that data tx is paused */
 	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
 
 	/* Release Tx */
@@ -881,7 +1058,7 @@ ZTEST(phy_central, test_phy_update_central_loc_collision)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	zassert_equal(llcp_ctx_buffers_free(), test_ctx_buffers_cnt(),
 				  "Free CTX buffers %d", llcp_ctx_buffers_free());
@@ -923,6 +1100,9 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 	/* Done */
 	event_done(&conn);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/*** ***/
 
 	/* Initiate an PHY Update Procedure */
@@ -943,6 +1123,9 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 
 	/* Done */
 	event_done(&conn);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* Save Instant */
 	pdu = (struct pdu_data *)tx->pdu;
@@ -983,6 +1166,9 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 	 * event due to completion of remote PHY update at end of the "at instant" conneciton event.
 	 */
 
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
+
 	/* Prepare */
 	event_prepare(&conn);
 
@@ -999,6 +1185,9 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 	/* Done */
 	event_done(&conn);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* Release Tx */
 	ull_cp_release_tx(&conn, tx);
 
@@ -1007,7 +1196,7 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	/* Prepare */
 	event_prepare(&conn);
@@ -1021,6 +1210,9 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 
 	/* Done */
 	event_done(&conn);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* Save Instant */
 	pdu = (struct pdu_data *)tx->pdu;
@@ -1058,7 +1250,7 @@ ZTEST(phy_central, test_phy_update_central_rem_collision)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	zassert_equal(llcp_ctx_buffers_free(), test_ctx_buffers_cnt(),
 				  "Free CTX buffers %d", llcp_ctx_buffers_free());
@@ -1106,8 +1298,14 @@ ZTEST(phy_periph, test_phy_update_periph_loc_collision)
 	/* Rx */
 	lt_tx(LL_PHY_REQ, &conn, &req_central);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* TX Ack */
 	event_tx_ack(&conn, tx);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* Done */
 	event_done(&conn);
@@ -1128,13 +1326,19 @@ ZTEST(phy_periph, test_phy_update_periph_loc_collision)
 	/* Done */
 	event_done(&conn);
 
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Done */
+	event_done(&conn);
+
 	/* There should be one host notification */
 	pu.status = BT_HCI_ERR_LL_PROC_COLLISION;
 	ut_rx_node(NODE_PHY_UPDATE, &ntf, &pu);
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	/* Prepare */
 	event_prepare(&conn);
@@ -1151,6 +1355,9 @@ ZTEST(phy_periph, test_phy_update_periph_loc_collision)
 
 	/* Release Tx */
 	ull_cp_release_tx(&conn, tx);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* */
 	while (!is_instant_reached(&conn, instant)) {
@@ -1182,7 +1389,7 @@ ZTEST(phy_periph, test_phy_update_periph_loc_collision)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	zassert_equal(llcp_ctx_buffers_free(), test_ctx_buffers_cnt(),
 				  "Free CTX buffers %d", llcp_ctx_buffers_free());
@@ -1265,7 +1472,7 @@ ZTEST(phy_central, test_phy_update_central_loc_no_act_change)
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	CHECK_CURRENT_PHY_STATE(conn, PHY_1M, PREFER_S8_CODING, PHY_1M);
 	CHECK_PREF_PHY_STATE(conn, PHY_1M, PHY_1M);
@@ -1367,8 +1574,14 @@ ZTEST(phy_periph, test_phy_update_periph_loc_no_actual_change)
 	lt_rx(LL_PHY_REQ, &conn, &tx, &req);
 	lt_rx_q_is_empty(&conn);
 
+	/* Check that data tx was paused */
+	zassert_equal(conn.tx_q.pause_data, 1U, "Data tx is not paused");
+
 	/* TX Ack */
 	event_tx_ack(&conn, tx);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
 
 	/* Done */
 	event_done(&conn);
@@ -1388,12 +1601,21 @@ ZTEST(phy_periph, test_phy_update_periph_loc_no_actual_change)
 	/* Done */
 	event_done(&conn);
 
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Done */
+	event_done(&conn);
+
+	/* Check that data tx is no longer paused */
+	zassert_equal(conn.tx_q.pause_data, 0U, "Data tx is paused");
+
 	/* There should be one notification due to Host initiated PHY UPD */
 	ut_rx_node(NODE_PHY_UPDATE, &ntf, &pu);
 	ut_rx_q_is_empty();
 
 	/* Release Ntf */
-	ull_cp_release_ntf(ntf);
+	release_ntf(ntf);
 
 	CHECK_CURRENT_PHY_STATE(conn, PHY_1M, PREFER_S8_CODING, PHY_1M);
 	CHECK_PREF_PHY_STATE(conn, PHY_1M, PHY_1M);
@@ -1458,6 +1680,12 @@ ZTEST(phy_periph, test_phy_update_periph_rem_no_actual_change)
 
 	/* There should be no host notification */
 	ut_rx_q_is_empty();
+
+	/* Prepare */
+	event_prepare(&conn);
+
+	/* Done */
+	event_done(&conn);
 
 	CHECK_CURRENT_PHY_STATE(conn, PHY_1M, PREFER_S8_CODING, PHY_1M);
 	CHECK_PREF_PHY_STATE(conn, PHY_1M | PHY_2M | PHY_CODED, PHY_1M | PHY_2M | PHY_CODED);

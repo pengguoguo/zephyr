@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -eu
-bash_source_dir="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 
-source "${bash_source_dir}/_env.sh"
 source ${ZEPHYR_BASE}/tests/bsim/sh_common.source
 
-EXECUTE_TIMEOUT=30
+verbosity_level=2
+simulation_id="$(guess_test_long_name)"
+test_exe="${BSIM_OUT_PATH}/bin/bs_${BOARD_TS}_$(guess_test_long_name)_prj_conf"
 
 cd ${BSIM_OUT_PATH}/bin
 
@@ -45,6 +45,9 @@ for args in ${TEST_ARGS[@]}; do
     fi
 
     for addr_type in "${TEST_ADDR_TYPE[@]}"; do
+        echo "Starting iteration $sim_id_count: ${args[@]} $addr_type"
+        echo "################################################"
+
         Execute "$test_exe" \
             -v=${verbosity_level} -s="${simulation_id}_${sim_id_count}" -d=0 -testid=central \
             -RealEncryption=1 -argstest sim-id=${sim_id_count} connection-test=${connectable} \
@@ -58,8 +61,9 @@ for args in ${TEST_ARGS[@]}; do
         Execute ./bs_2G4_phy_v1 -v=${verbosity_level} -s="${simulation_id}_${sim_id_count}" \
             -D=2 -sim_length=60e6 $@
 
+        wait_for_background_jobs
+
         sim_id_count=$(( sim_id_count + 1 ))
     done
 done
 
-wait_for_background_jobs

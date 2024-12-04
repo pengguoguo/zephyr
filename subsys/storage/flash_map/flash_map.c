@@ -3,6 +3,7 @@
  * Copyright (c) 2015 Runtime Inc
  * Copyright (c) 2017 Linaro Ltd
  * Copyright (c) 2020 Gerson Fernando Budke <nandojve@gmail.com>
+ * Copyright (c) 2023 Sensorfy B.V.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,7 +39,7 @@ int flash_area_open(uint8_t id, const struct flash_area **fap)
 		return -ENOENT;
 	}
 
-	if (!area->fa_dev || !device_is_ready(area->fa_dev)) {
+	if (!device_is_ready(area->fa_dev)) {
 		return -ENODEV;
 	}
 
@@ -81,6 +82,15 @@ int flash_area_erase(const struct flash_area *fa, off_t off, size_t len)
 	return flash_erase(fa->fa_dev, fa->fa_off + off, len);
 }
 
+int flash_area_flatten(const struct flash_area *fa, off_t off, size_t len)
+{
+	if (!is_in_flash_area_bounds(fa, off, len)) {
+		return -EINVAL;
+	}
+
+	return flash_flatten(fa->fa_dev, fa->fa_off + off, len);
+}
+
 uint32_t flash_area_align(const struct flash_area *fa)
 {
 	return flash_get_write_block_size(fa->fa_dev);
@@ -99,6 +109,13 @@ const struct device *flash_area_get_device(const struct flash_area *fa)
 {
 	return fa->fa_dev;
 }
+
+#if CONFIG_FLASH_MAP_LABELS
+const char *flash_area_label(const struct flash_area *fa)
+{
+	return fa->fa_label;
+}
+#endif
 
 uint8_t flash_area_erased_val(const struct flash_area *fa)
 {

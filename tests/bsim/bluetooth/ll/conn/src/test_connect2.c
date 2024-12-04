@@ -36,7 +36,9 @@ static struct bt_conn *default_conn;
  */
 
 #define WAIT_TIME 5 /*seconds*/
+#define WAIT_TIME_REPEAT 22 /*seconds*/
 extern enum bst_result_t bst_result;
+static uint8_t repeat_connect;
 
 #define FAIL(...)					\
 	do {						\
@@ -56,6 +58,12 @@ static void test_con2_init(void)
 	bst_result = In_progress;
 }
 
+static void test_con2_repeat_init(void)
+{
+	bst_ticker_set_next_tick_absolute(WAIT_TIME_REPEAT*1e6);
+	bst_result = In_progress;
+}
+
 static void test_con2_tick(bs_time_t HW_device_time)
 {
 	/*
@@ -65,6 +73,18 @@ static void test_con2_tick(bs_time_t HW_device_time)
 	if (bst_result != Passed) {
 		FAIL("test_connect2 failed (not passed after %i seconds)\n",
 		     WAIT_TIME);
+	}
+}
+
+static void test_con2_repeat_tick(bs_time_t HW_device_time)
+{
+	/*
+	 * If in WAIT_TIME seconds the testcase did not already pass
+	 * (and finish) we consider it failed
+	 */
+	if (bst_result != Passed) {
+		FAIL("test_connect2 failed (not passed after %i seconds)\n",
+		     WAIT_TIME_REPEAT);
 	}
 }
 
@@ -82,13 +102,19 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		FAIL("Connection failed (err 0x%02x)\n", err);
 	} else {
 		default_conn = bt_conn_ref(conn);
-		printk("Connected\n");
+
+		printk("Peripheral Connected\n");
+		repeat_connect++;
+
+		if (repeat_connect >= 20) { /* We consider it passed */
+			PASS("Peripheral Repeat20 Testcase passed\n");
+		}
 	}
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason 0x%02x)\n", reason);
+	printk("Peripheral disconnected (reason 0x%02x)\n", reason);
 
 	if (default_conn) {
 		bt_conn_unref(default_conn);
@@ -96,24 +122,46 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	}
 }
 
-BT_CONN_CB_DEFINE(conn_callbacks) = {
+static int start_advertising(void)
+{
+	int err;
+
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), NULL, 0);
+	if (err) {
+		printk("Advertising failed to start (err %d)\n", err);
+	}
+
+	return err;
+}
+
+static void recycled(void)
+{
+	start_advertising();
+}
+
+static struct bt_conn_cb conn_callbacks = {
 	.connected = connected,
 	.disconnected = disconnected,
+	.recycled = recycled,
 };
 
 static void bt_ready(void)
 {
 	int err;
 
-	printk("Bluetooth initialized\n");
+	printk("Peripheral Bluetooth initialized\n");
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err) {
 		FAIL("Advertising failed to start (err %d)\n", err);
 		return;
 	}
 
-	printk("Advertising successfully started\n");
+	err = start_advertising();
+
+	if (!err) {
+		printk("Advertising successfully started\n");
+	}
 }
 
 static void bas_notify(void)
@@ -147,6 +195,8 @@ static void test_con2_main(void)
 	static int notify_count;
 	int err;
 
+	bt_conn_cb_register(&conn_callbacks);
+
 	err = bt_enable(NULL);
 	if (err) {
 		FAIL("Bluetooth init failed (err %d)\n", err);
@@ -159,7 +209,12 @@ static void test_con2_main(void)
 	 * of starting delayed work so we do it here
 	 */
 	while (1) {
-		k_sleep(K_SECONDS(1));
+		if (IS_ENABLED(CONFIG_TEST_CONN_INTERVAL_1MS) ||
+		    IS_ENABLED(CONFIG_BT_CTLR_TX_DEFER)) {
+			k_sleep(K_MSEC(1));
+		} else {
+			k_sleep(K_SECONDS(1));
+		}
 
 		/* Heartrate measurements simulation */
 		hrs_notify();
@@ -168,8 +223,27 @@ static void test_con2_main(void)
 		bas_notify();
 
 		if (notify_count++ == 1) { /* We consider it passed */
-			PASS("Testcase passed\n");
+			PASS("Peripheral Testcase passed\n");
 		}
+	}
+}
+
+static void test_con2_repeat_main(void)
+{
+	int err;
+
+	bt_conn_cb_register(&conn_callbacks);
+
+	err = bt_enable(NULL);
+	if (err) {
+		FAIL("Bluetooth init failed (err %d)\n", err);
+		return;
+	}
+
+	bt_ready();
+
+	while (1) {
+		k_sleep(K_SECONDS(1));
 	}
 }
 
@@ -180,9 +254,18 @@ static const struct bst_test_instance test_connect[] = {
 			      "central device can be found. The test will "
 			      "pass if notifications can be sent without "
 			      "crash.",
-		.test_post_init_f = test_con2_init,
+		.test_pre_init_f = test_con2_init,
 		.test_tick_f = test_con2_tick,
 		.test_main_f = test_con2_main
+	},
+	{
+		.test_id = "peripheral_repeat20",
+		.test_descr = "Multiple connections test. It expects that a "
+			      "central device connects 20 times. The test will "
+			      "pass if 20 connections are succeed in less than 22 seconds",
+		.test_pre_init_f = test_con2_repeat_init,
+		.test_tick_f = test_con2_repeat_tick,
+		.test_main_f = test_con2_repeat_main
 	},
 	BSTEST_END_MARKER
 };

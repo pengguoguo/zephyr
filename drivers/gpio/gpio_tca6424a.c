@@ -437,7 +437,7 @@ static int tca6424a_manage_callback(const struct device *dev, struct gpio_callba
 	return gpio_manage_callback(&drv_data->callbacks, callback, set);
 }
 
-static const struct gpio_driver_api tca6424a_drv_api = {
+static DEVICE_API(gpio, tca6424a_drv_api) = {
 	.pin_configure = tca6424a_pin_config,
 	.port_get_raw = tca6424a_port_get_raw,
 	.port_set_masked_raw = tca6424a_port_set_masked_raw,
@@ -474,7 +474,7 @@ static int tca6424a_init(const struct device *dev)
 	 * this driver.
 	 */
 	if (drv_cfg->reset_gpio.port) {
-		if (!device_is_ready(drv_cfg->reset_gpio.port)) {
+		if (!gpio_is_ready_dt(&drv_cfg->reset_gpio)) {
 			LOG_ERR("%s is not ready", drv_cfg->reset_gpio.port->name);
 			return -ENODEV;
 		}
@@ -520,7 +520,7 @@ static int tca6424a_init(const struct device *dev)
 
 	/* If the INT line is available, configure the callback for it. */
 	if (drv_cfg->int_gpio.port) {
-		if (!device_is_ready(drv_cfg->int_gpio.port)) {
+		if (!gpio_is_ready_dt(&drv_cfg->int_gpio)) {
 			LOG_ERR("Cannot get pointer to gpio interrupt device "
 				"%s init failed", dev->name);
 			return -EINVAL;

@@ -115,6 +115,11 @@ static int dac_gd32_channel_setup(const struct device *dev,
 		return -ENOTSUP;
 	}
 
+	if (channel_cfg->internal) {
+		LOG_ERR("Internal channels not supported");
+		return -ENOTSUP;
+	}
+
 	data->resolutions[dacx] = channel_cfg->resolution;
 
 	dac_gd32_disable(dacx);
@@ -139,7 +144,7 @@ static int dac_gd32_write_value(const struct device *dev,
 	return 0;
 }
 
-struct dac_driver_api dac_gd32_driver_api = {
+DEVICE_API(dac, dac_gd32_driver_api) = {
 	.channel_setup = dac_gd32_channel_setup,
 	.write_value = dac_gd32_write_value
 };
@@ -156,7 +161,7 @@ static int dac_gd32_init(const struct device *dev)
 	}
 
 	(void)clock_control_on(GD32_CLOCK_CONTROLLER,
-			       (clock_control_subsys_t *)&cfg->clkid);
+			       (clock_control_subsys_t)&cfg->clkid);
 
 	(void)reset_line_toggle_dt(&cfg->reset);
 

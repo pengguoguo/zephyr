@@ -14,6 +14,8 @@
 /**
  * @brief Pin Controller Interface
  * @defgroup pinctrl_interface Pin Controller Interface
+ * @since 3.0
+ * @version 0.1.0
  * @ingroup io_interfaces
  * @{
  */
@@ -76,8 +78,8 @@ struct pinctrl_dev_config {
 
 /** @cond INTERNAL_HIDDEN */
 
-#ifndef CONFIG_PM_DEVICE
-/** If device power management is not enabled, "sleep" state will be ignored. */
+#if !defined(CONFIG_PM) && !defined(CONFIG_PM_DEVICE)
+/** Out of power management configurations, ignore "sleep" state. */
 #define PINCTRL_SKIP_SLEEP 1
 #endif
 
@@ -412,9 +414,9 @@ static inline int pinctrl_apply_state(const struct pinctrl_dev_config *config,
  */
 #define PINCTRL_DT_STATE_INIT(prop, state)				       \
 	{								       \
-		.id = state,						       \
 		.pins = prop ## _pins,					       \
-		.pin_cnt = ARRAY_SIZE(prop ## _pins)			       \
+		.pin_cnt = ARRAY_SIZE(prop ## _pins),			       \
+		.id = state						       \
 	}
 
 /**

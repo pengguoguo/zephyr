@@ -29,10 +29,19 @@ static struct bt_uuid_16 uuid = BT_UUID_INIT_16(0);
 static struct bt_gatt_discover_params discover_params;
 static struct bt_gatt_subscribe_params subscribe_params;
 
+#if defined(CONFIG_TEST_CONN_INTERVAL_1MS)
+#define UPDATE_PARAM_INTERVAL_MIN 1
+#define UPDATE_PARAM_INTERVAL_MAX 1
+#define UPDATE_PARAM_LATENCY      0
+#define UPDATE_PARAM_TIMEOUT      10
+#define TEST_NOTIFY_COUNT         3000
+#else /* !CONFIG_TEST_CONN_INTERVAL_1MS */
 #define UPDATE_PARAM_INTERVAL_MIN 25
 #define UPDATE_PARAM_INTERVAL_MAX 45
 #define UPDATE_PARAM_LATENCY      1
 #define UPDATE_PARAM_TIMEOUT      250
+#define TEST_NOTIFY_COUNT         3
+#endif /* !CONFIG_TEST_CONN_INTERVAL_1MS */
 
 static struct bt_le_conn_param update_params = {
 	.interval_min = UPDATE_PARAM_INTERVAL_MIN,
@@ -42,6 +51,9 @@ static struct bt_le_conn_param update_params = {
 };
 
 static bool encrypt_link;
+static bool expect_ntf = true;
+static uint8_t repeat_connect;
+static uint8_t connected_signal;
 
 /*
  * Basic connection test:
@@ -57,6 +69,8 @@ static bool encrypt_link;
  */
 
 #define WAIT_TIME 6 /*seconds*/
+#define WAIT_TIME_TX_DEFER 800 /* milliseconds */
+#define WAIT_TIME_REPEAT 22 /*seconds*/
 extern enum bst_result_t bst_result;
 
 #define FAIL(...)					\
@@ -73,7 +87,11 @@ extern enum bst_result_t bst_result;
 
 static void test_con1_init(void)
 {
-	bst_ticker_set_next_tick_absolute(WAIT_TIME*1e6);
+	if (IS_ENABLED(CONFIG_BT_CTLR_TX_DEFER)) {
+		bst_ticker_set_next_tick_absolute(WAIT_TIME_TX_DEFER*1e3);
+	} else {
+		bst_ticker_set_next_tick_absolute(WAIT_TIME*1e6);
+	}
 	bst_result = In_progress;
 }
 
@@ -81,6 +99,14 @@ static void test_con_encrypted_init(void)
 {
 	encrypt_link = true;
 	test_con1_init();
+}
+
+static void test_con20_init(void)
+{
+	repeat_connect = 20;
+	expect_ntf = false;
+	bst_ticker_set_next_tick_absolute(WAIT_TIME_REPEAT*1e6);
+	bst_result = In_progress;
 }
 
 static void test_con1_tick(bs_time_t HW_device_time)
@@ -95,20 +121,44 @@ static void test_con1_tick(bs_time_t HW_device_time)
 	}
 }
 
+static void test_con20_tick(bs_time_t HW_device_time)
+{
+	if (bst_result != Passed) {
+		FAIL("test_connect1 failed (not passed after %i seconds)\n",
+		     WAIT_TIME_REPEAT);
+	}
+}
+
 static uint8_t notify_func(struct bt_conn *conn,
 			struct bt_gatt_subscribe_params *params,
 			const void *data, uint16_t length)
 {
+	static uint32_t cycle_stamp;
 	static int notify_count;
+	uint32_t cycle_now;
+	uint64_t delta;
+
 	if (!data) {
 		printk("[UNSUBSCRIBED]\n");
 		params->value_handle = 0U;
 		return BT_GATT_ITER_STOP;
 	}
 
-	printk("[NOTIFICATION] data %p length %u\n", data, length);
+	cycle_now = k_cycle_get_32();
+	delta = cycle_now - cycle_stamp;
+	cycle_stamp = cycle_now;
+	delta = k_cyc_to_ns_floor64(delta);
 
-	if (notify_count++ >= 1) { /* We consider it passed */
+	if (!IS_ENABLED(CONFIG_TEST_CONN_INTERVAL_1MS) ||
+	    ((delta > (NSEC_PER_MSEC / 2U)) &&
+	     (delta < (NSEC_PER_MSEC + (NSEC_PER_MSEC / 2U))))) {
+		notify_count++;
+	}
+
+	printk("[NOTIFICATION] %u. data %p length %u in %llu ns\n",
+	       notify_count, data, length, delta);
+
+	if (notify_count >= TEST_NOTIFY_COUNT) { /* We consider it passed */
 		int err;
 
 		/* Disconnect before actually passing */
@@ -260,17 +310,21 @@ static void params_updated(struct bt_conn *conn, uint16_t interval,
 		return;
 	}
 
-	memcpy(&uuid, BT_UUID_HRS, sizeof(uuid));
-	discover_params.uuid = &uuid.uuid;
-	discover_params.func = discover_func;
-	discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
-	discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-	discover_params.type = BT_GATT_DISCOVER_PRIMARY;
+	if (!expect_ntf) {
+		connected_signal = 1;
+	} else {
+		memcpy(&uuid, BT_UUID_HRS, sizeof(uuid));
+		discover_params.uuid = &uuid.uuid;
+		discover_params.func = discover_func;
+		discover_params.start_handle = BT_ATT_FIRST_ATTRIBUTE_HANDLE;
+		discover_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
+		discover_params.type = BT_GATT_DISCOVER_PRIMARY;
 
-	err = bt_gatt_discover(conn, &discover_params);
-	if (err) {
-		FAIL("Discover failed(err %d)\n", err);
-		return;
+		err = bt_gatt_discover(conn, &discover_params);
+		if (err) {
+			FAIL("Discover failed(err %d)\n", err);
+			return;
+		}
 	}
 }
 
@@ -290,7 +344,7 @@ static bool eir_found(struct bt_data *data, void *user_data)
 		}
 
 		for (i = 0; i < data->data_len; i += sizeof(uint16_t)) {
-			struct bt_uuid *uuid;
+			const struct bt_uuid *uuid;
 			struct bt_le_conn_param *param;
 			uint16_t u16;
 			int err;
@@ -358,9 +412,11 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	if (err) {
 		FAIL("Scanning failed to start (err %d)\n", err);
 	}
+
+	printk("Scanning successfully re-started\n");
 }
 
-BT_CONN_CB_DEFINE(conn_callbacks) = {
+static struct bt_conn_cb conn_callbacks = {
 	.connected = connected,
 	.disconnected = disconnected,
 	.le_param_updated = params_updated,
@@ -369,6 +425,8 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 static void test_con1_main(void)
 {
 	int err;
+
+	bt_conn_cb_register(&conn_callbacks);
 
 	err = bt_enable(NULL);
 
@@ -389,6 +447,62 @@ static void test_con1_main(void)
 	printk("Scanning successfully started\n");
 }
 
+static void test_con20_main(void)
+{
+	int err;
+
+	bt_conn_cb_register(&conn_callbacks);
+
+	err = bt_enable(NULL);
+
+	if (err) {
+		FAIL("Bluetooth init failed (err %d)\n", err);
+		return;
+	}
+
+	printk("Bluetooth initialized\n");
+
+	err = bt_le_scan_start(BT_LE_SCAN_ACTIVE, device_found);
+
+	if (err) {
+		FAIL("Scanning failed to start (err %d)\n", err);
+		return;
+	}
+
+	printk("Scanning successfully started\n");
+	/* Implement notification. At the moment there is no suitable way
+	 * of starting delayed work so we do it here
+	 */
+	while (1) {
+		k_sleep(K_MSEC(500));
+
+		if (connected_signal) {
+			/* Disconnect and continue */
+			printk("Central Disconnect\n");
+			connected_signal = 0;
+			err = bt_conn_disconnect(default_conn,
+						 BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+			if (err) {
+				FAIL("Disconnection failed (err %d)\n", err);
+				return;
+			}
+
+			if (bst_result != Failed) {
+				if (repeat_connect) {
+					printk("Disconnection OK\n");
+				} else {
+					PASS("Testcase passed\n");
+				}
+			}
+			if (!repeat_connect || bst_result == Failed) {
+				bs_trace_silent_exit(0);
+			}
+			repeat_connect--;
+		}
+	}
+
+}
+
 static const struct bst_test_instance test_connect[] = {
 	{
 		.test_id = "central",
@@ -396,16 +510,26 @@ static const struct bst_test_instance test_connect[] = {
 			      "peripheral device can be found. The test will "
 			      "pass if it can connect to it, and receive a "
 			      "notification in less than 5 seconds.",
-		.test_post_init_f = test_con1_init,
+		.test_pre_init_f = test_con1_init,
 		.test_tick_f = test_con1_tick,
 		.test_main_f = test_con1_main
 	},
 	{
 		.test_id = "central_encrypted",
 		.test_descr = "Same as central but with an encrypted link",
-		.test_post_init_f = test_con_encrypted_init,
+		.test_pre_init_f = test_con_encrypted_init,
 		.test_tick_f = test_con1_tick,
 		.test_main_f = test_con1_main
+	},
+	{
+		.test_id = "central_repeat20",
+		.test_descr = "Multiple connections test. It expects that a "
+			      "peripheral device can be found. The test will "
+			      "pass if it can connect to it 20 times, in less than 22 seconds."
+			      "Disconnect and re-connect 20 times",
+		.test_pre_init_f = test_con20_init,
+		.test_tick_f = test_con20_tick,
+		.test_main_f = test_con20_main
 	},
 	BSTEST_END_MARKER
 };

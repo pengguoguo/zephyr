@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, NXP
+ * Copyright 2017, 2024 NXP
  * Copyright (c) 2020 PHYTEC Messtechnik GmbH
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -15,9 +15,7 @@
 #include <fsl_uart.h>
 #include <soc.h>
 #include <zephyr/pm/device.h>
-#ifdef CONFIG_PINCTRL
 #include <zephyr/drivers/pinctrl.h>
-#endif
 
 struct uart_mcux_config {
 	UART_Type *base;
@@ -26,9 +24,7 @@ struct uart_mcux_config {
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	void (*irq_config_func)(const struct device *dev);
 #endif
-#ifdef CONFIG_PINCTRL
 	const struct pinctrl_dev_config *pincfg;
-#endif
 };
 
 struct uart_mcux_data {
@@ -77,6 +73,7 @@ FSL_FEATURE_UART_HAS_STOP_BIT_CONFIG_SUPPORT
 		return -ENOTSUP;
 	}
 
+#if defined(FSL_FEATURE_UART_HAS_MODEM_SUPPORT) && FSL_FEATURE_UART_HAS_MODEM_SUPPORT
 	switch (cfg->flow_ctrl) {
 	case UART_CFG_FLOW_CTRL_NONE:
 		uart_config.enableRxRTS = false;
@@ -89,6 +86,7 @@ FSL_FEATURE_UART_HAS_STOP_BIT_CONFIG_SUPPORT
 	default:
 		return -ENOTSUP;
 	}
+#endif
 
 	switch (cfg->parity) {
 	case UART_CFG_PARITY_NONE:
@@ -181,7 +179,7 @@ static int uart_mcux_fifo_fill(const struct device *dev,
 			       int len)
 {
 	const struct uart_mcux_config *config = dev->config;
-	uint8_t num_tx = 0U;
+	int num_tx = 0U;
 
 	while ((len - num_tx > 0) &&
 	       (UART_GetStatusFlags(config->base) & kUART_TxDataRegEmptyFlag)) {
@@ -196,7 +194,7 @@ static int uart_mcux_fifo_read(const struct device *dev, uint8_t *rx_data,
 			       const int len)
 {
 	const struct uart_mcux_config *config = dev->config;
-	uint8_t num_rx = 0U;
+	int num_rx = 0U;
 
 	while ((len - num_rx > 0) &&
 	       (UART_GetStatusFlags(config->base) & kUART_RxDataRegFullFlag)) {
@@ -211,7 +209,6 @@ static void uart_mcux_irq_tx_enable(const struct device *dev)
 {
 	const struct uart_mcux_config *config = dev->config;
 	uint32_t mask = kUART_TxDataRegEmptyInterruptEnable;
-	config->base->C2 |= UART_C2_TE_MASK;
 	pm_device_busy_set(dev);
 	UART_EnableInterrupts(config->base, mask);
 }
@@ -220,7 +217,6 @@ static void uart_mcux_irq_tx_disable(const struct device *dev)
 {
 	const struct uart_mcux_config *config = dev->config;
 	uint32_t mask = kUART_TxDataRegEmptyInterruptEnable;
-	config->base->C2 &= ~UART_C2_TE_MASK;
 	pm_device_busy_clear(dev);
 	UART_DisableInterrupts(config->base, mask);
 }
@@ -327,9 +323,7 @@ static void uart_mcux_isr(const struct device *dev)
 
 static int uart_mcux_init(const struct device *dev)
 {
-#if defined(CONFIG_PINCTRL) || defined(CONFIG_UART_INTERRUPT_DRIVEN)
 	const struct uart_mcux_config *config = dev->config;
-#endif
 	struct uart_mcux_data *data = dev->data;
 	int err;
 
@@ -338,12 +332,10 @@ static int uart_mcux_init(const struct device *dev)
 		return err;
 	}
 
-#ifdef CONFIG_PINCTRL
 	err = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
 	if (err != 0) {
 		return err;
 	}
-#endif
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	config->irq_config_func(dev);
@@ -375,7 +367,7 @@ static int uart_mcux_pm_action(const struct device *dev, enum pm_device_action a
 }
 #endif /*CONFIG_PM_DEVICE*/
 
-static const struct uart_driver_api uart_mcux_driver_api = {
+static DEVICE_API(uart, uart_mcux_driver_api) = {
 	.poll_in = uart_mcux_poll_in,
 	.poll_out = uart_mcux_poll_out,
 	.err_check = uart_mcux_err_check,
@@ -401,20 +393,12 @@ static const struct uart_driver_api uart_mcux_driver_api = {
 #endif
 };
 
-#ifdef CONFIG_PINCTRL
-#define PINCTRL_INIT(n) .pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),
-#define PINCTRL_DEFINE(n) PINCTRL_DT_INST_DEFINE(n);
-#else
-#define PINCTRL_DEFINE(n)
-#define PINCTRL_INIT(n)
-#endif
-
 #define UART_MCUX_DECLARE_CFG(n, IRQ_FUNC_INIT)				\
 static const struct uart_mcux_config uart_mcux_##n##_config = {		\
 	.base = (UART_Type *)DT_INST_REG_ADDR(n),			\
 	.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),		\
 	.clock_subsys = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(n, name),\
-	PINCTRL_INIT(n)							\
+	.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),			\
 	IRQ_FUNC_INIT							\
 }
 
@@ -422,18 +406,23 @@ static const struct uart_mcux_config uart_mcux_##n##_config = {		\
 #define UART_MCUX_CONFIG_FUNC(n)					\
 	static void uart_mcux_config_func_##n(const struct device *dev)	\
 	{								\
-		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(n, status, irq),	\
-			    DT_INST_IRQ_BY_NAME(n, status, priority),	\
-			    uart_mcux_isr, DEVICE_DT_INST_GET(n), 0);	\
-									\
-		irq_enable(DT_INST_IRQ_BY_NAME(n, status, irq));	\
-									\
-		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(n, error, irq),		\
-			    DT_INST_IRQ_BY_NAME(n, error, priority),	\
-			    uart_mcux_isr, DEVICE_DT_INST_GET(n), 0);	\
-									\
-		irq_enable(DT_INST_IRQ_BY_NAME(n, error, irq));		\
+		UART_MCUX_IRQ(n, status);	\
+		UART_MCUX_IRQ(n, error);	\
 	}
+
+#define UART_MCUX_IRQ_INIT(n, name)					\
+	do {								\
+		IRQ_CONNECT(DT_INST_IRQ_BY_NAME(n, name, irq),	\
+			    DT_INST_IRQ_BY_NAME(n, name, priority),	\
+			    uart_mcux_isr, DEVICE_DT_INST_GET(n), 0);	\
+									\
+		irq_enable(DT_INST_IRQ_BY_NAME(n, name, irq));	\
+	} while (false)
+
+#define UART_MCUX_IRQ(n, name)						\
+	COND_CODE_1(DT_INST_IRQ_HAS_NAME(n, name),		\
+		    (UART_MCUX_IRQ_INIT(n, name)), ())
+
 #define UART_MCUX_IRQ_CFG_FUNC_INIT(n)					\
 	.irq_config_func = uart_mcux_config_func_##n
 #define UART_MCUX_INIT_CFG(n)						\
@@ -446,7 +435,7 @@ static const struct uart_mcux_config uart_mcux_##n##_config = {		\
 #endif
 
 #define UART_MCUX_INIT(n)						\
-	PINCTRL_DEFINE(n)						\
+	PINCTRL_DT_INST_DEFINE(n);					\
 									\
 	static struct uart_mcux_data uart_mcux_##n##_data = {		\
 		.uart_cfg = {						\
@@ -463,7 +452,7 @@ static const struct uart_mcux_config uart_mcux_##n##_config = {		\
 	PM_DEVICE_DT_INST_DEFINE(n, uart_mcux_pm_action);\
 									\
 	DEVICE_DT_INST_DEFINE(n,					\
-			    &uart_mcux_init,				\
+			    uart_mcux_init,				\
 			    PM_DEVICE_DT_INST_GET(n),			\
 			    &uart_mcux_##n##_data,			\
 			    &uart_mcux_##n##_config,			\

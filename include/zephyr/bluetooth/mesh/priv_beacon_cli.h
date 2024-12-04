@@ -4,13 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @file
- * @defgroup bt_mesh_priv_beacon_cli Bluetooth Mesh Private Beacon Client
- * @{
- * @brief
- */
-
 #ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_PRIV_BEACON_CLI_H__
 #define ZEPHYR_INCLUDE_BLUETOOTH_MESH_PRIV_BEACON_CLI_H__
 
@@ -19,6 +12,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @defgroup bt_mesh_priv_beacon_cli Bluetooth Mesh Private Beacon Client
+ * @ingroup bt_mesh
+ * @{
+ */
 
 /**
  *
@@ -31,15 +30,7 @@ extern "C" {
 			 bt_mesh_priv_beacon_cli_op, NULL, cli_data,           \
 			 &bt_mesh_priv_beacon_cli_cb)
 
-/** Mesh Private Beacon Client model */
-struct bt_mesh_priv_beacon_cli {
-	/** Timeout value in milliseconds. */
-	int32_t timeout;
-	struct bt_mesh_model *mod;
-
-	/* Internal parameters for tracking message responses. */
-	struct bt_mesh_msg_ack_ctx ack_ctx;
-};
+struct bt_mesh_priv_beacon_cli;
 
 /** Private Beacon */
 struct bt_mesh_priv_beacon {
@@ -61,16 +52,69 @@ struct bt_mesh_priv_node_id {
 	uint8_t status;
 };
 
+/** Private Beacon Client Status messages callbacks */
+struct bt_mesh_priv_beacon_cli_cb {
+	/** @brief Optional callback for Private Beacon Status message.
+	 *
+	 *  Handles received Private Beacon Status messages from a Private Beacon server.
+	 *
+	 *  @param cli         Private Beacon client context.
+	 *  @param addr        Address of the sender.
+	 *  @param priv_beacon Mesh Private Beacon state received from the server.
+	 */
+	void (*priv_beacon_status)(struct bt_mesh_priv_beacon_cli *cli, uint16_t addr,
+				   struct bt_mesh_priv_beacon *priv_beacon);
+
+	/** @brief Optional callback for Private GATT Proxy Status message.
+	 *
+	 *  Handles received Private GATT Proxy Status messages from a Private Beacon server.
+	 *
+	 *  @param cli         Private Beacon client context.
+	 *  @param addr        Address of the sender.
+	 *  @param gatt_proxy  Private GATT Proxy state received from the server.
+	 */
+	void (*priv_gatt_proxy_status)(struct bt_mesh_priv_beacon_cli *cli, uint16_t addr,
+				       uint8_t gatt_proxy);
+
+	/** @brief Optional callback for Private Node Identity Status message.
+	 *
+	 *  Handles received Private Node Identity Status messages from a Private Beacon server.
+	 *
+	 *  @param cli           Private Beacon client context.
+	 *  @param addr          Address of the sender.
+	 *  @param priv_node_id  Private Node Identity state received from the server.
+	 */
+	void (*priv_node_id_status)(struct bt_mesh_priv_beacon_cli *cli, uint16_t addr,
+				    struct bt_mesh_priv_node_id *priv_node_id);
+};
+
+/** Mesh Private Beacon Client model */
+struct bt_mesh_priv_beacon_cli {
+	const struct bt_mesh_model *model;
+
+	/* Internal parameters for tracking message responses. */
+	struct bt_mesh_msg_ack_ctx ack_ctx;
+
+	/** Optional callback for Private Beacon Client Status messages. */
+	const struct bt_mesh_priv_beacon_cli_cb *cb;
+};
+
 /** @brief Set the target's Private Beacon state.
  *
+ *  This method can be used asynchronously by setting @p rsp as NULL.
+ *  This way the method will not wait for response and will return
+ *  immediately after sending the command.
+
  *  @param net_idx Network index to encrypt with.
  *  @param addr    Target node address.
- *  @param val     New Private Beacon value. Returns response status on success.
+ *  @param val     New Private Beacon value.
+ *  @param rsp     If set, returns response status on success.
  *
  *  @return 0 on success, or (negative) error code otherwise.
  */
 int bt_mesh_priv_beacon_cli_set(uint16_t net_idx, uint16_t addr,
-				struct bt_mesh_priv_beacon *val);
+				struct bt_mesh_priv_beacon *val,
+				struct bt_mesh_priv_beacon *rsp);
 
 /** @brief Get the target's Private Beacon state.
  *
@@ -85,15 +129,19 @@ int bt_mesh_priv_beacon_cli_get(uint16_t net_idx, uint16_t addr,
 
 /** @brief Set the target's Private GATT Proxy state.
  *
+ *  This method can be used asynchronously by setting @p rsp as NULL.
+ *  This way the method will not wait for response and will return
+ *  immediately after sending the command.
+ *
  *  @param net_idx Network index to encrypt with.
  *  @param addr    Target node address.
- *  @param val     New Private GATT Proxy value. Returns response status on
- *                 success.
+ *  @param val     New Private GATT Proxy value.
+ *  @param rsp     If set, returns response status on success.
  *
  *  @return 0 on success, or (negative) error code otherwise.
  */
 int bt_mesh_priv_beacon_cli_gatt_proxy_set(uint16_t net_idx, uint16_t addr,
-					   uint8_t *val);
+					   uint8_t val, uint8_t *rsp);
 
 /** @brief Get the target's Private GATT Proxy state.
  *
@@ -108,15 +156,20 @@ int bt_mesh_priv_beacon_cli_gatt_proxy_get(uint16_t net_idx, uint16_t addr,
 
 /** @brief Set the target's Private Node Identity state.
  *
+ *  This method can be used asynchronously by setting @p rsp as NULL.
+ *  This way the method will not wait for response and will return
+ *  immediately after sending the command.
+ *
  *  @param net_idx Network index to encrypt with.
  *  @param addr    Target node address.
- *  @param val     New Private Node Identity value. Returns response status on
- *                 success.
+ *  @param val     New Private Node Identity value.
+ *  @param rsp     If set, returns response status on success.
  *
  *  @return 0 on success, or (negative) error code otherwise.
  */
 int bt_mesh_priv_beacon_cli_node_id_set(uint16_t net_idx, uint16_t addr,
-					struct bt_mesh_priv_node_id *val);
+					struct bt_mesh_priv_node_id *val,
+					struct bt_mesh_priv_node_id *rsp);
 
 /** @brief Get the target's Private Node Identity state.
  *
@@ -136,10 +189,10 @@ extern const struct bt_mesh_model_op bt_mesh_priv_beacon_cli_op[];
 extern const struct bt_mesh_model_cb bt_mesh_priv_beacon_cli_cb;
 /** @endcond */
 
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* ZEPHYR_INCLUDE_BLUETOOTH_MESH_PRIV_BEACON_CLI_H__ */
-
-/** @} */

@@ -14,8 +14,8 @@ BLE (Bluetooth Low Energy)
 MCUmgr Clients need to use following BLE Characteristics, when implementing
 SMP client:
 
-- **Service UUID**: `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`
-- **Characteristic UUID**: `DA2E7828-FBCE-4E01-AE9E-261174997C48`
+- **Service UUID**: ``8D53DC1D-1DB7-4CD3-868B-8A527460AA84``
+- **Characteristic UUID**: ``DA2E7828-FBCE-4E01-AE9E-261174997C48``
 
 All SMP communication utilizes a single GATT characteristic.  An SMP request is
 sent via a GATT Write Without Response command. An SMP response is sent in the form
@@ -179,7 +179,7 @@ taking form:
     | Content       | Size          | Description               |
     +===============+===============+===========================+
     | body          | no more than  | Raw body data fragment    |
-    |               | MTU - 3       |                           |
+    |               | MTU - 5       |                           |
     +---------------+---------------+---------------------------+
     | crc16         | 2 bytes       | CRC16 of entire packet    |
     |               |               | body, preceding length    |
@@ -193,3 +193,8 @@ CRC Details
 The CRC16 included in final type frames is calculated over only
 raw data and does not include packet length.
 CRC16 polynomial is 0x1021 and initial value is 0.
+
+API Reference
+*************
+
+.. doxygengroup:: mcumgr_transport_smp

@@ -1,19 +1,24 @@
 /*
  * Copyright 2020 Broadcom
+ * Copyright 2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr/device.h>
 #include <zephyr/kernel.h>
 #include <zephyr/arch/cpu.h>
 #include <zephyr/sys/__assert.h>
 #include <zephyr/sw_isr_table.h>
 #include <zephyr/dt-bindings/interrupt-controller/arm-gic.h>
 #include <zephyr/drivers/interrupt_controller/gic.h>
+#include <zephyr/sys/barrier.h>
 #include "intc_gic_common_priv.h"
 #include "intc_gicv3_priv.h"
 
 #include <string.h>
+
+#define DT_DRV_COMPAT arm_gic_v3
 
 /* Redistributor base addresses for each core */
 mem_addr_t gic_rdists[CONFIG_MP_MAX_NUM_CPUS];
@@ -80,7 +85,7 @@ static void arm_gic_lpi_setup(unsigned int intid, bool enable)
 		*cfg &= ~BIT(0);
 	}
 
-	dsb();
+	barrier_dsync_fence_full();
 
 	its_rdist_invall();
 }
@@ -92,7 +97,7 @@ static void arm_gic_lpi_set_priority(unsigned int intid, unsigned int prio)
 	*cfg &= 0xfc;
 	*cfg |= prio & 0xfc;
 
-	dsb();
+	barrier_dsync_fence_full();
 
 	its_rdist_invall();
 }
@@ -166,8 +171,6 @@ void arm_gic_irq_enable(unsigned int intid)
 	uint32_t mask = BIT(intid & (GIC_NUM_INTR_PER_REG - 1));
 	uint32_t idx = intid / GIC_NUM_INTR_PER_REG;
 
-	sys_write32(mask, ISENABLER(GET_DIST_BASE(intid), idx));
-
 #if defined(CONFIG_ARMV8_A_NS) || defined(CONFIG_GIC_SINGLE_SECURITY_STATE)
 	/*
 	 * Affinity routing is enabled for Armv8-A Non-secure state (GICD_CTLR.ARE_NS
@@ -178,6 +181,8 @@ void arm_gic_irq_enable(unsigned int intid)
 		arm_gic_write_irouter(MPIDR_TO_CORE(GET_MPIDR()), intid);
 	}
 #endif
+
+	sys_write32(mask, ISENABLER(GET_DIST_BASE(intid), idx));
 }
 
 void arm_gic_irq_disable(unsigned int intid)
@@ -212,6 +217,33 @@ bool arm_gic_irq_is_enabled(unsigned int intid)
 	return (val & mask) != 0;
 }
 
+bool arm_gic_irq_is_pending(unsigned int intid)
+{
+	uint32_t mask = BIT(intid & (GIC_NUM_INTR_PER_REG - 1));
+	uint32_t idx = intid / GIC_NUM_INTR_PER_REG;
+	uint32_t val;
+
+	val = sys_read32(ISPENDR(GET_DIST_BASE(intid), idx));
+
+	return (val & mask) != 0;
+}
+
+void arm_gic_irq_set_pending(unsigned int intid)
+{
+	uint32_t mask = BIT(intid & (GIC_NUM_INTR_PER_REG - 1));
+	uint32_t idx = intid / GIC_NUM_INTR_PER_REG;
+
+	sys_write32(mask, ISPENDR(GET_DIST_BASE(intid), idx));
+}
+
+void arm_gic_irq_clear_pending(unsigned int intid)
+{
+	uint32_t mask = BIT(intid & (GIC_NUM_INTR_PER_REG - 1));
+	uint32_t idx = intid / GIC_NUM_INTR_PER_REG;
+
+	sys_write32(mask, ICPENDR(GET_DIST_BASE(intid), idx));
+}
+
 unsigned int arm_gic_get_active(void)
 {
 	int intid;
@@ -235,7 +267,7 @@ void arm_gic_eoi(unsigned int intid)
 	 * The dsb will also ensure *completion* of previous writes with
 	 * DEVICE nGnRnE attribute.
 	 */
-	__DSB();
+	barrier_dsync_fence_full();
 
 	/* (AP -> Pending) Or (Active -> Inactive) or (AP to AP) nested case */
 	write_sysreg(intid, ICC_EOIR1_EL1);
@@ -261,9 +293,9 @@ void gic_raise_sgi(unsigned int sgi_id, uint64_t target_aff,
 	sgi_val = GICV3_SGIR_VALUE(aff3, aff2, aff1, sgi_id,
 				   SGIR_IRM_TO_AFF, target_list);
 
-	__DSB();
+	barrier_dsync_fence_full();
 	write_sysreg(sgi_val, ICC_SGI1R);
-	__ISB();
+	barrier_isync_fence_full();
 }
 
 /*
@@ -276,6 +308,16 @@ static void gicv3_rdist_enable(mem_addr_t rdist)
 {
 	if (!(sys_read32(rdist + GICR_WAKER) & BIT(GICR_WAKER_CA))) {
 		return;
+	}
+
+	if (GICR_IIDR_PRODUCT_ID_GET(sys_read32(rdist + GICR_IIDR)) >= 0x2) {
+		if (sys_read32(rdist + GICR_PWRR) & BIT(GICR_PWRR_RDPD)) {
+			sys_set_bit(rdist + GICR_PWRR, GICR_PWRR_RDAG);
+			sys_clear_bit(rdist + GICR_PWRR, GICR_PWRR_RDPD);
+			while (sys_read32(rdist + GICR_PWRR) & BIT(GICR_PWRR_RDPD)) {
+				;
+			}
+		}
 	}
 
 	sys_clear_bit(rdist + GICR_WAKER, GICR_WAKER_PS);
@@ -332,7 +374,7 @@ static void gicv3_rdist_setup_lpis(mem_addr_t rdist)
 	ctlr |= GICR_CTLR_ENABLE_LPIS;
 	sys_write32(ctlr, rdist + GICR_CTLR);
 
-	dsb();
+	barrier_dsync_fence_full();
 }
 #endif
 
@@ -404,6 +446,17 @@ static void gicv3_dist_init(void)
 	unsigned int intid;
 	unsigned int idx;
 	mem_addr_t base = GIC_DIST_BASE;
+
+#ifdef CONFIG_GIC_SAFE_CONFIG
+	/*
+	 * Currently multiple OSes can run one the different CPU Cores which share single GIC,
+	 * but GIC distributor should avoid to be re-configured in order to avoid crash the
+	 * OSes has already been started.
+	 */
+	if (sys_read32(GICD_CTLR) & (BIT(GICD_CTLR_ENABLE_G0) | BIT(GICD_CTLR_ENABLE_G1NS))) {
+		return;
+	}
+#endif
 
 	num_ints = sys_read32(GICD_TYPER);
 	num_ints &= GICD_TYPER_ITLINESNUM_MASK;
@@ -565,17 +618,16 @@ static void __arm_gic_init(void)
 	gicv3_cpuif_init();
 }
 
-int arm_gic_init(const struct device *unused)
+int arm_gic_init(const struct device *dev)
 {
-	ARG_UNUSED(unused);
-
 	gicv3_dist_init();
 
 	__arm_gic_init();
 
 	return 0;
 }
-SYS_INIT(arm_gic_init, PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY);
+DEVICE_DT_INST_DEFINE(0, arm_gic_init, NULL, NULL, NULL,
+		      PRE_KERNEL_1, CONFIG_INTC_INIT_PRIORITY, NULL);
 
 #ifdef CONFIG_SMP
 void arm_gic_secondary_init(void)

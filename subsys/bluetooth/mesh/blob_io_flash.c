@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Noioic Semiconductor ASA
+ * Copyright (c) 2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,7 +12,7 @@
 #include "net.h"
 #include "transport.h"
 
-#define WRITE_BLOCK_SIZE 4
+#define WRITE_BLOCK_SIZE DT_PROP(DT_INST(0, soc_nv_flash), write_block_size)
 
 #define FLASH_IO(_io) CONTAINER_OF(_io, struct bt_mesh_blob_io_flash, io)
 
@@ -42,6 +42,8 @@ static int io_open(const struct bt_mesh_blob_io *io,
 		   enum bt_mesh_blob_io_mode mode)
 {
 	struct bt_mesh_blob_io_flash *flash = FLASH_IO(io);
+
+	flash->mode = mode;
 
 	return flash_area_open(flash->area_id, &flash->area);
 }
@@ -81,13 +83,13 @@ static int block_start(const struct bt_mesh_blob_io *io,
 		return err;
 	}
 
-	erase_size = page.size * ceiling_fraction(block->size, page.size);
+	erase_size = page.size * DIV_ROUND_UP(block->size, page.size);
 #else
 	erase_size = block->size;
 #endif
 
-	return flash_area_erase(flash->area, flash->offset + block->offset,
-				erase_size);
+	return flash_area_flatten(flash->area, flash->offset + block->offset,
+				  erase_size);
 }
 
 static int rd_chunk(const struct bt_mesh_blob_io *io,
@@ -108,8 +110,14 @@ static int wr_chunk(const struct bt_mesh_blob_io *io,
 		    const struct bt_mesh_blob_chunk *chunk)
 {
 	struct bt_mesh_blob_io_flash *flash = FLASH_IO(io);
-	uint8_t buf[ROUND_UP(BLOB_CHUNK_SIZE_MAX(BT_MESH_RX_SDU_MAX),
-			  WRITE_BLOCK_SIZE)];
+
+	if (IS_ENABLED(CONFIG_SOC_FLASH_NRF_RRAM)) {
+		return flash_area_write(flash->area,
+					flash->offset + block->offset + chunk->offset,
+					chunk->data, chunk->size);
+	}
+
+	uint8_t buf[ROUND_UP(BLOB_RX_CHUNK_SIZE, WRITE_BLOCK_SIZE)];
 	off_t area_offset = flash->offset + block->offset + chunk->offset;
 	int i = 0;
 

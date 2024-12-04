@@ -13,13 +13,13 @@ void peripheral(void);
 static const struct bst_test_instance test_to_add[] = {
 	{
 		.test_id = "central",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = central,
 	},
 	{
 		.test_id = "peripheral",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = peripheral,
 	},
@@ -33,7 +33,8 @@ static struct bst_test_list *install(struct bst_test_list *tests)
 
 bst_test_install_t test_installers[] = {install, NULL};
 
-void main(void)
+int main(void)
 {
 	bst_main();
+	return 0;
 }

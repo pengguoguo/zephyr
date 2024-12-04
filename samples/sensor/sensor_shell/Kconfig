@@ -1,11 +1,10 @@
 # Copyright (c) 2023 Google LLC
 # SPDX-License-Identifier: Apache-2.0
 
-config SAMPLE_PRINT_TIMEOUT_MS
-	int "Timeout for printing the average sensor sample value"
-	default 5000
+config SAMPLES_SENSOR_SHELL_FAKE_SENSOR
+	bool "Enable fake sensor"
 	help
-	  Control the frequency of the sampling window over which the sensor
-	  interrupt handler will collect data.
+	  On boards that do not have a sensor, enabling this will build a fake
+	  sensor that can be interacted with via the sensor shell.
 
 source "Kconfig.zephyr"

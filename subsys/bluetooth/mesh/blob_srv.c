@@ -16,7 +16,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(bt_mesh_blob_srv);
 
-#define CHUNK_SIZE_MAX BLOB_CHUNK_SIZE_MAX(BT_MESH_RX_SDU_MAX)
 #define MTU_SIZE_MAX (BT_MESH_RX_SDU_MAX - BT_MESH_MIC_SHORT)
 
 /* The Receive BLOB Timeout Timer */
@@ -47,15 +46,14 @@ static void suspend(struct bt_mesh_blob_srv *srv);
 
 static inline uint32_t block_count_get(const struct bt_mesh_blob_srv *srv)
 {
-	return ceiling_fraction(srv->state.xfer.size,
+	return DIV_ROUND_UP(srv->state.xfer.size,
 				(1U << srv->state.xfer.block_size_log));
 }
 
 static inline uint32_t max_chunk_size(const struct bt_mesh_blob_srv *srv)
 {
-	return MIN((srv->state.mtu_size - 2 -
-		    BT_MESH_MODEL_OP_LEN(BT_MESH_BLOB_OP_CHUNK)),
-		   CHUNK_SIZE_MAX);
+	return MIN((srv->state.mtu_size - 2 - BT_MESH_MODEL_OP_LEN(BT_MESH_BLOB_OP_CHUNK)),
+		   BLOB_RX_CHUNK_SIZE);
 }
 
 static inline uint32_t max_chunk_count(const struct bt_mesh_blob_srv *srv)
@@ -83,7 +81,7 @@ static void store_state(const struct bt_mesh_blob_srv *srv)
 	}
 
 	/* Convert bit count to byte count: */
-	uint32_t block_len = ceiling_fraction(block_count_get(srv), 8);
+	uint32_t block_len = DIV_ROUND_UP(block_count_get(srv), 8);
 
 	bt_mesh_model_data_store(
 		srv->mod, false, NULL, &srv->state,
@@ -149,7 +147,7 @@ static int pull_req_max(const struct bt_mesh_blob_srv *srv)
 #if defined(CONFIG_BT_MESH_LOW_POWER)
 	/* No point in requesting more than the friend node can hold: */
 	if (bt_mesh_lpn_established()) {
-		uint32_t segments_per_chunk = ceiling_fraction(
+		uint32_t segments_per_chunk = DIV_ROUND_UP(
 			BLOB_CHUNK_SDU_LEN(srv->state.xfer.chunk_size),
 			BT_MESH_APP_SEG_SDU_MAX);
 
@@ -202,7 +200,7 @@ static void block_report(struct bt_mesh_blob_srv *srv)
 		}
 	}
 
-	bt_mesh_model_send(srv->mod, &ctx, &buf, &report_cb, srv);
+	(void)bt_mesh_model_send(srv->mod, &ctx, &buf, &report_cb, srv);
 }
 
 static void phase_set(struct bt_mesh_blob_srv *srv,
@@ -221,6 +219,7 @@ static void cancel(struct bt_mesh_blob_srv *srv)
 	srv->state.xfer.mode = BT_MESH_BLOB_XFER_MODE_NONE;
 	srv->state.ttl = BT_MESH_TTL_DEFAULT;
 	srv->block.number = 0xffff;
+	memset(srv->block.missing, 0, sizeof(srv->block.missing));
 	srv->state.xfer.chunk_size = 0xffff;
 	k_work_cancel_delayable(&srv->rx_timeout);
 	k_work_cancel_delayable(&srv->pull.report);
@@ -251,6 +250,37 @@ static void resume(struct bt_mesh_blob_srv *srv)
 	reset_timer(srv);
 }
 
+static void end(struct bt_mesh_blob_srv *srv)
+{
+	phase_set(srv, BT_MESH_BLOB_XFER_PHASE_COMPLETE);
+	k_work_cancel_delayable(&srv->rx_timeout);
+	k_work_cancel_delayable(&srv->pull.report);
+	io_close(srv);
+	erase_state(srv);
+
+	if (srv->cb && srv->cb->end) {
+		srv->cb->end(srv, srv->state.xfer.id, true);
+	}
+}
+
+static bool all_blocks_received(struct bt_mesh_blob_srv *srv)
+{
+	for (int i = 0; i < ARRAY_SIZE(srv->state.blocks); ++i) {
+		if (srv->state.blocks[i]) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool pull_mode_xfer_complete(struct bt_mesh_blob_srv *srv)
+{
+	return srv->state.xfer.mode == BT_MESH_BLOB_XFER_MODE_PULL &&
+	       srv->phase == BT_MESH_BLOB_XFER_PHASE_WAITING_FOR_CHUNK &&
+	       all_blocks_received(srv);
+}
+
 static void timeout(struct k_work *work)
 {
 	struct bt_mesh_blob_srv *srv =
@@ -260,6 +290,8 @@ static void timeout(struct k_work *work)
 
 	if (srv->phase == BT_MESH_BLOB_XFER_PHASE_WAITING_FOR_START) {
 		cancel(srv);
+	} else if (pull_mode_xfer_complete(srv)) {
+		end(srv);
 	} else {
 		suspend(srv);
 	}
@@ -310,11 +342,11 @@ static void xfer_status_rsp(struct bt_mesh_blob_srv *srv,
 	net_buf_simple_add_u8(&buf, srv->state.xfer.block_size_log);
 	net_buf_simple_add_le16(&buf, srv->state.mtu_size);
 	net_buf_simple_add_mem(&buf, srv->state.blocks,
-			       ceiling_fraction(block_count_get(srv), 8));
+			       DIV_ROUND_UP(block_count_get(srv), 8));
 
 send:
 	ctx->send_ttl = srv->state.ttl;
-	bt_mesh_model_send(srv->mod, ctx, &buf, NULL, NULL);
+	(void)bt_mesh_model_send(srv->mod, ctx, &buf, NULL, NULL);
 }
 
 static void block_status_rsp(struct bt_mesh_blob_srv *srv,
@@ -356,12 +388,12 @@ static void block_status_rsp(struct bt_mesh_blob_srv *srv,
 
 	if (format == BT_MESH_BLOB_CHUNKS_MISSING_SOME) {
 		net_buf_simple_add_mem(&buf, srv->block.missing,
-				       ceiling_fraction(srv->block.chunk_count,
+				       DIV_ROUND_UP(srv->block.chunk_count,
 							8));
 
 		LOG_DBG("Bits: %s",
 			bt_hex(srv->block.missing,
-			       ceiling_fraction(srv->block.chunk_count, 8)));
+			       DIV_ROUND_UP(srv->block.chunk_count, 8)));
 
 	} else if (format == BT_MESH_BLOB_CHUNKS_MISSING_ENCODED) {
 		int count = pull_req_max(srv);
@@ -379,24 +411,33 @@ static void block_status_rsp(struct bt_mesh_blob_srv *srv,
 		ctx->send_ttl = srv->state.ttl;
 	}
 
-	bt_mesh_model_send(srv->mod, ctx, &buf, NULL, NULL);
+	(void)bt_mesh_model_send(srv->mod, ctx, &buf, NULL, NULL);
 }
 
-static int handle_xfer_get(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_xfer_get(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			   struct net_buf_simple *buf)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 
 	LOG_DBG("");
+
+	if (pull_mode_xfer_complete(srv)) {
+		/* The client requested transfer. If we are in Pull mode and all blocks were
+		 * received, we should change the Transfer state here to Complete so that the client
+		 * receives the correct state.
+		 */
+		end(srv);
+	}
+
 	xfer_status_rsp(srv, ctx, BT_MESH_BLOB_SUCCESS);
 
 	return 0;
 }
 
-static int handle_xfer_start(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_xfer_start(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			     struct net_buf_simple *buf)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 	enum bt_mesh_blob_status status;
 	enum bt_mesh_blob_xfer_mode mode;
 	uint64_t id;
@@ -524,11 +565,11 @@ rsp:
 	return 0;
 }
 
-static int handle_xfer_cancel(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_xfer_cancel(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			      struct net_buf_simple *buf)
 {
 	enum bt_mesh_blob_status status = BT_MESH_BLOB_SUCCESS;
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 	uint64_t id;
 
 	id = net_buf_simple_pull_le64(buf);
@@ -552,11 +593,11 @@ rsp:
 	return 0;
 }
 
-static int handle_block_get(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_block_get(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			    struct net_buf_simple *buf)
 {
 	enum bt_mesh_blob_status status;
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 
 	switch (srv->phase) {
 	case BT_MESH_BLOB_XFER_PHASE_WAITING_FOR_BLOCK:
@@ -583,10 +624,10 @@ static int handle_block_get(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *c
 	return 0;
 }
 
-static int handle_block_start(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_block_start(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			      struct net_buf_simple *buf)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 	enum bt_mesh_blob_status status;
 	uint16_t block_number, chunk_size;
 	int err;
@@ -619,11 +660,11 @@ static int handle_block_start(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx 
 	}
 
 	if (!chunk_size || chunk_size > max_chunk_size(srv) ||
-	    (ceiling_fraction((1 << srv->state.xfer.block_size_log), chunk_size) >
+	    (DIV_ROUND_UP((1 << srv->state.xfer.block_size_log), chunk_size) >
 	     max_chunk_count(srv))) {
-		LOG_WRN("Invalid chunk size: (chunk size: %u, max: %u, ceil: %u, count: %u)",
+		LOG_WRN("Invalid chunk size: (chunk size: %u, max: %u, block log: %u, count: %u)",
 			chunk_size, max_chunk_size(srv),
-			ceiling_fraction((1 << srv->state.xfer.block_size_log), chunk_size),
+			srv->state.xfer.block_size_log,
 			max_chunk_count(srv));
 		status = BT_MESH_BLOB_ERR_INVALID_CHUNK_SIZE;
 		goto rsp;
@@ -632,7 +673,7 @@ static int handle_block_start(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx 
 	srv->block.size = blob_block_size(
 		srv->state.xfer.size, srv->state.xfer.block_size_log, block_number);
 	srv->block.number = block_number;
-	srv->block.chunk_count = ceiling_fraction(srv->block.size, chunk_size);
+	srv->block.chunk_count = DIV_ROUND_UP(srv->block.size, chunk_size);
 	srv->state.xfer.chunk_size = chunk_size;
 	srv->block.offset = block_number * (1UL << srv->state.xfer.block_size_log);
 
@@ -678,14 +719,14 @@ rsp:
 	return 0;
 }
 
-static int handle_chunk(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_chunk(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			struct net_buf_simple *buf)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 	struct bt_mesh_blob_chunk chunk;
 	size_t expected_size = 0;
 	uint16_t idx;
-	int i, err;
+	int err;
 
 	idx = net_buf_simple_pull_le16(buf);
 	chunk.size = buf->len;
@@ -745,33 +786,33 @@ static int handle_chunk(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 
 	atomic_clear_bit(srv->state.blocks, srv->block.number);
 
-	for (i = 0; i < ARRAY_SIZE(srv->state.blocks); ++i) {
-		if (!srv->state.blocks[i]) {
-			continue;
-		}
-
+	if (!all_blocks_received(srv)) {
 		phase_set(srv, BT_MESH_BLOB_XFER_PHASE_WAITING_FOR_BLOCK);
 		store_state(srv);
 		return 0;
 	}
 
-	phase_set(srv, BT_MESH_BLOB_XFER_PHASE_COMPLETE);
-	k_work_cancel_delayable(&srv->rx_timeout);
-	k_work_cancel_delayable(&srv->pull.report);
-	io_close(srv);
-	erase_state(srv);
-
-	if (srv->cb && srv->cb->end) {
-		srv->cb->end(srv, srv->state.xfer.id, true);
+	if (srv->state.xfer.mode == BT_MESH_BLOB_XFER_MODE_PULL) {
+		/* By spec (section 5.2.4), the BLOB Server stops sending BLOB Partial Block Report
+		 * messages "If the current block is the last block, then the server determines that
+		 * the client knows the transfer is complete. For example, a higher-layer model may
+		 * indicate that the client considers the transfer complete."
+		 *
+		 * We don't have any way for higher-layer model to indicate that the transfer is
+		 * complete. Therefore we need to keep sending Partial Block Report messages until
+		 * the client sends BLOB Transfer Get message or the Block Timer expires.
+		 */
+		return 0;
 	}
 
+	end(srv);
 	return 0;
 }
 
-static int handle_info_get(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
+static int handle_info_get(const struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ctx,
 			   struct net_buf_simple *buf)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 
 	LOG_DBG("");
 
@@ -780,7 +821,7 @@ static int handle_info_get(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ct
 	net_buf_simple_add_u8(&rsp, BLOB_BLOCK_SIZE_LOG_MIN);
 	net_buf_simple_add_u8(&rsp, BLOB_BLOCK_SIZE_LOG_MAX);
 	net_buf_simple_add_le16(&rsp, CONFIG_BT_MESH_BLOB_CHUNK_COUNT_MAX);
-	net_buf_simple_add_le16(&rsp, CHUNK_SIZE_MAX);
+	net_buf_simple_add_le16(&rsp, BLOB_RX_CHUNK_SIZE);
 	net_buf_simple_add_le32(&rsp, CONFIG_BT_MESH_BLOB_SIZE_MAX);
 	net_buf_simple_add_le16(&rsp, MTU_SIZE_MAX);
 	net_buf_simple_add_u8(&rsp, BT_MESH_BLOB_XFER_MODE_ALL);
@@ -789,7 +830,7 @@ static int handle_info_get(struct bt_mesh_model *mod, struct bt_mesh_msg_ctx *ct
 		ctx->send_ttl = srv->state.ttl;
 	}
 
-	bt_mesh_model_send(srv->mod, ctx, &rsp, NULL, NULL);
+	(void)bt_mesh_model_send(srv->mod, ctx, &rsp, NULL, NULL);
 
 	return 0;
 }
@@ -805,9 +846,9 @@ const struct bt_mesh_model_op _bt_mesh_blob_srv_op[] = {
 	BT_MESH_MODEL_OP_END,
 };
 
-static int blob_srv_init(struct bt_mesh_model *mod)
+static int blob_srv_init(const struct bt_mesh_model *mod)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 
 	srv->mod = mod;
 	srv->state.ttl = BT_MESH_TTL_DEFAULT;
@@ -819,11 +860,11 @@ static int blob_srv_init(struct bt_mesh_model *mod)
 	return 0;
 }
 
-static int blob_srv_settings_set(struct bt_mesh_model *mod, const char *name,
+static int blob_srv_settings_set(const struct bt_mesh_model *mod, const char *name,
 				 size_t len_rd, settings_read_cb read_cb,
 				 void *cb_arg)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 	ssize_t len;
 
 	if (len_rd < offsetof(struct bt_mesh_blob_srv_state, blocks)) {
@@ -844,17 +885,26 @@ static int blob_srv_settings_set(struct bt_mesh_model *mod, const char *name,
 		return 0;
 	}
 
-	phase_set(srv, BT_MESH_BLOB_XFER_PHASE_SUSPENDED);
+	/* If device restarted before it handled `XFER_START` server we restore state into
+	 * BT_MESH_BLOB_XFER_PHASE_WAITING_FOR_START phase, so `XFER_START` can be accepted
+	 * as it would before reboot
+	 */
+	if (srv->state.cli == BT_MESH_ADDR_UNASSIGNED) {
+		LOG_DBG("Transfer (id=%llu) waiting for start", srv->state.xfer.id);
+		phase_set(srv, BT_MESH_BLOB_XFER_PHASE_WAITING_FOR_START);
+	} else {
+		phase_set(srv, BT_MESH_BLOB_XFER_PHASE_SUSPENDED);
 
-	LOG_DBG("Recovered transfer from 0x%04x (%llu)", srv->state.cli,
-		srv->state.xfer.id);
+		LOG_DBG("Recovered transfer from 0x%04x (%llu)", srv->state.cli,
+			srv->state.xfer.id);
+	}
 
 	return 0;
 }
 
-static int blob_srv_start(struct bt_mesh_model *mod)
+static int blob_srv_start(const struct bt_mesh_model *mod)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 	int err = -ENOTSUP;
 
 	if (srv->phase == BT_MESH_BLOB_XFER_PHASE_INACTIVE) {
@@ -880,9 +930,9 @@ static int blob_srv_start(struct bt_mesh_model *mod)
 	return 0;
 }
 
-static void blob_srv_reset(struct bt_mesh_model *mod)
+static void blob_srv_reset(const struct bt_mesh_model *mod)
 {
-	struct bt_mesh_blob_srv *srv = mod->user_data;
+	struct bt_mesh_blob_srv *srv = mod->rt->user_data;
 
 	phase_set(srv, BT_MESH_BLOB_XFER_PHASE_INACTIVE);
 	srv->state.xfer.mode = BT_MESH_BLOB_XFER_MODE_NONE;

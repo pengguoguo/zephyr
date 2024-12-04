@@ -259,6 +259,8 @@ static int wdt_gecko_init(const struct device *dev)
 
 #if defined(_SILICON_LABS_32B_SERIES_2)
 	CMU_ClockSelectSet(config->clock, cmuSelect_ULFRCO);
+	/* Enable Watchdog clock. */
+	CMU_ClockEnable(cmuClock_WDOG0, true);
 #endif
 
 	/* Enable IRQs */
@@ -269,7 +271,7 @@ static int wdt_gecko_init(const struct device *dev)
 	return 0;
 }
 
-static const struct wdt_driver_api wdt_gecko_driver_api = {
+static DEVICE_API(wdt, wdt_gecko_driver_api) = {
 	.setup = wdt_gecko_setup,
 	.disable = wdt_gecko_disable,
 	.install_timeout = wdt_gecko_install_timeout,

@@ -10,10 +10,11 @@
 #include <zephyr/fff.h>
 #include <zephyr/bluetooth/audio/pacs.h>
 
-/* List of fakes used by this unit tester */
-#define PACS_FFF_FAKES_LIST(FAKE)                                                                  \
-	FAKE(bt_pacs_cap_foreach)                                                                  \
+void mock_bt_pacs_init(void);
+void mock_bt_pacs_cleanup(void);
 
 DECLARE_FAKE_VOID_FUNC(bt_pacs_cap_foreach, enum bt_audio_dir, bt_pacs_cap_foreach_func_t, void *);
+DECLARE_FAKE_VALUE_FUNC(enum bt_audio_context, bt_pacs_get_available_contexts_for_conn,
+			struct bt_conn *, enum bt_audio_dir);
 
 #endif /* MOCKS_PACS_H_ */

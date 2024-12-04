@@ -30,7 +30,7 @@ LOG_MODULE_REGISTER(adc_ite_it8xxx2);
 /* ADC channels disabled */
 #define IT8XXX2_ADC_CHANNEL_DISABLED 0x1F
 /* ADC sample time delay (Unit:us) */
-#define IT8XXX2_ADC_SAMPLE_TIME_US 200
+#define IT8XXX2_ADC_SAMPLE_TIME_US 500
 /* Wait next clock rising (Clock source 32.768K) */
 #define IT8XXX2_WAIT_NEXT_CLOCK_TIME_US 31
 /* ADC channels offset */
@@ -41,6 +41,12 @@ LOG_MODULE_REGISTER(adc_ite_it8xxx2);
 #define ADC_0_7_FULL_SCALE_MASK   GENMASK(7, 0)
 #define ADC_8_10_FULL_SCALE_MASK  GENMASK(2, 0)
 #define ADC_13_16_FULL_SCALE_MASK GENMASK(3, 0)
+#endif
+
+#ifdef CONFIG_SOC_IT8XXX2_EC_BUS_24MHZ
+/* Select analog clock division factor */
+#define ADC_SACLKDIV_MASK   GENMASK(6, 4)
+#define ADC_SACLKDIV(div)   FIELD_PREP(ADC_SACLKDIV_MASK, div)
 #endif
 
 /* List of ADC channels. */
@@ -381,7 +387,7 @@ static void adc_it8xxx2_isr(const struct device *dev)
 	k_sem_give(&data->sem);
 }
 
-static const struct adc_driver_api api_it8xxx2_driver_api = {
+static DEVICE_API(adc, api_it8xxx2_driver_api) = {
 	.channel_setup = adc_it8xxx2_channel_setup,
 	.read = adc_it8xxx2_read,
 #ifdef CONFIG_ADC_ASYNC
@@ -438,7 +444,11 @@ static int adc_it8xxx2_init(const struct device *dev)
 	 * (Current setting is 61.6us)
 	 *
 	 * NOTE: A sample time delay (60us) also need to be included in
-	 * conversion time, so the final result is ~= 121.6us.
+	 * conversion time.
+	 * In addition, the ADC has a waiting time of 202.8us for
+	 * voltage stabilization.
+	 *
+	 * So the final ADC sample time result is ~= 324.4us.
 	 */
 	adc_regs->ADCSTS &= ~IT8XXX2_ADC_ADCCTS1;
 	adc_regs->ADCCFG &= ~IT8XXX2_ADC_ADCCTS0;
@@ -447,6 +457,11 @@ static int adc_it8xxx2_init(const struct device *dev)
 	 * SCLKDIV has to be equal to or greater than 1h;
 	 */
 	adc_regs->ADCCTL = 1;
+
+#ifdef CONFIG_SOC_IT8XXX2_EC_BUS_24MHZ
+	adc_regs->ADCCTL1 =
+		(adc_regs->ADCCTL1 & ~ADC_SACLKDIV_MASK) | ADC_SACLKDIV(2);
+#endif
 	/*
 	 * Enable this bit, and data of VCHxDATL/VCHxDATM will be
 	 * kept until data valid is cleared.

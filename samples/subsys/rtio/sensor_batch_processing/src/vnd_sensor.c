@@ -11,7 +11,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
-LOG_MODULE_REGISTER(vnd_sensor);
+LOG_MODULE_REGISTER(vnd_sensor, LOG_LEVEL_DBG);
 
 struct vnd_sensor_config {
 	uint32_t sample_period;
@@ -20,6 +20,7 @@ struct vnd_sensor_config {
 
 struct vnd_sensor_data {
 	struct rtio_iodev iodev;
+	struct mpsc io_q;
 	struct k_timer timer;
 	const struct device *dev;
 	uint32_t sample_number;
@@ -54,11 +55,19 @@ static int vnd_sensor_iodev_read(const struct device *dev, uint8_t *buf,
 static void vnd_sensor_iodev_execute(const struct device *dev,
 		struct rtio_iodev_sqe *iodev_sqe)
 {
+	const struct vnd_sensor_config *config = dev->config;
+	uint8_t *buf = NULL;
+	uint32_t buf_len;
 	int result;
-	const struct rtio_sqe *sqe = iodev_sqe->sqe;
 
-	if (sqe->op == RTIO_OP_RX) {
-		result = vnd_sensor_iodev_read(dev, sqe->buf, sqe->buf_len);
+	if (iodev_sqe->sqe.op == RTIO_OP_RX) {
+		result = rtio_sqe_rx_buf(iodev_sqe, config->sample_size, config->sample_size, &buf,
+					 &buf_len);
+		if (result != 0) {
+			LOG_ERR("Failed to get RX buffer");
+		} else {
+			result = vnd_sensor_iodev_read(dev, buf, buf_len);
+		}
 	} else {
 		LOG_ERR("%s: Invalid op", dev->name);
 		result = -EINVAL;
@@ -73,15 +82,15 @@ static void vnd_sensor_iodev_execute(const struct device *dev,
 
 static void vnd_sensor_iodev_submit(struct rtio_iodev_sqe *iodev_sqe)
 {
-	struct vnd_sensor_data *data = (struct vnd_sensor_data *) iodev_sqe->sqe->iodev;
+	struct vnd_sensor_data *data = (struct vnd_sensor_data *) iodev_sqe->sqe.iodev;
 
-	rtio_mpsc_push(&data->iodev.iodev_sq, &iodev_sqe->q);
+	mpsc_push(&data->io_q, &iodev_sqe->q);
 }
 
 static void vnd_sensor_handle_int(const struct device *dev)
 {
 	struct vnd_sensor_data *data = dev->data;
-	struct rtio_mpsc_node *node = rtio_mpsc_pop(&data->iodev.iodev_sq);
+	struct mpsc_node *node = mpsc_pop(&data->io_q);
 
 	if (node != NULL) {
 		struct rtio_iodev_sqe *iodev_sqe = CONTAINER_OF(node, struct rtio_iodev_sqe, q);
@@ -108,7 +117,7 @@ static int vnd_sensor_init(const struct device *dev)
 
 	data->dev = dev;
 
-	rtio_mpsc_init(&data->iodev.iodev_sq);
+	mpsc_init(&data->io_q);
 
 	k_timer_init(&data->timer, vnd_sensor_timer_expiry, NULL);
 

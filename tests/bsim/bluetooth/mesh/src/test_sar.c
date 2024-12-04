@@ -7,9 +7,7 @@
  */
 
 #include "mesh_test.h"
-
 #include <string.h>
-
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(test_sar, LOG_LEVEL_INF);
@@ -93,7 +91,7 @@ static void data_integrity_check(struct net_buf_simple *buf)
 	net_buf_simple_restore(buf, &state);
 }
 
-static int get_handler(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
+static int get_handler(const struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
 		       struct net_buf_simple *buf)
 {
 	data_integrity_check(buf);
@@ -106,7 +104,7 @@ static int get_handler(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
 	return bt_mesh_model_send(model, ctx, &msg, NULL, NULL);
 }
 
-static int status_handler(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
+static int status_handler(const struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
 			  struct net_buf_simple *buf)
 {
 	data_integrity_check(buf);
@@ -114,7 +112,7 @@ static int status_handler(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *c
 	return 0;
 }
 
-static int dummy_vnd_mod_get(struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
+static int dummy_vnd_mod_get(const struct bt_mesh_model *model, struct bt_mesh_msg_ctx *ctx,
 			     uint8_t msg[])
 {
 	BT_MESH_MODEL_BUF_DEFINE(buf, DUMMY_VND_MOD_GET_OP, MAX_SDU_MSG_LEN);
@@ -133,22 +131,14 @@ static const struct bt_mesh_model_op _dummy_vnd_mod_op[] = {
 
 uint16_t dummy_keys[CONFIG_BT_MESH_MODEL_KEY_COUNT] = { 0 };
 
-static struct bt_mesh_model dummy_vnd_mod = {
-	.op = _dummy_vnd_mod_op,
-	.keys = dummy_keys,
-	.keys_cnt = CONFIG_BT_MESH_MODEL_KEY_COUNT,
-	.vnd.id = TEST_VND_MOD_ID,
-	.vnd.company = TEST_VND_COMPANY_ID,
-};
-
-static struct bt_mesh_elem elements[] = {BT_MESH_ELEM(
+static const struct bt_mesh_elem elements[] = {BT_MESH_ELEM(
 	0,
 	MODEL_LIST(BT_MESH_MODEL_CFG_SRV,
 		   BT_MESH_MODEL_CFG_CLI(&cfg_cli),
 		   BT_MESH_MODEL_SAR_CFG_CLI(&sar_cli),
 		   BT_MESH_MODEL_SAR_CFG_SRV),
 	MODEL_LIST(BT_MESH_MODEL_VND_CB(TEST_VND_COMPANY_ID, TEST_VND_MOD_ID, _dummy_vnd_mod_op,
-					NULL, &dummy_vnd_mod, NULL)))};
+					NULL, NULL, NULL)))};
 
 static const struct bt_mesh_comp comp = {
 	.cid = TEST_VND_COMPANY_ID,
@@ -195,6 +185,8 @@ static void array_random_fill(uint8_t array[], uint16_t len, int seed)
 static void cli_max_len_sdu_send(struct bt_mesh_sar_rx *sar_rx_config,
 				 struct bt_mesh_sar_tx *sar_tx_config)
 {
+	const struct bt_mesh_model *dummy_vnd_mod = &elements[0].vnd_models[0];
+
 	bt_mesh_test_cfg_set(NULL, WAIT_TIME);
 	bt_mesh_device_setup(&prov, &comp);
 	prov_and_conf(CLI_ADDR, sar_rx_config, sar_tx_config);
@@ -203,7 +195,7 @@ static void cli_max_len_sdu_send(struct bt_mesh_sar_rx *sar_rx_config,
 	array_random_fill(dummy_msg, ARRAY_SIZE(dummy_msg), RAND_SEED);
 
 	for (int i = 0; i < 2; i++) {
-		ASSERT_OK(dummy_vnd_mod_get(&dummy_vnd_mod, &test_ctx, dummy_msg));
+		ASSERT_OK(dummy_vnd_mod_get(dummy_vnd_mod, &test_ctx, dummy_msg));
 		/* Wait for message response */
 		if (k_sem_take(&inst_suspend_sem, SEM_TIMEOUT)) {
 			FAIL("Client suspension timed out.");
@@ -260,6 +252,43 @@ static void test_srv_max_len_sdu_slow_receive(void)
 	PASS();
 }
 
+#if CONFIG_BT_SETTINGS
+static void test_srv_cfg_store(void)
+{
+	struct bt_mesh_sar_rx rx_cfg;
+	struct bt_mesh_sar_tx tx_cfg;
+
+	bt_mesh_test_cfg_set(NULL, WAIT_TIME);
+	bt_mesh_device_setup(&prov, &comp);
+	prov_and_conf(SRV_ADDR, &test_sar_rx, &test_sar_tx);
+
+	bt_mesh_sar_cfg_cli_receiver_get(0, SRV_ADDR, &rx_cfg);
+	bt_mesh_sar_cfg_cli_transmitter_get(0, SRV_ADDR, &tx_cfg);
+
+	ASSERT_EQUAL(0, memcmp(&rx_cfg, &test_sar_rx, sizeof(test_sar_rx)));
+	ASSERT_EQUAL(0, memcmp(&tx_cfg, &test_sar_tx, sizeof(test_sar_tx)));
+
+	PASS();
+}
+
+static void test_srv_cfg_restore(void)
+{
+	struct bt_mesh_sar_rx rx_cfg;
+	struct bt_mesh_sar_tx tx_cfg;
+
+	bt_mesh_test_cfg_set(NULL, WAIT_TIME);
+	bt_mesh_device_setup(&prov, &comp);
+
+	bt_mesh_sar_cfg_cli_receiver_get(0, SRV_ADDR, &rx_cfg);
+	bt_mesh_sar_cfg_cli_transmitter_get(0, SRV_ADDR, &tx_cfg);
+
+	ASSERT_EQUAL(0, memcmp(&rx_cfg, &test_sar_rx, sizeof(test_sar_rx)));
+	ASSERT_EQUAL(0, memcmp(&tx_cfg, &test_sar_tx, sizeof(test_sar_tx)));
+
+	PASS();
+}
+#endif
+
 #define TEST_CASE(role, name, description)              \
 	{                                                   \
 		.test_id = "sar_" #role "_" #name,              \
@@ -276,7 +305,7 @@ static const struct bst_test_instance test_sar[] = {
 	TEST_CASE(cli, max_len_sdu_slow_send,
 		  "Send a 32-segment message with SAR configured with slowest timings."),
 	TEST_CASE(srv, max_len_sdu_slow_receive,
-		  "Receive a 32-segment message with with SAR configured with slowest timings."),
+		  "Receive a 32-segment message with SAR configured with slowest timings."),
 
 	BSTEST_END_MARKER};
 
@@ -285,3 +314,17 @@ struct bst_test_list *test_sar_install(struct bst_test_list *tests)
 	tests = bst_add_tests(tests, test_sar);
 	return tests;
 }
+
+#if CONFIG_BT_SETTINGS
+static const struct bst_test_instance test_sar_pst[] = {
+	TEST_CASE(srv, cfg_store, "Set and save SAR RX/TX configuration"),
+	TEST_CASE(srv, cfg_restore, "Restore SAR RX/TX configuration"),
+
+	BSTEST_END_MARKER};
+
+struct bst_test_list *test_sar_pst_install(struct bst_test_list *tests)
+{
+	tests = bst_add_tests(tests, test_sar_pst);
+	return tests;
+}
+#endif

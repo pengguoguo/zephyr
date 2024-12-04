@@ -12,6 +12,9 @@
 struct bt_conn {
 	uint8_t index;
 	struct bt_conn_info info;
+	struct bt_iso_chan *chan;
 };
+
+void mock_bt_conn_disconnected(struct bt_conn *conn, uint8_t err);
 
 #endif /* MOCKS_CONN_H_ */

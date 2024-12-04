@@ -37,12 +37,20 @@ static struct bt_mesh_sol_pdu_rpl_cli srpl_cli;
 static struct bt_mesh_od_priv_proxy_cli od_priv_proxy_cli;
 #endif
 
+#if defined(CONFIG_BT_MESH_LARGE_COMP_DATA_CLI)
+struct bt_mesh_large_comp_data_cli large_comp_data_cli;
+#endif
+
+#if defined(CONFIG_BT_MESH_BRG_CFG_CLI)
+static struct bt_mesh_brg_cfg_cli brg_cfg_cli;
+#endif
+
 BT_MESH_SHELL_HEALTH_PUB_DEFINE(health_pub);
 
-static struct bt_mesh_model root_models[] = {
+static const struct bt_mesh_model root_models[] = {
 	BT_MESH_MODEL_CFG_SRV,
 	BT_MESH_MODEL_CFG_CLI(&cfg_cli),
-	BT_MESH_MODEL_HEALTH_SRV(&bt_mesh_shell_health_srv, &health_pub),
+	BT_MESH_MODEL_HEALTH_SRV(&bt_mesh_shell_health_srv, &health_pub, health_srv_meta),
 	BT_MESH_MODEL_HEALTH_CLI(&bt_mesh_shell_health_cli),
 #if defined(CONFIG_BT_MESH_DFD_SRV)
 	BT_MESH_MODEL_DFD_SRV(&dfd_srv),
@@ -83,7 +91,7 @@ static struct bt_mesh_model root_models[] = {
 	BT_MESH_MODEL_LARGE_COMP_DATA_SRV,
 #endif
 #if defined(CONFIG_BT_MESH_LARGE_COMP_DATA_CLI)
-	BT_MESH_MODEL_LARGE_COMP_DATA_CLI,
+	BT_MESH_MODEL_LARGE_COMP_DATA_CLI(&large_comp_data_cli),
 #endif
 
 #if defined(CONFIG_BT_MESH_PRIV_BEACON_SRV)
@@ -101,9 +109,15 @@ static struct bt_mesh_model root_models[] = {
 #if defined(CONFIG_BT_MESH_OD_PRIV_PROXY_SRV)
 	BT_MESH_MODEL_OD_PRIV_PROXY_SRV,
 #endif
+#if defined(CONFIG_BT_MESH_BRG_CFG_SRV)
+	BT_MESH_MODEL_BRG_CFG_SRV,
+#endif
+#if defined(CONFIG_BT_MESH_BRG_CFG_CLI)
+	BT_MESH_MODEL_BRG_CFG_CLI(&brg_cfg_cli),
+#endif
 };
 
-static struct bt_mesh_elem elements[] = {
+static const struct bt_mesh_elem elements[] = {
 	BT_MESH_ELEM(0, root_models, BT_MESH_MODEL_NONE),
 };
 
@@ -137,12 +151,12 @@ static void bt_ready(int err)
 	if (bt_mesh_is_provisioned()) {
 		printk("Mesh network restored from flash\n");
 	} else {
-		printk("Use \"pb-adv on\" or \"pb-gatt on\" to "
+		printk("Use \"prov pb-adv on\" or \"prov pb-gatt on\" to "
 			    "enable advertising\n");
 	}
 }
 
-void main(void)
+int main(void)
 {
 	int err;
 
@@ -156,4 +170,5 @@ void main(void)
 
 	printk("Press the <Tab> button for supported commands.\n");
 	printk("Before any Mesh commands you must run \"mesh init\"\n");
+	return 0;
 }

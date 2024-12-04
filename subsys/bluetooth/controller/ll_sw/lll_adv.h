@@ -74,7 +74,6 @@ struct lll_adv_iso {
 	uint8_t term_ack:1;
 	uint8_t term_reason;
 
-	uint8_t  ctrl_chan_use;
 	uint8_t  ctrl_expire;
 	uint16_t ctrl_instant;
 
@@ -82,11 +81,17 @@ struct lll_adv_iso {
 	uint8_t giv[8];
 	struct ccm ccm_tx;
 
+#if defined(CONFIG_BT_TICKER_EXT_EXPIRE_INFO)
 	/* contains the offset in ticks from the adv_sync pointing to this ISO */
 	uint32_t ticks_sync_pdu_offset;
 	uint16_t iso_lazy;
+#endif /* CONFIG_BT_TICKER_EXT_EXPIRE_INFO */
 
 	uint16_t stream_handle[BT_CTLR_ADV_ISO_STREAM_MAX];
+
+#if defined(HAL_RADIO_GPIO_HAVE_PA_PIN)
+	uint16_t pa_iss_us;
+#endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
 };
 
 struct lll_adv_sync {
@@ -112,12 +117,19 @@ struct lll_adv_sync {
 	struct lll_adv_pdu data;
 
 #if defined(CONFIG_BT_CTLR_ADV_PDU_LINK)
+	/* Implementation defined radio event counter to calculate chain
+	 * PDU channel index.
+	 */
+	uint16_t data_chan_counter;
+
 	struct pdu_adv *last_pdu;
 #endif /* CONFIG_BT_CTLR_ADV_PDU_LINK */
 
+#if defined(CONFIG_BT_TICKER_EXT_EXPIRE_INFO)
 	/* contains the offset in us from adv_aux pointing to this sync */
 	uint32_t us_adv_sync_pdu_offset;
 	uint16_t sync_lazy;
+#endif /* CONFIG_BT_TICKER_EXT_EXPIRE_INFO */
 
 #if defined(CONFIG_BT_CTLR_ADV_ISO)
 	struct lll_adv_iso *iso;
@@ -192,7 +204,7 @@ struct lll_adv {
 	struct lll_adv_pdu scan_rsp;
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
-	struct node_rx_hdr *node_rx_adv_term;
+	struct node_rx_pdu *node_rx_adv_term;
 	struct lll_adv_aux *aux;
 
 #if defined(CONFIG_BT_CTLR_ADV_PERIODIC)

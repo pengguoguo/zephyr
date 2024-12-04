@@ -66,8 +66,9 @@ struct llcp_struct {
 
 	/* Prepare parameters */
 	struct {
-		uint32_t ticks_at_expire;
-		uint16_t lazy;
+		uint32_t ticks_at_expire; /* Vendor specific tick units */
+		uint32_t remainder;       /* Vendor specific remainder fraction of a tick unit */
+		uint16_t lazy;            /* Previous skipped radio event count */
 	} prep;
 
 	/* Version Exchange Procedure State */
@@ -147,26 +148,43 @@ struct llcp_struct {
 
 	uint8_t tx_buffer_alloc;
 	uint8_t tx_q_pause_data_mask;
+
+	struct node_rx_pdu *rx_node_release;
+	struct node_tx *tx_node_release;
+
 }; /* struct llcp_struct */
+
+#if defined(CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER)
+struct past_params {
+	uint8_t  mode;
+	uint8_t  cte_type;
+	uint16_t skip;
+	uint16_t timeout;
+}; /* struct past_params */
+#endif /* CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER */
 
 struct ll_conn {
 	struct ull_hdr  ull;
 	struct lll_conn lll;
+
+#if defined(CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER)
+	struct past_params past;
+#endif /* CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER */
 
 	struct ull_tx_q tx_q;
 	struct llcp_struct llcp;
 
 	struct {
 		uint8_t reason_final;
-		/* node rx type with memory aligned storage for terminate
+		/* node rx type with dummy uint8_t to ensure room for terminate
 		 * reason.
 		 * HCI will reference the value using the pdu member of
 		 * struct node_rx_pdu.
+		 *
 		 */
 		struct {
-			struct node_rx_hdr hdr;
-
-			uint8_t reason __aligned(4);
+			struct node_rx_pdu rx;
+			uint8_t dummy_reason;
 		} node_rx;
 	} llcp_terminate;
 
@@ -187,6 +205,7 @@ struct ll_conn {
 #endif /* CONFIG_BT_CTLR_CONN_META */
 			uint8_t  latency_cancel:1;
 			uint8_t  sca:3;
+			uint8_t  drift_skip;
 			uint32_t force;
 			uint32_t ticks_to_offset;
 		} periph;
@@ -197,7 +216,6 @@ struct ll_conn {
 #if defined(CONFIG_BT_CTLR_CONN_META)
 			uint8_t  is_must_expire:1;
 #endif /* CONFIG_BT_CTLR_CONN_META */
-			uint8_t terminate_ack:1;
 		} central;
 #endif /* CONFIG_BT_CENTRAL */
 	};

@@ -78,7 +78,7 @@ static void espi_handler(const struct device *dev, struct espi_callback *cb,
 	 * bigger than rx buf size or the shared memory size
 	 */
 	if (rx_header->prtcl_ver != 3 ||
-	    rx_valid_data_size > CONFIG_EC_HOST_CMD_HANDLER_RX_BUFFER ||
+	    rx_valid_data_size > CONFIG_EC_HOST_CMD_HANDLER_RX_BUFFER_SIZE ||
 	    rx_valid_data_size > shared_size) {
 		memcpy(hc_espi->rx_ctx->buf, (void *)rx_header, RX_HEADER_SIZE);
 		hc_espi->rx_ctx->len = RX_HEADER_SIZE;
@@ -89,7 +89,7 @@ static void espi_handler(const struct device *dev, struct espi_callback *cb,
 
 	/* Even in case of errors, let the general handler send response */
 	hc_espi->state = ESPI_STATE_PROCESSING;
-	k_sem_give(&hc_espi->rx_ctx->handler_owns);
+	ec_host_cmd_rx_notify();
 }
 
 static int ec_host_cmd_espi_init(const struct ec_host_cmd_backend *backend,
@@ -114,6 +114,10 @@ static int ec_host_cmd_espi_init(const struct ec_host_cmd_backend *backend,
 	espi_read_lpc_request(hc_espi->espi_dev, ECUSTOM_HOST_CMD_GET_PARAM_MEMORY_SIZE,
 			      &tx->len_max);
 
+	/* Set the max len for RX as the min of buffer to store data and shared memory. */
+	hc_espi->rx_ctx->len_max =
+		MIN(CONFIG_EC_HOST_CMD_HANDLER_RX_BUFFER_SIZE, hc_espi->tx->len_max);
+
 	hc_espi->state = ESPI_STATE_READY_TO_RECV;
 
 	return 0;
@@ -125,6 +129,11 @@ static int ec_host_cmd_espi_send(const struct ec_host_cmd_backend *backend)
 	struct ec_host_cmd_response_header *resp_hdr = hc_espi->tx->buf;
 	uint32_t result = resp_hdr->result;
 	int ret;
+
+	/* Ignore in-progress on eSPI since interface is synchronous anyway */
+	if (result == EC_HOST_CMD_IN_PROGRESS) {
+		return 0;
+	}
 
 	hc_espi->state = ESPI_STATE_SENDING;
 
@@ -147,11 +156,11 @@ struct ec_host_cmd_backend *ec_host_cmd_backend_get_espi(const struct device *de
 	return &ec_host_cmd_espi;
 }
 
-#if DT_NODE_EXISTS(DT_CHOSEN(zephyr_host_cmd_backend))
-static int host_cmd_init(const struct device *arg)
+#if DT_NODE_EXISTS(DT_CHOSEN(zephyr_host_cmd_espi_backend)) &&                                     \
+	defined(CONFIG_EC_HOST_CMD_INITIALIZE_AT_BOOT)
+static int host_cmd_init(void)
 {
-	ARG_UNUSED(arg);
-	const struct device *const dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_host_cmd_backend));
+	const struct device *const dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_host_cmd_espi_backend));
 
 	ec_host_cmd_init(ec_host_cmd_backend_get_espi(dev));
 	return 0;

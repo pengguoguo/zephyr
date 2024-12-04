@@ -3,11 +3,14 @@
 # Copyright (c) 2018-2022 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-import scl
+import copy
 import warnings
+
+import scl
 from twisterlib.error import ConfigurationError
 
-def extract_fields_from_arg_list(target_fields: set, arg_list: str):
+
+def extract_fields_from_arg_list(target_fields: set, arg_list: str | list):
     """
     Given a list of "FIELD=VALUE" args, extract values of args with a
     given field name and return the remaining args separately.
@@ -15,7 +18,12 @@ def extract_fields_from_arg_list(target_fields: set, arg_list: str):
     extracted_fields = {f : list() for f in target_fields}
     other_fields = []
 
-    for field in arg_list.split(" "):
+    if isinstance(arg_list, str):
+        args = arg_list.strip().split()
+    else:
+        args = arg_list
+
+    for field in args:
         try:
             name, val = field.split("=", 1)
         except ValueError:
@@ -29,7 +37,7 @@ def extract_fields_from_arg_list(target_fields: set, arg_list: str):
             # Move to other_fields
             other_fields.append(field)
 
-    return extracted_fields, " ".join(other_fields)
+    return extracted_fields, other_fields
 
 class TwisterConfigParser:
     """Class to read testsuite yaml files with semantic checking
@@ -42,17 +50,20 @@ class TwisterConfigParser:
                        "extra_conf_files": {"type": "list", "default": []},
                        "extra_overlay_confs" : {"type": "list", "default": []},
                        "extra_dtc_overlay_files": {"type": "list", "default": []},
+                       "required_snippets": {"type": "list"},
                        "build_only": {"type": "bool", "default": False},
                        "build_on_all": {"type": "bool", "default": False},
                        "skip": {"type": "bool", "default": False},
                        "slow": {"type": "bool", "default": False},
                        "timeout": {"type": "int", "default": 60},
-                       "min_ram": {"type": "int", "default": 8},
+                       "min_ram": {"type": "int", "default": 16},
                        "modules": {"type": "list", "default": []},
                        "depends_on": {"type": "set"},
                        "min_flash": {"type": "int", "default": 32},
                        "arch_allow": {"type": "set"},
                        "arch_exclude": {"type": "set"},
+                       "vendor_allow": {"type": "set"},
+                       "vendor_exclude": {"type": "set"},
                        "extra_sections": {"type": "list", "default": []},
                        "integration_platforms": {"type": "list", "default": []},
                        "ignore_faults": {"type": "bool", "default": False },
@@ -62,6 +73,7 @@ class TwisterConfigParser:
                        "platform_exclude": {"type": "set"},
                        "platform_allow": {"type": "set"},
                        "platform_key": {"type": "list", "default": []},
+                       "simulation_exclude": {"type": "list", "default": []},
                        "toolchain_exclude": {"type": "set"},
                        "toolchain_allow": {"type": "set"},
                        "filter": {"type": "str"},
@@ -84,12 +96,14 @@ class TwisterConfigParser:
         self.common = {}
 
     def load(self):
-        self.data = scl.yaml_load_verify(self.filename, self.schema)
+        data = scl.yaml_load_verify(self.filename, self.schema)
+        self.data = data
 
         if 'tests' in self.data:
             self.scenarios = self.data['tests']
         if 'common' in self.data:
             self.common = self.data['common']
+        return data
 
     def _cast_value(self, value, typestr):
         if isinstance(value, str):
@@ -106,27 +120,50 @@ class TwisterConfigParser:
         elif typestr == "bool":
             return value
 
-        elif typestr.startswith("list") and isinstance(value, list):
-            return value
-        elif typestr.startswith("list") and isinstance(value, str):
-            vs = v.split()
-            if len(typestr) > 4 and typestr[4] == ":":
-                return [self._cast_value(vsi, typestr[5:]) for vsi in vs]
+        elif typestr.startswith("list"):
+            if isinstance(value, list):
+                return value
+            elif isinstance(value, str):
+                vs = v.split()
+
+                if len(vs) > 1:
+                    warnings.warn(
+                        "Space-separated lists are deprecated, use YAML lists instead",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+
+                if len(typestr) > 4 and typestr[4] == ":":
+                    return [self._cast_value(vsi, typestr[5:]) for vsi in vs]
+                else:
+                    return vs
             else:
-                return vs
+                raise ValueError
 
         elif typestr.startswith("set"):
-            vs = v.split()
-            if len(typestr) > 3 and typestr[3] == ":":
-                return {self._cast_value(vsi, typestr[4:]) for vsi in vs}
+            if isinstance(value, list):
+                return set(value)
+            elif isinstance(value, str):
+                vs = v.split()
+
+                if len(vs) > 1:
+                    warnings.warn(
+                        "Space-separated lists are deprecated, use YAML lists instead",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+
+                if len(typestr) > 3 and typestr[3] == ":":
+                    return {self._cast_value(vsi, typestr[4:]) for vsi in vs}
+                else:
+                    return set(vs)
             else:
-                return set(vs)
+                raise ValueError
 
         elif typestr.startswith("map"):
             return value
         else:
-            raise ConfigurationError(
-                self.filename, "unknown type '%s'" % value)
+            raise ConfigurationError(self.filename, f"unknown type '{value}'")
 
     def get_scenario(self, name):
         """Get a dictionary representing the keys/values within a scenario
@@ -146,29 +183,34 @@ class TwisterConfigParser:
             if k == "extra_args":
                 # Pull out these fields and leave the rest
                 extracted_common, d[k] = extract_fields_from_arg_list(
-                    {"CONF_FILE", "OVERLAY_CONFIG", "DTC_OVERLAY_FILE"},
-                    v.strip()
+                    {"CONF_FILE", "OVERLAY_CONFIG", "DTC_OVERLAY_FILE"}, v
                 )
             else:
-                d[k] = v
+                # Copy common value to avoid mutating it with test specific values below
+                d[k] = copy.copy(v)
 
         for k, v in self.scenarios[name].items():
             if k == "extra_args":
                 # Pull out these fields and leave the rest
                 extracted_testsuite, v = extract_fields_from_arg_list(
-                    {"CONF_FILE", "OVERLAY_CONFIG", "DTC_OVERLAY_FILE"},
-                    v.strip()
+                    {"CONF_FILE", "OVERLAY_CONFIG", "DTC_OVERLAY_FILE"}, v
                 )
             if k in d:
-                if isinstance(d[k], str):
-                    # By default, we just concatenate string values of keys
-                    # which appear both in "common" and per-test sections,
-                    # but some keys are handled in adhoc way based on their
-                    # semantics.
-                    if k == "filter":
-                        d[k] = "(%s) and (%s)" % (d[k], v)
-                    else:
+                if k == "filter":
+                    d[k] = f"({d[k]}) and ({v})"
+                elif k not in ("extra_conf_files", "extra_overlay_confs",
+                               "extra_dtc_overlay_files"):
+                    if isinstance(d[k], str) and isinstance(v, list):
+                        d[k] = d[k].split() + v
+                    elif isinstance(d[k], list) and isinstance(v, str):
+                        d[k] += v.split()
+                    elif isinstance(d[k], list) and isinstance(v, list):
+                        d[k] += v
+                    elif isinstance(d[k], str) and isinstance(v, str):
                         d[k] += " " + v
+                    else:
+                        # replace value if not str/list (e.g. integer)
+                        d[k] = v
             else:
                 d[k] = v
 
@@ -203,21 +245,19 @@ class TwisterConfigParser:
                 "in extra_args. This feature is deprecated and will soon "
                 "result in an error. Use extra_conf_files, extra_overlay_confs "
                 "or extra_dtc_overlay_files YAML fields instead",
-                DeprecationWarning
+                DeprecationWarning,
+                stacklevel=2
             )
 
         for k, kinfo in self.testsuite_valid_keys.items():
             if k not in d:
-                if "required" in kinfo:
-                    required = kinfo["required"]
-                else:
-                    required = False
+                required = kinfo.get("required", False)
 
                 if required:
                     raise ConfigurationError(
                         self.filename,
-                        "missing required value for '%s' in test '%s'" %
-                        (k, name))
+                        f"missing required value for '{k}' in test '{name}'"
+                    )
                 else:
                     if "default" in kinfo:
                         default = kinfo["default"]
@@ -229,7 +269,8 @@ class TwisterConfigParser:
                     d[k] = self._cast_value(d[k], kinfo["type"])
                 except ValueError:
                     raise ConfigurationError(
-                        self.filename, "bad %s value '%s' for key '%s' in name '%s'" %
-                                       (kinfo["type"], d[k], k, name))
+                        self.filename,
+                        f"bad {kinfo['type']} value '{d[k]}' for key '{k}' in name '{name}'"
+                    ) from None
 
         return d

@@ -49,7 +49,7 @@ static int uart_sam_poll_in(const struct device *dev, unsigned char *c)
 	Uart * const uart = cfg->regs;
 
 	if (!(uart->UART_SR & UART_SR_RXRDY)) {
-		return -EBUSY;
+		return -1;
 	}
 
 	/* got a character */
@@ -90,6 +90,8 @@ static int uart_sam_err_check(const struct device *dev)
 	if (uart->UART_SR & UART_SR_FRAME) {
 		errors |= UART_ERROR_FRAMING;
 	}
+
+	uart->UART_CR = UART_CR_RSTSTA;
 
 	return errors;
 }
@@ -390,7 +392,7 @@ static int uart_sam_init(const struct device *dev)
 
 	/* Enable UART clock in PMC */
 	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
-			       (clock_control_subsys_t *)&cfg->clock_cfg);
+			       (clock_control_subsys_t)&cfg->clock_cfg);
 
 	/* Connect pins to the peripheral */
 	retval = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
@@ -415,7 +417,7 @@ static int uart_sam_init(const struct device *dev)
 	return uart_sam_configure(dev, &uart_config);
 }
 
-static const struct uart_driver_api uart_sam_driver_api = {
+static DEVICE_API(uart, uart_sam_driver_api) = {
 	.poll_in = uart_sam_poll_in,
 	.poll_out = uart_sam_poll_out,
 	.err_check = uart_sam_err_check,
@@ -480,7 +482,7 @@ static const struct uart_driver_api uart_sam_driver_api = {
 									\
 	static const struct uart_sam_dev_cfg uart##n##_sam_config;	\
 									\
-	DEVICE_DT_INST_DEFINE(n, &uart_sam_init,			\
+	DEVICE_DT_INST_DEFINE(n, uart_sam_init,				\
 			    NULL, &uart##n##_sam_data,			\
 			    &uart##n##_sam_config, PRE_KERNEL_1,	\
 			    CONFIG_SERIAL_INIT_PRIORITY,		\

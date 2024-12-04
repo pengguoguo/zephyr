@@ -49,7 +49,7 @@ static const struct bst_test_instance test_def[] = {
 	{
 		.test_id = "central",
 		.test_descr = "Central device",
-		.test_post_init_f = test_privacy_init,
+		.test_pre_init_f = test_privacy_init,
 		.test_tick_f = sim_timeout,
 		.test_main_f = test_central_main,
 		.test_args_f = central_test_args_parse,
@@ -57,7 +57,7 @@ static const struct bst_test_instance test_def[] = {
 	{
 		.test_id = "peripheral",
 		.test_descr = "Peripheral device",
-		.test_post_init_f = test_privacy_init,
+		.test_pre_init_f = test_privacy_init,
 		.test_tick_f = sim_timeout,
 		.test_main_f = test_peripheral,
 		.test_args_f = peripheral_test_args_parse,
@@ -71,7 +71,8 @@ struct bst_test_list *test_privacy_install(struct bst_test_list *tests)
 
 bst_test_install_t test_installers[] = {test_privacy_install, NULL};
 
-void main(void)
+int main(void)
 {
 	bst_main();
+	return 0;
 }

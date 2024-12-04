@@ -1,19 +1,23 @@
 /*
- * Copyright (c) 2020 Nordic Semiconductor ASA
+ * Copyright (c) 2020-2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <stdint.h>
 
+#include <zephyr/bluetooth/gap.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/sys/util.h>
 
 #define TIMEOUT_SYNC_CREATE K_SECONDS(10)
 #define NAME_LEN            30
 
 static bool         per_adv_found;
 static bt_addr_le_t per_addr;
+static uint16_t per_adv_sync_timeout;
 static uint8_t      per_sid;
 
 static K_SEM_DEFINE(sem_per_adv, 0, 1);
@@ -23,7 +27,7 @@ static K_SEM_DEFINE(sem_per_sync_lost, 0, 1);
 /* The devicetree node identifier for the "led0" alias. */
 #define LED0_NODE DT_ALIAS(led0)
 
-#if DT_NODE_HAS_STATUS(LED0_NODE, okay)
+#if DT_NODE_HAS_STATUS_OKAY(LED0_NODE)
 #define HAS_LED     1
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 #define BLINK_ONOFF K_MSEC(500)
@@ -78,6 +82,10 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 
 	bt_data_parse(buf, data_cb, name);
 
+	if (strlen(CONFIG_PER_ADV_NAME) > 0 && strcmp(name, CONFIG_PER_ADV_NAME) != 0) {
+		return;
+	}
+
 	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 	printk("[DEVICE]: %s, AD evt type %u, Tx Pwr: %i, RSSI %i %s "
 	       "C:%u S:%u D:%u SR:%u E:%u Prim: %s, Secn: %s, "
@@ -92,7 +100,22 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 	       info->interval, info->interval * 5 / 4, info->sid);
 
 	if (!per_adv_found && info->interval) {
+		uint32_t interval_us;
+		uint32_t timeout;
+
 		per_adv_found = true;
+
+		/* Add retries and convert to unit in 10's of ms */
+		interval_us = BT_GAP_PER_ADV_INTERVAL_TO_US(info->interval);
+
+		timeout = BT_GAP_US_TO_PER_ADV_SYNC_TIMEOUT(interval_us);
+
+		/* 10 attempts */
+		timeout *= 10;
+
+		/* Enforce restraints */
+		per_adv_sync_timeout =
+			CLAMP(timeout, BT_GAP_PER_ADV_MIN_TIMEOUT, BT_GAP_PER_ADV_MAX_TIMEOUT);
 
 		per_sid = info->sid;
 		bt_addr_le_copy(&per_addr, info->addr);
@@ -155,7 +178,7 @@ static struct bt_le_per_adv_sync_cb sync_callbacks = {
 	.recv = recv_cb
 };
 
-void main(void)
+int main(void)
 {
 	struct bt_le_per_adv_sync_param sync_create_param;
 	struct bt_le_per_adv_sync *sync;
@@ -165,9 +188,9 @@ void main(void)
 
 #if defined(HAS_LED)
 	printk("Checking LED device...");
-	if (!device_is_ready(led.port)) {
+	if (!gpio_is_ready_dt(&led)) {
 		printk("failed.\n");
-		return;
+		return 0;
 	}
 	printk("done.\n");
 
@@ -175,7 +198,7 @@ void main(void)
 	err = gpio_pin_configure_dt(&led, GPIO_OUTPUT_ACTIVE);
 	if (err) {
 		printk("failed.\n");
-		return;
+		return 0;
 	}
 	printk("done.\n");
 
@@ -186,7 +209,7 @@ void main(void)
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return 0;
 	}
 
 	printk("Scan callbacks register...");
@@ -201,7 +224,7 @@ void main(void)
 	err = bt_le_scan_start(BT_LE_SCAN_ACTIVE, NULL);
 	if (err) {
 		printk("failed (err %d)\n", err);
-		return;
+		return 0;
 	}
 	printk("success.\n");
 
@@ -220,7 +243,7 @@ void main(void)
 		err = k_sem_take(&sem_per_adv, K_FOREVER);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("Found periodic advertising.\n");
 
@@ -229,11 +252,11 @@ void main(void)
 		sync_create_param.options = 0;
 		sync_create_param.sid = per_sid;
 		sync_create_param.skip = 0;
-		sync_create_param.timeout = 0xaa;
+		sync_create_param.timeout = per_adv_sync_timeout;
 		err = bt_le_per_adv_sync_create(&sync_create_param, &sync);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("success.\n");
 
@@ -246,7 +269,7 @@ void main(void)
 			err = bt_le_per_adv_sync_delete(sync);
 			if (err) {
 				printk("failed (err %d)\n", err);
-				return;
+				return 0;
 			}
 			continue;
 		}
@@ -265,7 +288,7 @@ void main(void)
 		err = k_sem_take(&sem_per_sync_lost, K_FOREVER);
 		if (err) {
 			printk("failed (err %d)\n", err);
-			return;
+			return 0;
 		}
 		printk("Periodic sync lost.\n");
 	} while (true);

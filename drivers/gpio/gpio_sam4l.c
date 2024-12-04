@@ -217,7 +217,7 @@ static int gpio_sam_manage_callback(const struct device *port,
 	return gpio_manage_callback(&context->cb, callback, set);
 }
 
-static const struct gpio_driver_api gpio_sam_api = {
+static DEVICE_API(gpio, gpio_sam_api) = {
 	.pin_configure = gpio_sam_config,
 	.port_get_raw = gpio_sam_port_get_raw,
 	.port_set_masked_raw = gpio_sam_port_set_masked_raw,
@@ -234,7 +234,7 @@ int gpio_sam_init(const struct device *dev)
 
 	/* Enable GPIO clock in PM */
 	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
-			       (clock_control_subsys_t *)&cfg->clock_cfg);
+			       (clock_control_subsys_t)&cfg->clock_cfg);
 
 	cfg->config_func(dev);
 

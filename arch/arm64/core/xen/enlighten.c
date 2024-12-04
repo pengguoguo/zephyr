@@ -42,9 +42,8 @@ static int xen_map_shared_info(const shared_info_t *shared_page)
 	return HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
 }
 
-static int xen_enlighten_init(const struct device *dev)
+int xen_enlighten_init(void)
 {
-	ARG_UNUSED(dev);
 	int ret = 0;
 	shared_info_t *info = (shared_info_t *) shared_info_buf;
 
@@ -67,5 +66,3 @@ static int xen_enlighten_init(const struct device *dev)
 
 	return 0;
 }
-
-SYS_INIT(xen_enlighten_init, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEVICE);

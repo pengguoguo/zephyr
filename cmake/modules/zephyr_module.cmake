@@ -36,9 +36,9 @@ if(ZEPHYR_MODULES)
   set(ZEPHYR_MODULES_ARG "--modules" ${ZEPHYR_MODULES})
 endif()
 
-zephyr_get(ZEPHYR_EXTRA_MODULES)
-if(ZEPHYR_EXTRA_MODULES)
-  set(ZEPHYR_EXTRA_MODULES_ARG "--extra-modules" ${ZEPHYR_EXTRA_MODULES})
+zephyr_get(EXTRA_ZEPHYR_MODULES VAR EXTRA_ZEPHYR_MODULES ZEPHYR_EXTRA_MODULES)
+if(EXTRA_ZEPHYR_MODULES)
+  set(EXTRA_ZEPHYR_MODULES_ARG "--extra-modules" ${EXTRA_ZEPHYR_MODULES})
 endif()
 
 file(MAKE_DIRECTORY ${KCONFIG_BINARY_DIR})
@@ -48,19 +48,15 @@ set(cmake_modules_file ${CMAKE_BINARY_DIR}/zephyr_modules.txt)
 set(cmake_sysbuild_file ${CMAKE_BINARY_DIR}/sysbuild_modules.txt)
 set(zephyr_settings_file ${CMAKE_BINARY_DIR}/zephyr_settings.txt)
 
-if(WEST)
-  set(west_arg "--zephyr-base" ${ZEPHYR_BASE})
-endif()
-
 if(WEST OR ZEPHYR_MODULES)
   # Zephyr module uses west, so only call it if west is installed or
   # ZEPHYR_MODULES was provided as argument to CMake.
   execute_process(
     COMMAND
     ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/zephyr_module.py
-    ${west_arg}
+    --zephyr-base=${ZEPHYR_BASE}
     ${ZEPHYR_MODULES_ARG}
-    ${ZEPHYR_EXTRA_MODULES_ARG}
+    ${EXTRA_ZEPHYR_MODULES_ARG}
     --kconfig-out ${kconfig_modules_file}
     --cmake-out ${cmake_modules_file}
     --sysbuild-kconfig-out ${kconfig_sysbuild_file}
@@ -122,11 +118,12 @@ if(WEST OR ZEPHYR_MODULES)
   # later wins. therefore we reverse the list before processing.
   list(REVERSE MODULE_EXT_ROOT)
   foreach(root ${MODULE_EXT_ROOT})
-    if(NOT EXISTS ${root})
-      message(FATAL_ERROR "No `modules.cmake` found in module root `${root}`.")
+    set(module_cmake_file_path modules/modules.cmake)
+    if(NOT EXISTS ${root}/${module_cmake_file_path})
+      message(FATAL_ERROR "No `${module_cmake_file_path}` found in module root `${root}`.")
     endif()
 
-    include(${root}/modules/modules.cmake)
+    include(${root}/${module_cmake_file_path})
   endforeach()
 
   foreach(module ${zephyr_modules_txt})
@@ -140,6 +137,7 @@ if(WEST OR ZEPHYR_MODULES)
 
     zephyr_string(SANITIZE TOUPPER MODULE_NAME_UPPER ${module_name})
     if(NOT ${MODULE_NAME_UPPER} STREQUAL CURRENT)
+      set(ZEPHYR_${MODULE_NAME_UPPER}_MODULE_NAME ${module_name})
       set(ZEPHYR_${MODULE_NAME_UPPER}_MODULE_DIR ${module_path})
       set(ZEPHYR_${MODULE_NAME_UPPER}_CMAKE_DIR ${cmake_path})
     else()

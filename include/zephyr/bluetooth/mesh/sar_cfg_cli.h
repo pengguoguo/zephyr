@@ -10,6 +10,7 @@
 #ifndef BT_MESH_SAR_CFG_CLI_H__
 #define BT_MESH_SAR_CFG_CLI_H__
 
+#include <zephyr/bluetooth/mesh.h>
 #include <zephyr/bluetooth/mesh/sar_cfg.h>
 
 /**
@@ -26,7 +27,7 @@ extern "C" {
 /** Mesh SAR Configuration Client Model Context */
 struct bt_mesh_sar_cfg_cli {
 	/** Access model pointer. */
-	struct bt_mesh_model *model;
+	const struct bt_mesh_model *model;
 
 	/* Publication structure instance */
 	struct bt_mesh_model_pub pub;

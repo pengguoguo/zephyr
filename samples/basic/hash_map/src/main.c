@@ -7,13 +7,11 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/hash_map.h>
-#include <zephyr/random/rand32.h>
+#include <zephyr/random/random.h>
 
 LOG_MODULE_REGISTER(hashmap_sample);
 
 SYS_HASHMAP_DEFINE_STATIC(map);
-
-void print_sys_memory_stats(void);
 
 struct _stats {
 	uint64_t n_insert;
@@ -26,7 +24,7 @@ struct _stats {
 
 static void print_stats(const struct _stats *stats);
 
-void main(void)
+int main(void)
 {
 	size_t i;
 	int ires;
@@ -49,7 +47,7 @@ void main(void)
 
 			LOG_DBG("Inserted %zu", i);
 
-			if (k_uptime_get() / MSEC_PER_SEC > CONFIG_TEST_LIB_HASH_MAP_DURATION_S) {
+			if (k_uptime_seconds() > CONFIG_TEST_LIB_HASH_MAP_DURATION_S) {
 				goto out;
 			}
 		}
@@ -62,7 +60,7 @@ void main(void)
 
 			LOG_DBG("Replaced %zu", i);
 
-			if (k_uptime_get() / MSEC_PER_SEC > CONFIG_TEST_LIB_HASH_MAP_DURATION_S) {
+			if (k_uptime_seconds() > CONFIG_TEST_LIB_HASH_MAP_DURATION_S) {
 				goto out;
 			}
 		}
@@ -74,7 +72,7 @@ void main(void)
 
 			LOG_DBG("Removed %zu", i - 1);
 
-			if (k_uptime_get() / MSEC_PER_SEC > CONFIG_TEST_LIB_HASH_MAP_DURATION_S) {
+			if (k_uptime_seconds() > CONFIG_TEST_LIB_HASH_MAP_DURATION_S) {
 				goto out;
 			}
 		}
@@ -89,9 +87,7 @@ out:
 
 	LOG_INF("success");
 
-	if (IS_ENABLED(CONFIG_ARCH_POSIX)) {
-		exit(0);
-	}
+	return 0;
 }
 
 static void print_stats(const struct _stats *stats)

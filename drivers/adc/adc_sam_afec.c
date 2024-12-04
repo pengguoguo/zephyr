@@ -298,7 +298,7 @@ static int adc_sam_init(const struct device *dev)
 
 	/* Enable AFEC clock in PMC */
 	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
-			       (clock_control_subsys_t *)&cfg->clock_cfg);
+			       (clock_control_subsys_t)&cfg->clock_cfg);
 
 	/* Connect pins to the peripheral */
 	retval = pinctrl_apply_state(cfg->pcfg, PINCTRL_STATE_DEFAULT);
@@ -331,7 +331,7 @@ static int adc_sam_read_async(const struct device *dev,
 }
 #endif
 
-static const struct adc_driver_api adc_sam_api = {
+static DEVICE_API(adc, adc_sam_api) = {
 	.channel_setup = adc_sam_channel_setup,
 	.read = adc_sam_read,
 #ifdef CONFIG_ADC_ASYNC

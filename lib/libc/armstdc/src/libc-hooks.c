@@ -23,5 +23,10 @@ void __stdout_hook_install(int (*hook)(int))
 
 volatile int *__aeabi_errno_addr(void)
 {
-	return &_current->errno_var;
+	return &arch_current_thread()->errno_var;
+}
+
+int fputc(int c, FILE *f)
+{
+	return (_stdout_hook)(c);
 }

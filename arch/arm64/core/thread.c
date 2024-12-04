@@ -13,7 +13,6 @@
 
 #include <zephyr/kernel.h>
 #include <ksched.h>
-#include <zephyr/wait_q.h>
 #include <zephyr/arch/cpu.h>
 
 /*
@@ -29,18 +28,34 @@
  *   normal execution. When at exception is taken or a syscall is called the
  *   stack pointer switches to SP_EL1 and the execution starts using the
  *   privileged portion of the user stack without touching SP_EL0. This portion
- *   is marked as not user accessible in the MMU.
+ *   is marked as not user accessible in the MMU/MPU.
+ *
+ * - a stack guard region will be added bellow the kernel stack when
+ *   ARM64_STACK_PROTECTION is enabled. In this case, SP_EL0 will always point
+ *   to the safe exception stack in the kernel space. For the kernel thread,
+ *   SP_EL0 will not change always pointing to safe exception stack. For the
+ *   userspace thread, SP_EL0 will switch from the user stack to the safe
+ *   exception stack when entering the EL1 mode, and restore to the user stack
+ *   when backing to userspace (EL0).
  *
  *   Kernel threads:
+ *
+ * High memory addresses
  *
  *    +---------------+ <- stack_ptr
  *  E |     ESF       |
  *  L |<<<<<<<<<<<<<<<| <- SP_EL1
  *  1 |               |
- *    +---------------+
-
+ *    +---------------+ <- stack limit
+ *    |  Stack guard  | } Z_ARM64_STACK_GUARD_SIZE (protected by MMU/MPU)
+ *    +---------------+ <- stack_obj
+ *
+ * Low Memory addresses
+ *
  *
  *   User threads:
+ *
+ * High memory addresses
  *
  *    +---------------+ <- stack_ptr
  *  E |               |
@@ -50,7 +65,11 @@
  *  E |     ESF       |               |  Privileged portion of the stack
  *  L +>>>>>>>>>>>>>>>+ <- SP_EL1     |_ used during exceptions and syscalls
  *  1 |               |               |  of size ARCH_THREAD_STACK_RESERVED
- *    +---------------+ <- stack_obj..|
+ *    +---------------+ <- stack limit|
+ *    |  Stack guard  | } Z_ARM64_STACK_GUARD_SIZE (protected by MMU/MPU)
+ *    +---------------+ <- stack_obj
+ *
+ * Low Memory addresses
  *
  *  When a kernel thread switches to user mode the SP_EL0 and SP_EL1
  *  values are reset accordingly in arch_user_mode_enter().
@@ -68,7 +87,13 @@ void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 		     void *p1, void *p2, void *p3)
 {
 	extern void z_arm64_exit_exc(void);
-	z_arch_esf_t *pInitCtx;
+	struct arch_esf *pInitCtx;
+
+	/*
+	 * Clean the thread->arch to avoid unexpected behavior because the
+	 * thread->arch might be dirty
+	 */
+	memset(&thread->arch, 0, sizeof(thread->arch));
 
 	/*
 	 * The ESF is now hosted at the top of the stack. For user threads this
@@ -77,7 +102,7 @@ void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 	 * dropping into EL0.
 	 */
 
-	pInitCtx = Z_STACK_PTR_TO_FRAME(struct __esf, stack_ptr);
+	pInitCtx = Z_STACK_PTR_TO_FRAME(struct arch_esf, stack_ptr);
 
 	pInitCtx->x0 = (uint64_t)entry;
 	pInitCtx->x1 = (uint64_t)p1;
@@ -100,9 +125,11 @@ void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 	} else {
 		pInitCtx->elr = (uint64_t)z_thread_entry;
 	}
+
 #else
 	pInitCtx->elr = (uint64_t)z_thread_entry;
 #endif
+
 	/* Keep using SP_EL1 */
 	pInitCtx->spsr = SPSR_MODE_EL1H | DAIF_FIQ_BIT;
 
@@ -118,6 +145,10 @@ void arch_new_thread(struct k_thread *thread, k_thread_stack_t *stack,
 	thread->callee_saved.lr = (uint64_t)z_arm64_exit_exc;
 
 	thread->switch_handle = thread;
+#if defined(CONFIG_ARM64_STACK_PROTECTION)
+	thread->arch.stack_limit = (uint64_t)stack + Z_ARM64_STACK_GUARD_SIZE;
+	z_arm64_thread_mem_domains_init(thread);
+#endif
 }
 
 #ifdef CONFIG_USERSPACE
@@ -128,15 +159,15 @@ FUNC_NORETURN void arch_user_mode_enter(k_thread_entry_t user_entry,
 	uint64_t tmpreg;
 
 	/* Map the thread stack */
-	z_arm64_thread_mem_domains_init(_current);
+	z_arm64_thread_mem_domains_init(arch_current_thread());
 
 	/* Top of the user stack area */
-	stack_el0 = Z_STACK_PTR_ALIGN(_current->stack_info.start +
-				      _current->stack_info.size -
-				      _current->stack_info.delta);
+	stack_el0 = Z_STACK_PTR_ALIGN(arch_current_thread()->stack_info.start +
+				      arch_current_thread()->stack_info.size -
+				      arch_current_thread()->stack_info.delta);
 
 	/* Top of the privileged non-user-accessible part of the stack */
-	stack_el1 = (uintptr_t)(_current->stack_obj + ARCH_THREAD_STACK_RESERVED);
+	stack_el1 = (uintptr_t)(arch_current_thread()->stack_obj + ARCH_THREAD_STACK_RESERVED);
 
 	register void *x0 __asm__("x0") = user_entry;
 	register void *x1 __asm__("x1") = p1;

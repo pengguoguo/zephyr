@@ -156,8 +156,7 @@ static struct osdp *osdp_build_ctx(struct osdp_channel *channel)
 			SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 		}
 		memcpy(&pd->channel, channel, sizeof(struct osdp_channel));
-		k_mem_slab_init(&pd->cmd.slab,
-				pd->cmd.slab_buf, sizeof(struct osdp_cmd),
+		k_mem_slab_init(&pd->cmd.slab, pd->cmd.slab_buf, sizeof(union osdp_ephemeral_data),
 				CONFIG_OSDP_PD_COMMAND_QUEUE_SIZE);
 	}
 	return ctx;
@@ -177,9 +176,8 @@ void osdp_refresh(void *arg1, void *arg2, void *arg3)
 	}
 }
 
-static int osdp_init(const struct device *arg)
+static int osdp_init(void)
 {
-	ARG_UNUSED(arg);
 	int len;
 	uint8_t c, *key = NULL, key_buf[16];
 	struct osdp *ctx;

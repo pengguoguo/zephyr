@@ -10,6 +10,11 @@
 #ifndef ZEPHYR_INCLUDE_BLUETOOTH_MESH_PROXY_H_
 #define ZEPHYR_INCLUDE_BLUETOOTH_MESH_PROXY_H_
 
+#include <stdint.h>
+
+#include <zephyr/kernel.h>
+#include <zephyr/sys/iterable_sections.h>
+
 /**
  * @brief Proxy
  * @defgroup bt_mesh_proxy Proxy
@@ -92,9 +97,9 @@ int bt_mesh_proxy_connect(uint16_t net_idx);
  */
 int bt_mesh_proxy_disconnect(uint16_t net_idx);
 
-/** @brief Schedule advertising of Solicitation PDUs on Proxy Client .
+/** @brief Schedule advertising of Solicitation PDUs.
  *
- *  Once called Proxy Client will schedule advertising Solicitation PDUs for the amount of time
+ *  Once called, the device will schedule advertising Solicitation PDUs for the amount of time
  *  defined by @c adv_int * (@c CONFIG_BT_MESH_SOL_ADV_XMIT + 1), where @c adv_int is 20ms
  *  for Bluetooth v5.0 or higher, or 100ms otherwise.
  *

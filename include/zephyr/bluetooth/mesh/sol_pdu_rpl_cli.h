@@ -4,23 +4,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/**
- * @file
- * @defgroup bt_mesh_sol_pdu_rpl_cli Bluetooth Mesh Solicitation PDU RPL Client
- * @{
- * @brief
- */
-
 #ifndef BT_MESH_SOL_PDU_RPL_CLI_H__
 #define BT_MESH_SOL_PDU_RPL_CLI_H__
+
+#include <zephyr/bluetooth/mesh.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/**
+ * @defgroup bt_mesh_sol_pdu_rpl_cli Bluetooth Mesh Solicitation PDU RPL Client
+ * @ingroup bt_mesh
+ * @{
+ */
+
 /** Solicitation PDU RPL Client Model Context */
 struct bt_mesh_sol_pdu_rpl_cli {
 	/** Solicitation PDU RPL model entry pointer. */
-	struct bt_mesh_model *model;
+	const struct bt_mesh_model *model;
 
 	/* Internal parameters for tracking message responses. */
 	struct bt_mesh_msg_ack_ctx ack_ctx;
@@ -93,10 +95,10 @@ extern const struct bt_mesh_model_op _bt_mesh_sol_pdu_rpl_cli_op[];
 extern const struct bt_mesh_model_cb _bt_mesh_sol_pdu_rpl_cli_cb;
 /** @endcond */
 
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* BT_MESH_SOL_PDU_RPL_CLI_H__ */
-
-/** @} */

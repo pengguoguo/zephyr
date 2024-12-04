@@ -116,7 +116,7 @@ static void disable_tx_events(const struct uart_xmc4xxx_config *config)
 		XMC_USIC_CH_TXFIFO_DisableEvent(config->uart,
 					       XMC_USIC_CH_TXFIFO_EVENT_CONF_STANDARD);
 	} else {
-		XMC_USIC_CH_DisableEvent(config->uart, XMC_USIC_CH_EVENT_TRANSMIT_BUFFER);
+		XMC_USIC_CH_DisableEvent(config->uart, XMC_USIC_CH_EVENT_TRANSMIT_SHIFT);
 	}
 }
 #endif
@@ -131,7 +131,7 @@ static void enable_tx_events(const struct uart_xmc4xxx_config *config)
 		XMC_USIC_CH_TXFIFO_EnableEvent(config->uart,
 					       XMC_USIC_CH_TXFIFO_EVENT_CONF_STANDARD);
 	} else {
-		XMC_USIC_CH_EnableEvent(config->uart, XMC_USIC_CH_EVENT_TRANSMIT_BUFFER);
+		XMC_USIC_CH_EnableEvent(config->uart, XMC_USIC_CH_EVENT_TRANSMIT_SHIFT);
 	}
 }
 
@@ -189,7 +189,7 @@ static void uart_xmc4xxx_configure_service_requests(const struct device *dev)
 			data->service_request_tx);
 	} else {
 		XMC_USIC_CH_SetInterruptNodePointer(
-			config->uart, XMC_USIC_CH_INTERRUPT_NODE_POINTER_TRANSMIT_BUFFER,
+			config->uart, XMC_USIC_CH_INTERRUPT_NODE_POINTER_TRANSMIT_SHIFT,
 			data->service_request_tx);
 	}
 
@@ -338,7 +338,7 @@ static void uart_xmc4xxx_irq_tx_disable(const struct device *dev)
 		XMC_USIC_CH_TXFIFO_DisableEvent(config->uart,
 						XMC_USIC_CH_TXFIFO_EVENT_CONF_STANDARD);
 	} else {
-		XMC_USIC_CH_DisableEvent(config->uart, XMC_USIC_CH_EVENT_TRANSMIT_BUFFER);
+		XMC_USIC_CH_DisableEvent(config->uart, XMC_USIC_CH_EVENT_TRANSMIT_SHIFT);
 	}
 }
 
@@ -360,6 +360,11 @@ static void uart_xmc4xxx_irq_callback_set(const struct device *dev,
 
 	data->user_cb = cb;
 	data->user_data = user_data;
+
+#if defined(CONFIG_UART_EXCLUSIVE_API_CALLBACKS)
+	data->async_cb = NULL;
+	data->async_user_data = NULL;
+#endif
 }
 
 #define NVIC_ISPR_BASE 0xe000e200u
@@ -421,6 +426,28 @@ static inline void async_evt_rx_release_buffer(struct uart_xmc4xxx_data *data, i
 	if (data->async_cb) {
 		data->async_cb(data->dev, &event, data->async_user_data);
 	}
+}
+
+static inline void async_evt_rx_stopped(struct uart_xmc4xxx_data *data,
+					enum uart_rx_stop_reason reason)
+{
+	struct uart_event event = {.type = UART_RX_STOPPED, .data.rx_stop.reason = reason};
+	struct uart_event_rx *rx = &event.data.rx_stop.data;
+	struct dma_status stat;
+
+	if (data->dma_rx.buffer_len == 0 || data->async_cb == NULL) {
+		return;
+	}
+
+	rx->buf = data->dma_rx.buffer;
+	if (dma_get_status(data->dma_rx.dma_dev, data->dma_rx.dma_channel, &stat) == 0) {
+		data->dma_rx.counter = data->dma_rx.buffer_len - stat.pending_length;
+	}
+
+	rx->len = data->dma_rx.counter - data->dma_rx.offset;
+	rx->offset = data->dma_rx.counter;
+
+	data->async_cb(data->dev, &event, data->async_user_data);
 }
 
 static inline void async_evt_rx_disabled(struct uart_xmc4xxx_data *data)
@@ -489,6 +516,11 @@ static void uart_xmc4xxx_async_rx_timeout(struct k_work *work)
 	struct uart_xmc4xxx_data *data = CONTAINER_OF(rx_stream, struct uart_xmc4xxx_data, dma_rx);
 	struct dma_status stat;
 	unsigned int key = irq_lock();
+
+	if (data->dma_rx.buffer_len == 0) {
+		irq_unlock(key);
+		return;
+	}
 
 	if (dma_get_status(data->dma_rx.dma_dev, data->dma_rx.dma_channel, &stat) == 0) {
 		size_t rx_rcv_len = data->dma_rx.buffer_len - stat.pending_length;
@@ -594,6 +626,12 @@ static int uart_xmc4xxx_async_callback_set(const struct device *dev, uart_callba
 
 	data->async_cb = callback;
 	data->async_user_data = user_data;
+
+#if defined(CONFIG_UART_EXCLUSIVE_API_CALLBACKS)
+	data->user_cb = NULL;
+	data->user_data = NULL;
+#endif
+
 	return 0;
 }
 
@@ -644,12 +682,7 @@ static int uart_xmc4xxx_async_tx(const struct device *dev, const uint8_t *tx_dat
 
 	async_timer_start(&data->dma_tx.timeout_work, data->dma_tx.timeout);
 
-	ret = dma_start(data->dma_tx.dma_dev, data->dma_tx.dma_channel);
-	if (ret < 0) {
-		return ret;
-	}
-
-	return ret;
+	return dma_start(data->dma_tx.dma_dev, data->dma_tx.dma_channel);
 }
 
 static int uart_xmc4xxx_async_rx_enable(const struct device *dev, uint8_t *buf, size_t len,
@@ -684,8 +717,8 @@ static int uart_xmc4xxx_async_rx_enable(const struct device *dev, uint8_t *buf, 
 	/* request a new buffer in time (for example if receive buffer size is one byte). */
 	async_evt_rx_buf_request(data);
 	uart_xmc4xxx_irq_rx_enable(dev);
-	ret = dma_start(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
-	return ret;
+
+	return dma_start(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
 }
 
 static void uart_xmc4xxx_dma_rx_cb(const struct device *dma_dev, void *user_data, uint32_t channel,
@@ -696,13 +729,19 @@ static void uart_xmc4xxx_dma_rx_cb(const struct device *dma_dev, void *user_data
 	unsigned int key;
 	int ret;
 
-	if (status != 0) {
-		return;
-	}
-
 	__ASSERT_NO_MSG(channel == data->dma_rx.dma_channel);
 	key = irq_lock();
 	k_work_cancel_delayable(&data->dma_rx.timeout_work);
+
+	if (status < 0) {
+		async_evt_rx_stopped(data, UART_ERROR_OVERRUN);
+		uart_xmc4xxx_irq_rx_disable(dev_uart);
+		dma_stop(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
+		async_evt_rx_release_buffer(data, CURRENT_BUFFER);
+		async_evt_rx_release_buffer(data, NEXT_BUFFER);
+		async_evt_rx_disabled(data);
+		goto done;
+	}
 
 	if (data->dma_rx.buffer_len == 0) {
 		goto done;
@@ -714,8 +753,8 @@ static void uart_xmc4xxx_dma_rx_cb(const struct device *dma_dev, void *user_data
 	async_evt_rx_release_buffer(data, CURRENT_BUFFER);
 
 	if (!data->rx_next_buffer) {
-		dma_stop(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
 		uart_xmc4xxx_irq_rx_disable(dev_uart);
+		dma_stop(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
 		async_evt_rx_disabled(data);
 		goto done;
 	}
@@ -732,8 +771,8 @@ static void uart_xmc4xxx_dma_rx_cb(const struct device *dma_dev, void *user_data
 			 data->dma_rx.buffer_len);
 
 	if (ret < 0) {
-		dma_stop(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
 		uart_xmc4xxx_irq_rx_disable(dev_uart);
+		dma_stop(data->dma_rx.dma_dev, data->dma_rx.dma_channel);
 		async_evt_rx_release_buffer(data, CURRENT_BUFFER);
 		async_evt_rx_disabled(data);
 		goto done;
@@ -901,7 +940,7 @@ static int uart_xmc4xxx_init(const struct device *dev)
 	return ret;
 }
 
-static const struct uart_driver_api uart_xmc4xxx_driver_api = {
+static DEVICE_API(uart, uart_xmc4xxx_driver_api) = {
 	.poll_in = uart_xmc4xxx_poll_in,
 	.poll_out = uart_xmc4xxx_poll_out,
 #if defined(CONFIG_UART_INTERRUPT_DRIVEN)
@@ -993,7 +1032,7 @@ XMC4XXX_IRQ_STRUCT_INIT(index)						\
 	.fifo_rx_size = DT_INST_ENUM_IDX(index, fifo_rx_size),          \
 };									\
 									\
-	DEVICE_DT_INST_DEFINE(index, &uart_xmc4xxx_init,		\
+	DEVICE_DT_INST_DEFINE(index, uart_xmc4xxx_init,			\
 			    NULL,					\
 			    &xmc4xxx_data_##index,			\
 			    &xmc4xxx_config_##index, PRE_KERNEL_1,	\

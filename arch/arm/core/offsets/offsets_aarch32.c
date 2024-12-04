@@ -32,6 +32,11 @@
 GEN_OFFSET_SYM(_thread_arch_t, basepri);
 GEN_OFFSET_SYM(_thread_arch_t, swap_return_value);
 
+#if defined(CONFIG_CPU_AARCH32_CORTEX_A) || defined(CONFIG_CPU_AARCH32_CORTEX_R)
+GEN_OFFSET_SYM(_thread_arch_t, exception_depth);
+GEN_OFFSET_SYM(_cpu_arch_t, exc_depth);
+#endif
+
 #if defined(CONFIG_ARM_STORE_EXC_RETURN) || defined(CONFIG_USERSPACE)
 GEN_OFFSET_SYM(_thread_arch_t, mode);
 #endif
@@ -52,7 +57,6 @@ GEN_OFFSET_SYM(_thread_arch_t, preempt_float);
 
 GEN_OFFSET_SYM(_basic_sf_t, pc);
 GEN_OFFSET_SYM(_basic_sf_t, xpsr);
-GEN_ABSOLUTE_SYM(___basic_sf_t_SIZEOF, sizeof(_basic_sf_t));
 
 #if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING)
 GEN_OFFSET_SYM(_fpu_sf_t, fpscr);
@@ -72,21 +76,6 @@ GEN_ABSOLUTE_SYM(___extra_esf_info_t_SIZEOF, sizeof(struct __extra_esf_info));
 
 #if defined(CONFIG_THREAD_STACK_INFO)
 GEN_OFFSET_SYM(_thread_stack_info_t, start);
-
-GEN_ABSOLUTE_SYM(___thread_stack_info_t_SIZEOF,
-	 sizeof(struct _thread_stack_info));
-#endif
-
-/*
- * size of the struct k_thread structure sans save area for floating
- * point registers.
- */
-
-#if defined(CONFIG_FPU) && defined(CONFIG_FPU_SHARING)
-GEN_ABSOLUTE_SYM(_K_THREAD_NO_FLOAT_SIZEOF, sizeof(struct k_thread) -
-					    sizeof(struct _preempt_float));
-#else
-GEN_ABSOLUTE_SYM(_K_THREAD_NO_FLOAT_SIZEOF, sizeof(struct k_thread));
 #endif
 
 /*
@@ -94,19 +83,21 @@ GEN_ABSOLUTE_SYM(_K_THREAD_NO_FLOAT_SIZEOF, sizeof(struct k_thread));
  */
 #if defined(CONFIG_PM_S2RAM)
 GEN_OFFSET_SYM(_cpu_context_t, msp);
-GEN_OFFSET_SYM(_cpu_context_t, msplim);
 GEN_OFFSET_SYM(_cpu_context_t, psp);
-GEN_OFFSET_SYM(_cpu_context_t, psplim);
-GEN_OFFSET_SYM(_cpu_context_t, apsr);
-GEN_OFFSET_SYM(_cpu_context_t, ipsr);
-GEN_OFFSET_SYM(_cpu_context_t, epsr);
-
 GEN_OFFSET_SYM(_cpu_context_t, primask);
-GEN_OFFSET_SYM(_cpu_context_t, faultmask);
-GEN_OFFSET_SYM(_cpu_context_t, basepri);
 GEN_OFFSET_SYM(_cpu_context_t, control);
 
-GEN_ABSOLUTE_SYM(___cpu_context_t_SIZEOF, sizeof(_cpu_context_t));
+#if defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
+/* Registers present only on ARMv7-M and ARMv8-M Mainline */
+GEN_OFFSET_SYM(_cpu_context_t, faultmask);
+GEN_OFFSET_SYM(_cpu_context_t, basepri);
+#endif /* CONFIG_ARMV7_M_ARMV8_M_MAINLINE */
+
+#if defined(CONFIG_CPU_CORTEX_M_HAS_SPLIM)
+/* Registers present only on certain ARMv8-M implementations */
+GEN_OFFSET_SYM(_cpu_context_t, msplim);
+GEN_OFFSET_SYM(_cpu_context_t, psplim);
+#endif /* CONFIG_CPU_CORTEX_M_HAS_SPLIM */
 #endif /* CONFIG_PM_S2RAM */
 
 #endif /* _ARM_OFFSETS_INC_ */

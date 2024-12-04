@@ -4,18 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/types.h>
+#include <zephyr/kernel.h>
 
-#include <zephyr/bluetooth/hci.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/slist.h>
 #include <zephyr/sys/util.h>
+
+#include <zephyr/bluetooth/hci_types.h>
 
 #include "hal/ccm.h"
 
 #include "util/util.h"
 #include "util/mem.h"
 #include "util/memq.h"
+#include "util/mayfly.h"
 #include "util/dbuf.h"
 
 #include "pdu_df.h"
@@ -38,6 +40,12 @@
 #include "ull_conn_iso_types.h"
 #include "ull_conn_iso_internal.h"
 
+#include "lll/lll_adv_types.h"
+#include "lll_adv.h"
+#include "ull_adv_types.h"
+#include "lll_sync.h"
+#include "lll_sync_iso.h"
+#include "ull_sync_types.h"
 #include "ull_conn_types.h"
 #include "ull_llcp.h"
 #include "ull_llcp_internal.h"
@@ -171,12 +179,26 @@ void llcp_ntf_encode_feature_rsp(struct ll_conn *conn, struct pdu_data *pdu)
 	sys_put_le64(conn->llcp.fex.features_peer, p->features);
 }
 
+static uint64_t features_used(uint64_t featureset)
+{
+	uint64_t x;
+
+	/* swap bits for role specific features */
+	x = ((featureset >> BT_LE_FEAT_BIT_CIS_CENTRAL) ^
+	     (featureset >> BT_LE_FEAT_BIT_CIS_PERIPHERAL)) & 0x01;
+	x = (x << BT_LE_FEAT_BIT_CIS_CENTRAL) |
+	    (x << BT_LE_FEAT_BIT_CIS_PERIPHERAL);
+	x ^= featureset;
+
+	return ll_feat_get() & x;
+}
+
 void llcp_pdu_decode_feature_req(struct ll_conn *conn, struct pdu_data *pdu)
 {
 	uint64_t featureset;
 
 	feature_filter(pdu->llctrl.feature_req.features, &featureset);
-	conn->llcp.fex.features_used = ll_feat_get() & featureset;
+	conn->llcp.fex.features_used = features_used(featureset);
 
 	featureset &= (FEAT_FILT_OCTET0 | conn->llcp.fex.features_used);
 	conn->llcp.fex.features_peer = featureset;
@@ -189,8 +211,7 @@ void llcp_pdu_decode_feature_rsp(struct ll_conn *conn, struct pdu_data *pdu)
 	uint64_t featureset;
 
 	feature_filter(pdu->llctrl.feature_rsp.features, &featureset);
-	conn->llcp.fex.features_used = ll_feat_get() & featureset;
-
+	conn->llcp.fex.features_used = features_used(featureset);
 	conn->llcp.fex.features_peer = featureset;
 	conn->llcp.fex.valid = 1;
 }
@@ -292,7 +313,7 @@ void llcp_pdu_decode_version_ind(struct ll_conn *conn, struct pdu_data *pdu)
 
 static int csrand_get(void *buf, size_t len)
 {
-	if (k_is_in_isr()) {
+	if (mayfly_is_running()) {
 		return lll_csrand_isr_get(buf, len);
 	} else {
 		return lll_csrand_get(buf, len);
@@ -971,3 +992,76 @@ void llcp_pdu_decode_clock_accuracy_rsp(struct proc_ctx *ctx, struct pdu_data *p
 	ctx->data.sca_update.sca = p->sca;
 }
 #endif /* CONFIG_BT_CTLR_SCA_UPDATE */
+
+/*
+ * Periodic Adv Sync Transfer Procedure Helpers
+ */
+#if defined(CONFIG_BT_CTLR_SYNC_TRANSFER_SENDER)
+void llcp_pdu_fill_sync_info_offset(struct pdu_adv_sync_info *si, uint32_t offset_us)
+{
+	uint8_t offset_adjust = 0U;
+	uint8_t offset_units = 0U;
+
+	if (offset_us >= OFFS_ADJUST_US) {
+		offset_us -= OFFS_ADJUST_US;
+		offset_adjust = 1U;
+	}
+
+	offset_us = offset_us / OFFS_UNIT_30_US;
+	if (!!(offset_us >> OFFS_UNIT_BITS)) {
+		offset_us = offset_us / (OFFS_UNIT_300_US / OFFS_UNIT_30_US);
+		offset_units = OFFS_UNIT_VALUE_300_US;
+	}
+
+	/* Fill in the offset */
+	PDU_ADV_SYNC_INFO_OFFS_SET(si, offset_us, offset_units, offset_adjust);
+}
+
+void llcp_pdu_encode_periodic_sync_ind(struct proc_ctx *ctx, struct pdu_data *pdu)
+{
+	struct pdu_data_llctrl_periodic_sync_ind *p = &pdu->llctrl.periodic_sync_ind;
+
+	pdu->ll_id = PDU_DATA_LLID_CTRL;
+	pdu->len = PDU_DATA_LLCTRL_LEN(periodic_sync_ind);
+	pdu->llctrl.opcode = PDU_DATA_LLCTRL_TYPE_PERIODIC_SYNC_IND;
+
+	p->id = sys_cpu_to_le16(ctx->data.periodic_sync.id);
+
+	memcpy(&p->sync_info, &ctx->data.periodic_sync.sync_info, sizeof(struct pdu_adv_sync_info));
+
+	p->sync_info.evt_cntr = sys_cpu_to_le16(ctx->data.periodic_sync.sync_info.evt_cntr);
+
+	p->conn_event_count = sys_cpu_to_le16(ctx->data.periodic_sync.conn_event_count);
+	p->last_pa_event_counter = sys_cpu_to_le16(ctx->data.periodic_sync.last_pa_event_counter);
+	p->sid = ctx->data.periodic_sync.sid;
+	p->addr_type = ctx->data.periodic_sync.addr_type;
+	p->sca = ctx->data.periodic_sync.sca;
+	p->phy = ctx->data.periodic_sync.phy;
+
+	memcpy(&p->adv_addr, &ctx->data.periodic_sync.adv_addr, sizeof(bt_addr_t));
+
+	p->sync_conn_event_count = sys_cpu_to_le16(ctx->data.periodic_sync.sync_conn_event_count);
+}
+#endif /* CONFIG_BT_CTLR_SYNC_TRANSFER_SENDER */
+
+#if defined(CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER)
+void llcp_pdu_decode_periodic_sync_ind(struct proc_ctx *ctx, struct pdu_data *pdu)
+{
+	struct pdu_data_llctrl_periodic_sync_ind *p = &pdu->llctrl.periodic_sync_ind;
+
+	ctx->data.periodic_sync.id = sys_le16_to_cpu(p->id);
+
+	memcpy(&ctx->data.periodic_sync.sync_info, &p->sync_info, sizeof(struct pdu_adv_sync_info));
+
+	ctx->data.periodic_sync.conn_event_count = sys_le16_to_cpu(p->conn_event_count);
+	ctx->data.periodic_sync.last_pa_event_counter = sys_le16_to_cpu(p->last_pa_event_counter);
+	ctx->data.periodic_sync.sid = p->sid;
+	ctx->data.periodic_sync.addr_type = p->addr_type;
+	ctx->data.periodic_sync.sca = p->sca;
+	ctx->data.periodic_sync.phy = p->phy;
+
+	memcpy(&ctx->data.periodic_sync.adv_addr, &p->adv_addr, sizeof(bt_addr_t));
+
+	ctx->data.periodic_sync.sync_conn_event_count = sys_le16_to_cpu(p->sync_conn_event_count);
+}
+#endif /* CONFIG_BT_CTLR_SYNC_TRANSFER_RECEIVER */

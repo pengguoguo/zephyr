@@ -14,6 +14,7 @@
 
 #include <zephyr/sys/__assert.h>
 #include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/types.h>
 
@@ -41,17 +42,15 @@ struct ec_host_cmd_backend {
 struct ec_host_cmd_rx_ctx {
 	/**
 	 * Buffer to hold received data. The buffer is provided by the handler if
-	 * CONFIG_EC_HOST_CMD_HANDLER_RX_BUFFER > 0. Otherwise, the backend should provide
-	 * the buffer on its own and overwrites @a buf pointer in the init function.
+	 * CONFIG_EC_HOST_CMD_HANDLER_RX_BUFFER_SIZE > 0. Otherwise, the backend should provide
+	 * the buffer on its own and overwrites @a buf pointer and @a len_max
+	 * in the init function.
 	 */
 	uint8_t *buf;
 	/** Number of bytes written to @a buf by backend. */
 	size_t len;
-	/**
-	 * The backend gives @a handler_owns, when data in @a buf are ready.
-	 * The handler takes @a handler_owns to read data in @a buf.
-	 */
-	struct k_sem handler_owns;
+	/** Maximum number of bytes to receive with one request packet. */
+	size_t len_max;
 };
 
 /**
@@ -60,14 +59,14 @@ struct ec_host_cmd_rx_ctx {
 struct ec_host_cmd_tx_buf {
 	/**
 	 * Data to write to the host The buffer is provided by the handler if
-	 * CONFIG_EC_HOST_CMD_HANDLER_TX_BUFFER > 0. Otherwise, the backend should provide
+	 * CONFIG_EC_HOST_CMD_HANDLER_TX_BUFFER_SIZE > 0. Otherwise, the backend should provide
 	 * the buffer on its own and overwrites @a buf pointer and @a len_max
 	 * in the init function.
 	 */
 	void *buf;
 	/** Number of bytes to write from @a buf. */
 	size_t len;
-	/** Size of @a buf. */
+	/** Maximum number of bytes to send with one response packet. */
 	size_t len_max;
 };
 
@@ -104,7 +103,7 @@ typedef int (*ec_host_cmd_backend_api_init)(const struct ec_host_cmd_backend *ba
  */
 typedef int (*ec_host_cmd_backend_api_send)(const struct ec_host_cmd_backend *backend);
 
-__subsystem struct ec_host_cmd_backend_api {
+struct ec_host_cmd_backend_api {
 	ec_host_cmd_backend_api_init init;
 	ec_host_cmd_backend_api_send send;
 };
@@ -134,6 +133,30 @@ struct ec_host_cmd_backend *ec_host_cmd_backend_get_shi_npcx(void);
  * @retval the SHI ITE backend pointer
  */
 struct ec_host_cmd_backend *ec_host_cmd_backend_get_shi_ite(void);
+
+/**
+ * @brief Get the UART Host Command backend pointer
+ *
+ * Get the UART pointer backend and pass a pointer to UART device instance that will be used for
+ * the Host Command communication.
+ *
+ * @param dev Pointer to UART device instance.
+ *
+ * @retval The UART backend pointer.
+ */
+struct ec_host_cmd_backend *ec_host_cmd_backend_get_uart(const struct device *dev);
+
+/**
+ * @brief Get the SPI Host Command backend pointer
+ *
+ * Get the SPI pointer backend and pass a chip select pin that will be used for the Host Command
+ * communication.
+ *
+ * @param cs Chip select pin..
+ *
+ * @retval The SPI backend pointer.
+ */
+struct ec_host_cmd_backend *ec_host_cmd_backend_get_spi(struct gpio_dt_spec *cs);
 
 /**
  * @}

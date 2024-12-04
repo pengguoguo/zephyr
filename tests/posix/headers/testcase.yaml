@@ -1,13 +1,23 @@
 common:
-  arch_exclude: posix
-  tags: posix net socket
+  filter: not CONFIG_NATIVE_LIBC
+  tags:
+    - posix
   min_ram: 32
-
+  # 1 tier0 platform per supported architecture
+  platform_key:
+    - arch
+    - simulation
 tests:
   portability.posix.headers.with_posix_api:
     extra_configs:
       - CONFIG_POSIX_API=y
   portability.posix.headers.without_posix_api:
+    extra_configs:
+      - CONFIG_POSIX_API=n
+  portability.posix.headers.minimal.with_posix_api:
+    extra_configs:
+      - CONFIG_POSIX_API=y
+  portability.posix.headers.minimal.without_posix_api:
     extra_configs:
       - CONFIG_POSIX_API=n
   portability.posix.headers.picolibc.with_posix_api:

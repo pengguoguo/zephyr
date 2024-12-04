@@ -407,13 +407,13 @@ ZTEST(test_utils_fn, test_net_addr)
 	int count, pass;
 
 	for (count = 0, pass = 0; count < ARRAY_SIZE(tests); count++) {
-		TC_START(tests[count].name);
+		TC_PRINT("Running test: %s: ", tests[count].name);
 
 		if (check_net_addr(tests[count].data)) {
-			TC_END(PASS, "passed\n");
+			TC_PRINT("passed\n");
 			pass++;
 		} else {
-			TC_END(FAIL, "failed\n");
+			TC_PRINT("failed\n");
 		}
 	}
 
@@ -523,6 +523,21 @@ ZTEST(test_utils_fn, test_addr_parse)
 			.result = {
 				.sin_family = AF_INET,
 				.sin_port = 0,
+				.sin_addr = {
+					.s4_addr[0] = 192,
+					.s4_addr[1] = 0,
+					.s4_addr[2] = 2,
+					.s4_addr[3] = 3
+				}
+			},
+			.verdict = true
+		},
+		{
+			.address = "192.0.2.3:80/foobar",
+			.len = sizeof("192.0.2.3:80") - 1,
+			.result = {
+				.sin_family = AF_INET,
+				.sin_port = htons(80),
 				.sin_addr = {
 					.s4_addr[0] = 192,
 					.s4_addr[1] = 0,

@@ -39,7 +39,7 @@ static inline int _is_thread_cmsis_inactive(struct k_thread *thread)
 {
 	uint8_t state = thread->base.thread_state;
 
-	return state & (_THREAD_PRESTART | _THREAD_DEAD);
+	return state & _THREAD_DEAD;
 }
 
 static inline uint32_t zephyr_to_cmsis_priority(uint32_t z_prio)
@@ -198,7 +198,7 @@ osThreadId_t osThreadNew(osThreadFunc_t threadfunc, void *arg,
 
 	(void)k_thread_create(&tid->z_thread,
 			      stack, stack_size,
-			      (k_thread_entry_t)zephyr_thread_wrapper,
+			      zephyr_thread_wrapper,
 			      (void *)arg, tid, threadfunc,
 			      prio, 0, K_NO_WAIT);
 
@@ -307,9 +307,6 @@ osThreadState_t osThreadGetState(osThreadId_t thread_id)
 	switch (tid->z_thread.base.thread_state) {
 	case _THREAD_DUMMY:
 		state = osThreadError;
-		break;
-	case _THREAD_PRESTART:
-		state = osThreadInactive;
 		break;
 	case _THREAD_DEAD:
 		state = osThreadTerminated;

@@ -169,6 +169,10 @@ void z_float_enable(struct k_thread *thread, unsigned int options)
 	unsigned int imask;
 	struct k_thread *fp_owner;
 
+	if (!thread) {
+		return;
+	}
+
 	/* Ensure a preemptive context switch does not occur */
 
 	imask = irq_lock();
@@ -176,7 +180,6 @@ void z_float_enable(struct k_thread *thread, unsigned int options)
 	/* Indicate thread requires floating point context saving */
 
 	thread->base.user_options |= (uint8_t)options;
-
 	/*
 	 * The current thread might not allow FP instructions, so clear CR0[TS]
 	 * so we can use them. (CR0[TS] gets restored later on, if necessary.)
@@ -204,7 +207,7 @@ void z_float_enable(struct k_thread *thread, unsigned int options)
 
 	/* Associate the new FP context with the specified thread */
 
-	if (thread == _current) {
+	if (thread == arch_current_thread()) {
 		/*
 		 * When enabling FP support for the current thread, just claim
 		 * ownership of the FPU and leave CR0[TS] unset.
@@ -219,7 +222,7 @@ void z_float_enable(struct k_thread *thread, unsigned int options)
 		 * of the FPU to them (unless we need it ourselves).
 		 */
 
-		if ((_current->base.user_options & _FP_USER_MASK) == 0) {
+		if ((arch_current_thread()->base.user_options & _FP_USER_MASK) == 0) {
 			/*
 			 * We are not FP-capable, so mark FPU as owned by the
 			 * thread we've just enabled FP support for, then
@@ -275,7 +278,7 @@ int z_float_disable(struct k_thread *thread)
 
 	thread->base.user_options &= ~_FP_USER_MASK;
 
-	if (thread == _current) {
+	if (thread == arch_current_thread()) {
 		z_FpAccessDisable();
 		_kernel.current_fp = (struct k_thread *)0;
 	} else {
@@ -299,7 +302,7 @@ int z_float_disable(struct k_thread *thread)
  * instruction is executed while CR0[TS]=1. The handler then enables the
  * current thread to use all supported floating point registers.
  */
-void _FpNotAvailableExcHandler(z_arch_esf_t *pEsf)
+void _FpNotAvailableExcHandler(struct arch_esf *pEsf)
 {
 	ARG_UNUSED(pEsf);
 
@@ -311,7 +314,7 @@ void _FpNotAvailableExcHandler(z_arch_esf_t *pEsf)
 
 	/* Enable highest level of FP capability configured into the kernel */
 
-	k_float_enable(_current, _FP_USER_MASK);
+	k_float_enable(arch_current_thread(), _FP_USER_MASK);
 }
 _EXCEPTION_CONNECT_NOCODE(_FpNotAvailableExcHandler,
 		IV_DEVICE_NOT_AVAILABLE, 0);

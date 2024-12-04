@@ -28,6 +28,7 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_rd_client_resume);
 DECLARE_FAKE_VALUE_FUNC(struct lwm2m_message *, find_msg, struct coap_pending *,
 			struct coap_reply *);
 DECLARE_FAKE_VOID_FUNC(coap_pending_clear, struct coap_pending *);
+DECLARE_FAKE_VALUE_FUNC(size_t, coap_pendings_count, struct coap_pending *, size_t);
 DECLARE_FAKE_VOID_FUNC(lwm2m_reset_message, struct lwm2m_message *, bool);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_send_message_async, struct lwm2m_message *);
 DECLARE_FAKE_VOID_FUNC(lwm2m_registry_lock);
@@ -39,7 +40,7 @@ DECLARE_FAKE_VALUE_FUNC(int64_t, engine_observe_shedule_next_event, struct obser
 			const int64_t);
 DECLARE_FAKE_VALUE_FUNC(int, handle_request, struct coap_packet *, struct lwm2m_message *);
 DECLARE_FAKE_VOID_FUNC(lwm2m_udp_receive, struct lwm2m_ctx *, uint8_t *, uint16_t,
-		       struct sockaddr *, udp_request_handler_cb_t);
+		       struct sockaddr *);
 DECLARE_FAKE_VALUE_FUNC(bool, lwm2m_rd_client_is_registred, struct lwm2m_ctx *);
 DECLARE_FAKE_VOID_FUNC(lwm2m_engine_context_close, struct lwm2m_ctx *);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_get_res_buf, const struct lwm2m_obj_path *, void **, uint16_t *,
@@ -51,8 +52,13 @@ DECLARE_FAKE_VALUE_FUNC(int, tls_credential_delete, sec_tag_t, enum tls_credenti
 DECLARE_FAKE_VALUE_FUNC(struct lwm2m_engine_obj_field *, lwm2m_get_engine_obj_field,
 			struct lwm2m_engine_obj *, int);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_get_bool, const struct lwm2m_obj_path *, bool *);
-DECLARE_FAKE_VALUE_FUNC(sys_slist_t *, lwm2m_engine_obj_inst_list);
 DECLARE_FAKE_VALUE_FUNC(int, lwm2m_delete_obj_inst, uint16_t, uint16_t);
+DECLARE_FAKE_VOID_FUNC(lwm2m_clear_block_contexts);
+DECLARE_FAKE_VALUE_FUNC(int, z_impl_zsock_connect, int, const struct sockaddr *, socklen_t);
+DECLARE_FAKE_VALUE_FUNC(int, lwm2m_security_mode, struct lwm2m_ctx *);
+DECLARE_FAKE_VALUE_FUNC(int, z_impl_zsock_setsockopt, int, int, int, const void *, socklen_t);
+DECLARE_FAKE_VOID_FUNC(engine_update_tx_time);
+DECLARE_FAKE_VALUE_FUNC(bool, coap_block_has_more, struct coap_packet *);
 
 #define DO_FOREACH_FAKE(FUNC)                                                                      \
 	do {                                                                                       \
@@ -60,6 +66,7 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_delete_obj_inst, uint16_t, uint16_t);
 		FUNC(lwm2m_rd_client_resume)                                                       \
 		FUNC(find_msg)                                                                     \
 		FUNC(coap_pending_clear)                                                           \
+		FUNC(coap_pendings_count)                                                          \
 		FUNC(lwm2m_reset_message)                                                          \
 		FUNC(lwm2m_send_message_async)                                                     \
 		FUNC(lwm2m_registry_lock)                                                          \
@@ -77,8 +84,13 @@ DECLARE_FAKE_VALUE_FUNC(int, lwm2m_delete_obj_inst, uint16_t, uint16_t);
 		FUNC(tls_credential_delete)                                                        \
 		FUNC(lwm2m_get_engine_obj_field)                                                   \
 		FUNC(lwm2m_get_bool)                                                               \
-		FUNC(lwm2m_engine_obj_inst_list)                                                   \
 		FUNC(lwm2m_delete_obj_inst)                                                        \
+		FUNC(lwm2m_clear_block_contexts)                                                   \
+		FUNC(z_impl_zsock_connect)                                                         \
+		FUNC(lwm2m_security_mode)                                                          \
+		FUNC(z_impl_zsock_setsockopt)                                                      \
+		FUNC(engine_update_tx_time)                                                        \
+		FUNC(coap_block_has_more)							   \
 	} while (0)
 
 #endif /* STUBS_H */

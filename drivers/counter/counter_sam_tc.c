@@ -325,7 +325,7 @@ static int counter_sam_initialize(const struct device *dev)
 
 	/* Enable channel's clock */
 	(void)clock_control_on(SAM_DT_PMC_CONTROLLER,
-			       (clock_control_subsys_t *)&dev_cfg->clock_cfg[dev_cfg->tc_chan_num]);
+			       (clock_control_subsys_t)&dev_cfg->clock_cfg[dev_cfg->tc_chan_num]);
 
 	/* Clock and Mode Selection */
 	tc_ch->TC_CMR = dev_cfg->reg_cmr;
@@ -343,7 +343,7 @@ static int counter_sam_initialize(const struct device *dev)
 	return 0;
 }
 
-static const struct counter_driver_api counter_sam_driver_api = {
+static DEVICE_API(counter, counter_sam_driver_api) = {
 	.start = counter_sam_tc_start,
 	.stop = counter_sam_tc_stop,
 	.get_value = counter_sam_tc_get_value,

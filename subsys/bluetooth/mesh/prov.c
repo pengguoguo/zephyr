@@ -11,14 +11,11 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/byteorder.h>
 
-#include <zephyr/net/buf.h>
+#include <zephyr/net_buf.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/mesh.h>
 #include <zephyr/bluetooth/uuid.h>
-
-#include "host/ecc.h"
-#include "host/testing.h"
 
 #include "crypto.h"
 #include "mesh.h"
@@ -38,29 +35,16 @@ const struct bt_mesh_prov *bt_mesh_prov;
 BUILD_ASSERT(sizeof(bt_mesh_prov_link.conf_inputs) == 145,
 	     "Confirmation inputs shall be 145 bytes");
 
-static void pub_key_ready(const uint8_t *pkey)
-{
-	if (!pkey) {
-		LOG_WRN("Public key not available");
-		return;
-	}
-
-	LOG_DBG("Local public key ready");
-}
-
-int bt_mesh_prov_reset_state(void (*func)(const uint8_t key[BT_PUB_KEY_LEN]))
+int bt_mesh_prov_reset_state(void)
 {
 	int err;
-	static struct bt_pub_key_cb pub_key_cb;
-	const size_t offset = offsetof(struct bt_mesh_prov_link, auth);
-
-	pub_key_cb.func = func ? func : pub_key_ready;
+	const size_t offset = offsetof(struct bt_mesh_prov_link, addr);
 
 	atomic_clear(bt_mesh_prov_link.flags);
 	(void)memset((uint8_t *)&bt_mesh_prov_link + offset, 0,
 		     sizeof(bt_mesh_prov_link) - offset);
 
-	err = bt_pub_key_gen(&pub_key_cb);
+	err = bt_mesh_pub_key_gen();
 	if (err) {
 		LOG_ERR("Failed to generate public key (%d)", err);
 		return err;
@@ -169,15 +153,10 @@ static uint32_t get_auth_number(bt_mesh_output_action_t output,
 
 	bt_rand(&num, sizeof(num));
 
-	if (output == BT_MESH_BLINK ||
-	    output == BT_MESH_BEEP ||
-	    output == BT_MESH_VIBRATE ||
-	    input == BT_MESH_PUSH ||
-	    input == BT_MESH_TWIST) {
-		/* According to the Bluetooth Mesh Profile
-		 * Specification Section 5.4.2.4, blink, beep
-		 * vibrate, push and twist should be a random integer
-		 * between 0 and 10^size, *exclusive*:
+	if (output == BT_MESH_BLINK || output == BT_MESH_BEEP || output == BT_MESH_VIBRATE ||
+	    input == BT_MESH_PUSH || input == BT_MESH_TWIST) {
+		/* According to MshPRTv1.1: 5.4.2.4, blink, beep vibrate, push and twist should be
+		 * a random integer between 0 and 10^size, *exclusive*:
 		 */
 		num = (num % (divider[size - 1] - 1)) + 1;
 	} else {
@@ -196,12 +175,6 @@ int bt_mesh_prov_auth(bool is_provisioner, uint8_t method, uint8_t action, uint8
 	bt_mesh_input_action_t input;
 	uint8_t auth_size = bt_mesh_prov_auth_size_get();
 	int err;
-
-	if (IS_ENABLED(CONFIG_BT_MESH_OOB_AUTH_REQUIRED) &&
-	    (method == AUTH_METHOD_NO_OOB ||
-	    bt_mesh_prov_link.algorithm == BT_MESH_PROV_AUTH_CMAC_AES128_AES_CCM)) {
-		return -EINVAL;
-	}
 
 	switch (method) {
 	case AUTH_METHOD_NO_OOB:
@@ -405,7 +378,7 @@ static void prov_link_closed(const struct prov_bearer *bearer, void *cb_data,
 	LOG_DBG("%u", reason);
 
 	if (bt_mesh_prov_link.role->link_closed) {
-		bt_mesh_prov_link.role->link_closed();
+		bt_mesh_prov_link.role->link_closed(reason);
 	}
 
 	if (bt_mesh_prov->link_close) {
@@ -450,7 +423,7 @@ void bt_mesh_prov_reset(void)
 		bt_mesh_pb_gatt_reset();
 	}
 
-	bt_mesh_prov_reset_state(NULL);
+	bt_mesh_prov_reset_state();
 
 	if (bt_mesh_prov->reset) {
 		bt_mesh_prov->reset();
@@ -474,5 +447,5 @@ int bt_mesh_prov_init(const struct bt_mesh_prov *prov_info)
 		bt_mesh_pb_gatt_init();
 	}
 
-	return bt_mesh_prov_reset_state(NULL);
+	return bt_mesh_prov_reset_state();
 }

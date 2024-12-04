@@ -106,6 +106,8 @@ uint8_t ll_adv_enable(uint8_t handle, uint8_t enable,
 uint8_t ll_adv_enable(uint8_t enable);
 #endif /* !CONFIG_BT_CTLR_ADV_EXT || !CONFIG_BT_HCI_MESH_EXT */
 
+uint8_t ll_adv_disable_all(void);
+
 uint8_t ll_big_create(uint8_t big_handle, uint8_t adv_handle, uint8_t num_bis,
 		      uint32_t sdu_interval, uint16_t max_sdu,
 		      uint16_t max_latency, uint8_t rtn, uint8_t phy,
@@ -133,6 +135,12 @@ uint8_t ll_sync_create(uint8_t options, uint8_t sid, uint8_t adv_addr_type,
 uint8_t ll_sync_create_cancel(void **rx);
 uint8_t ll_sync_terminate(uint16_t handle);
 uint8_t ll_sync_recv_enable(uint16_t handle, uint8_t enable);
+uint8_t ll_sync_transfer(uint16_t conn_handle, uint16_t service_data, uint16_t sync_handle);
+uint8_t ll_adv_sync_set_info_transfer(uint16_t conn_handle, uint16_t service_data,
+				      uint8_t adv_handle);
+uint8_t ll_past_param(uint16_t conn_handle, uint8_t mode, uint16_t skip, uint16_t timeout,
+		      uint8_t cte_type);
+uint8_t ll_default_past_param(uint8_t mode, uint16_t skip, uint16_t timeout, uint8_t cte_type);
 uint8_t ll_big_sync_create(uint8_t big_handle, uint16_t sync_handle,
 			   uint8_t encryption, uint8_t *bcode, uint8_t mse,
 			   uint16_t sync_timeout, uint8_t num_bis,
@@ -148,7 +156,7 @@ uint8_t ll_cis_parameters_set(uint8_t cis_id,
 			      uint16_t c_sdu, uint16_t p_sdu,
 			      uint8_t c_phy, uint8_t p_phy,
 			      uint8_t c_rtn, uint8_t p_rtn);
-uint8_t ll_cig_parameters_commit(uint8_t cig_id);
+uint8_t ll_cig_parameters_commit(uint8_t cig_id, uint16_t *handles);
 uint8_t ll_cig_parameters_test_open(uint8_t cig_id,
 				    uint32_t c_interval,
 				    uint32_t p_interval,

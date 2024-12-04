@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+
 #include <sys/types.h>
 
 /**
@@ -25,7 +26,7 @@
 extern "C" {
 #endif
 
-/** Bluetooth mesh feature states */
+/** Bluetooth Mesh feature states */
 enum bt_mesh_feat_state {
 	/** Feature is supported, but disabled. */
 	BT_MESH_FEATURE_DISABLED,

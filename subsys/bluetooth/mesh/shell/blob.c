@@ -134,9 +134,9 @@ static uint8_t get_progress(const struct bt_mesh_blob_xfer_info *info)
 	uint8_t blocks_not_rxed_size;
 	int i;
 
-	total_blocks = ceiling_fraction(info->size, 1U << info->block_size_log);
+	total_blocks = DIV_ROUND_UP(info->size, 1U << info->block_size_log);
 
-	blocks_not_rxed_size = ceiling_fraction(total_blocks, 8);
+	blocks_not_rxed_size = DIV_ROUND_UP(total_blocks, 8);
 
 	for (i = 0; i < blocks_not_rxed_size; i++) {
 		blocks_not_rxed += info->missing_blocks[i % 8] & (1 << (i % 8));
@@ -271,7 +271,7 @@ static int cmd_flash_stream_unset(const struct shell *sh, size_t argc, char *arg
 
 #if defined(CONFIG_BT_MESH_SHELL_BLOB_CLI)
 
-static struct bt_mesh_model *mod_cli;
+static const struct bt_mesh_model *mod_cli;
 
 static void blob_cli_inputs_prepare(uint16_t group)
 {
@@ -351,7 +351,7 @@ static int cmd_tx(const struct shell *sh, size_t argc, char *argv[])
 			    "pull",
 		    blob_cli_xfer.xfer.size, group);
 
-	err = bt_mesh_blob_cli_send((struct bt_mesh_blob_cli *)mod_cli->user_data,
+	err = bt_mesh_blob_cli_send((struct bt_mesh_blob_cli *)mod_cli->rt->user_data,
 				    &blob_cli_xfer.inputs,
 				    &blob_cli_xfer.xfer, bt_mesh_shell_blob_io);
 	if (err) {
@@ -421,7 +421,7 @@ static int cmd_caps(const struct shell *sh, size_t argc, char *argv[])
 
 	blob_cli_inputs_prepare(group);
 
-	err = bt_mesh_blob_cli_caps_get((struct bt_mesh_blob_cli *)mod_cli->user_data,
+	err = bt_mesh_blob_cli_caps_get((struct bt_mesh_blob_cli *)mod_cli->rt->user_data,
 					&blob_cli_xfer.inputs);
 	if (err) {
 		shell_print(sh, "Boundary check start failed (err: %d)", err);
@@ -438,7 +438,7 @@ static int cmd_tx_cancel(const struct shell *sh, size_t argc,
 	}
 
 	shell_print(sh, "Cancelling transfer");
-	bt_mesh_blob_cli_cancel((struct bt_mesh_blob_cli *)mod_cli->user_data);
+	bt_mesh_blob_cli_cancel((struct bt_mesh_blob_cli *)mod_cli->rt->user_data);
 
 	return 0;
 }
@@ -465,7 +465,7 @@ static int cmd_tx_get(const struct shell *sh, size_t argc, char *argv[])
 
 	blob_cli_inputs_prepare(group);
 
-	err = bt_mesh_blob_cli_xfer_progress_get((struct bt_mesh_blob_cli *)mod_cli->user_data,
+	err = bt_mesh_blob_cli_xfer_progress_get((struct bt_mesh_blob_cli *)mod_cli->rt->user_data,
 						 &blob_cli_xfer.inputs);
 	if (err) {
 		shell_print(sh, "ERR %d", err);
@@ -482,7 +482,7 @@ static int cmd_tx_suspend(const struct shell *sh, size_t argc,
 	}
 
 	shell_print(sh, "Suspending transfer");
-	bt_mesh_blob_cli_suspend((struct bt_mesh_blob_cli *)mod_cli->user_data);
+	bt_mesh_blob_cli_suspend((struct bt_mesh_blob_cli *)mod_cli->rt->user_data);
 
 	return 0;
 }
@@ -494,7 +494,7 @@ static int cmd_tx_resume(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	shell_print(sh, "Resuming transfer");
-	bt_mesh_blob_cli_resume((struct bt_mesh_blob_cli *)mod_cli->user_data);
+	bt_mesh_blob_cli_resume((struct bt_mesh_blob_cli *)mod_cli->rt->user_data);
 
 	return 0;
 }
@@ -503,7 +503,7 @@ static int cmd_tx_resume(const struct shell *sh, size_t argc, char *argv[])
 
 #if defined(CONFIG_BT_MESH_SHELL_BLOB_SRV)
 
-static struct bt_mesh_model *mod_srv;
+static const struct bt_mesh_model *mod_srv;
 
 static int cmd_rx(const struct shell *sh, size_t argc, char *argv[])
 {
@@ -530,7 +530,7 @@ static int cmd_rx(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	shell_print(sh, "Receive BLOB 0x%x", id);
-	err = bt_mesh_blob_srv_recv((struct bt_mesh_blob_srv *)mod_srv->user_data,
+	err = bt_mesh_blob_srv_recv((struct bt_mesh_blob_srv *)mod_srv->rt->user_data,
 				    id, bt_mesh_shell_blob_io, BT_MESH_TTL_MAX, timeout_base);
 	if (err) {
 		shell_print(sh, "BLOB RX setup failed (%d)", err);
@@ -548,7 +548,7 @@ static int cmd_rx_cancel(const struct shell *sh, size_t argc, char *argv[])
 	}
 
 	shell_print(sh, "Cancelling BLOB rx");
-	err = bt_mesh_blob_srv_cancel((struct bt_mesh_blob_srv *)mod_srv->user_data);
+	err = bt_mesh_blob_srv_cancel((struct bt_mesh_blob_srv *)mod_srv->rt->user_data);
 	if (err) {
 		shell_print(sh, "BLOB cancel failed (%d)", err);
 	}
@@ -569,13 +569,13 @@ BT_MESH_SHELL_MDL_INSTANCE_CMDS(srv_instance_cmds, BT_MESH_MODEL_ID_BLOB_SRV, mo
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	blob_cli_cmds,
 	/* BLOB Client Model Operations */
-	SHELL_CMD_ARG(target, NULL, "<addr>", cmd_target, 2, 0),
-	SHELL_CMD_ARG(caps, NULL, "[<group> [<timeout base>]]", cmd_caps, 1, 2),
-	SHELL_CMD_ARG(tx, NULL, "<id> <size> <block size log> "
-		      "<chunk size> [<group> [<mode: push, pull> "
-		      "[<timeout base>]]]", cmd_tx, 5, 3),
+	SHELL_CMD_ARG(target, NULL, "<Addr>", cmd_target, 2, 0),
+	SHELL_CMD_ARG(caps, NULL, "[<Group> [<TimeoutBase>]]", cmd_caps, 1, 2),
+	SHELL_CMD_ARG(tx, NULL, "<ID> <Size> <BlockSizeLog> "
+		      "<ChunkSize> [<Group> [<Mode(push, pull)> "
+		      "[<TimeoutBase>]]]", cmd_tx, 5, 3),
 	SHELL_CMD_ARG(tx-cancel, NULL, NULL, cmd_tx_cancel, 1, 0),
-	SHELL_CMD_ARG(tx-get, NULL, "[group]", cmd_tx_get, 1, 1),
+	SHELL_CMD_ARG(tx-get, NULL, "[Group]", cmd_tx_get, 1, 1),
 	SHELL_CMD_ARG(tx-suspend, NULL, NULL, cmd_tx_suspend, 1, 0),
 	SHELL_CMD_ARG(tx-resume, NULL, NULL, cmd_tx_resume, 1, 0),
 	SHELL_CMD(instance, &cli_instance_cmds, "Instance commands", bt_mesh_shell_mdl_cmds_help),
@@ -586,7 +586,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	blob_srv_cmds,
 	/* BLOB Server Model Operations */
-	SHELL_CMD_ARG(rx, NULL, "<id> [<timeout base>]", cmd_rx, 2, 1),
+	SHELL_CMD_ARG(rx, NULL, "<ID> [<TimeoutBase(10s steps)>]", cmd_rx, 2, 1),
 	SHELL_CMD_ARG(rx-cancel, NULL, NULL, cmd_rx_cancel, 1, 0),
 	SHELL_CMD(instance, &srv_instance_cmds, "Instance commands", bt_mesh_shell_mdl_cmds_help),
 	SHELL_SUBCMD_SET_END);
@@ -595,7 +595,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	blob_cmds,
 #if defined(CONFIG_BT_MESH_SHELL_BLOB_IO_FLASH)
-	SHELL_CMD_ARG(flash-stream-set, NULL, "<area id> [<offset>]",
+	SHELL_CMD_ARG(flash-stream-set, NULL, "<AreaID> [<Offset>]",
 		      cmd_flash_stream_set, 2, 1),
 	SHELL_CMD_ARG(flash-stream-unset, NULL, NULL, cmd_flash_stream_unset, 1, 0),
 #endif

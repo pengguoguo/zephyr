@@ -155,7 +155,6 @@ int adc_emul_value_func_set(const struct device *dev, unsigned int chan,
 int adc_emul_ref_voltage_set(const struct device *dev, enum adc_reference ref,
 			     uint16_t value)
 {
-	struct adc_driver_api *api = (struct adc_driver_api *)dev->api;
 	struct adc_emul_data *data = dev->data;
 	int err = 0;
 
@@ -167,7 +166,6 @@ int adc_emul_ref_voltage_set(const struct device *dev, enum adc_reference ref,
 		break;
 	case ADC_REF_INTERNAL:
 		data->ref_int = value;
-		api->ref_internal = value;
 		break;
 	case ADC_REF_EXTERNAL0:
 		data->ref_ext0 = value;
@@ -470,8 +468,12 @@ out:
  *
  * @return This thread should not end
  */
-static void adc_emul_acquisition_thread(struct adc_emul_data *data)
+static void adc_emul_acquisition_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	struct adc_emul_data *data = p1;
 	int err;
 
 	while (true) {
@@ -533,7 +535,7 @@ static int adc_emul_init(const struct device *dev)
 
 	k_thread_create(&data->thread, data->stack,
 			CONFIG_ADC_EMUL_ACQUISITION_THREAD_STACK_SIZE,
-			(k_thread_entry_t)adc_emul_acquisition_thread,
+			adc_emul_acquisition_thread,
 			data, NULL, NULL,
 			CONFIG_ADC_EMUL_ACQUISITION_THREAD_PRIO,
 			0, K_NO_WAIT);
@@ -544,7 +546,7 @@ static int adc_emul_init(const struct device *dev)
 }
 
 #define ADC_EMUL_INIT(_num)						\
-	static struct adc_driver_api adc_emul_api_##_num = {		\
+	static DEVICE_API(adc, adc_emul_api_##_num) = {			\
 		.channel_setup = adc_emul_channel_setup,		\
 		.read = adc_emul_read,					\
 		.ref_internal = DT_INST_PROP(_num, ref_internal_mv),	\
@@ -574,6 +576,6 @@ static int adc_emul_init(const struct device *dev)
 			      &adc_emul_data_##_num,			\
 			      &adc_emul_config_##_num, POST_KERNEL,	\
 			      CONFIG_ADC_INIT_PRIORITY,			\
-			      &adc_emul_api_##_num)
+			      &adc_emul_api_##_num);
 
-DT_INST_FOREACH_STATUS_OKAY(ADC_EMUL_INIT);
+DT_INST_FOREACH_STATUS_OKAY(ADC_EMUL_INIT)

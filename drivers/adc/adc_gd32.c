@@ -41,9 +41,9 @@ LOG_MODULE_REGISTER(adc_gd32, CONFIG_ADC_LOG_LEVEL);
 #define ADC1_NODE		DT_NODELABEL(adc1)
 #define ADC2_NODE		DT_NODELABEL(adc2)
 
-#define ADC0_ENABLE		DT_NODE_HAS_STATUS(ADC0_NODE, okay)
-#define ADC1_ENABLE		DT_NODE_HAS_STATUS(ADC1_NODE, okay)
-#define ADC2_ENABLE		DT_NODE_HAS_STATUS(ADC2_NODE, okay)
+#define ADC0_ENABLE		DT_NODE_HAS_STATUS_OKAY(ADC0_NODE)
+#define ADC1_ENABLE		DT_NODE_HAS_STATUS_OKAY(ADC1_NODE)
+#define ADC2_ENABLE		DT_NODE_HAS_STATUS_OKAY(ADC2_NODE)
 
 #ifndef	ADC0
 /**
@@ -356,7 +356,7 @@ static int adc_gd32_read_async(const struct device *dev,
 }
 #endif /* CONFIG_ADC_ASYNC */
 
-static struct adc_driver_api adc_gd32_driver_api = {
+static DEVICE_API(adc, adc_gd32_driver_api) = {
 	.channel_setup = adc_gd32_channel_setup,
 	.read = adc_gd32_read,
 #ifdef CONFIG_ADC_ASYNC
@@ -383,7 +383,7 @@ static int adc_gd32_init(const struct device *dev)
 #endif
 
 	(void)clock_control_on(GD32_CLOCK_CONTROLLER,
-			       (clock_control_subsys_t *)&cfg->clkid);
+			       (clock_control_subsys_t)&cfg->clkid);
 
 	(void)reset_line_toggle_dt(&cfg->reset);
 

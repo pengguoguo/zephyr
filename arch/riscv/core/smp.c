@@ -9,30 +9,47 @@
 #include <ksched.h>
 #include <zephyr/irq.h>
 #include <zephyr/sys/atomic.h>
+#include <zephyr/arch/riscv/irq.h>
+#include <zephyr/drivers/pm_cpu_ops.h>
+#include <zephyr/platform/hooks.h>
 
 volatile struct {
 	arch_cpustart_t fn;
 	void *arg;
 } riscv_cpu_init[CONFIG_MP_MAX_NUM_CPUS];
 
-volatile uintptr_t riscv_cpu_wake_flag;
+volatile uintptr_t __noinit riscv_cpu_wake_flag;
+volatile uintptr_t riscv_cpu_boot_flag;
 volatile void *riscv_cpu_sp;
 
-void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
+extern void __start(void);
+
+#if defined(CONFIG_RISCV_SOC_INTERRUPT_INIT)
+void soc_interrupt_init(void);
+#endif
+
+void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 		    arch_cpustart_t fn, void *arg)
 {
 	riscv_cpu_init[cpu_num].fn = fn;
 	riscv_cpu_init[cpu_num].arg = arg;
 
-	riscv_cpu_sp = Z_KERNEL_STACK_BUFFER(stack) + sz;
-	riscv_cpu_wake_flag = _kernel.cpus[cpu_num].arch.hartid;
+	riscv_cpu_sp = K_KERNEL_STACK_BUFFER(stack) + sz;
+	riscv_cpu_boot_flag = 0U;
 
-	while (riscv_cpu_wake_flag != 0U) {
-		;
+#ifdef CONFIG_PM_CPU_OPS
+	if (pm_cpu_on(cpu_num, (uintptr_t)&__start)) {
+		printk("Failed to boot secondary CPU %d\n", cpu_num);
+		return;
+	}
+#endif
+
+	while (riscv_cpu_boot_flag == 0U) {
+		riscv_cpu_wake_flag = _kernel.cpus[cpu_num].arch.hartid;
 	}
 }
 
-void z_riscv_secondary_cpu_init(int hartid)
+void arch_secondary_cpu_init(int hartid)
 {
 	unsigned int i;
 	unsigned int cpu_num = 0;
@@ -46,7 +63,7 @@ void z_riscv_secondary_cpu_init(int hartid)
 #ifdef CONFIG_SMP
 	_kernel.cpus[cpu_num].arch.online = true;
 #endif
-#ifdef CONFIG_THREAD_LOCAL_STORAGE
+#if defined(CONFIG_MULTITHREADING) && defined(CONFIG_THREAD_LOCAL_STORAGE)
 	__asm__("mv tp, %0" : : "r" (z_idle_threads[cpu_num].tls));
 #endif
 #if defined(CONFIG_RISCV_SOC_INTERRUPT_INIT)
@@ -56,77 +73,14 @@ void z_riscv_secondary_cpu_init(int hartid)
 	z_riscv_pmp_init();
 #endif
 #ifdef CONFIG_SMP
-	irq_enable(RISCV_MACHINE_SOFT_IRQ);
-#endif
+	irq_enable(RISCV_IRQ_MSOFT);
+#endif /* CONFIG_SMP */
+#ifdef CONFIG_PLIC_IRQ_AFFINITY
+	/* Enable on secondary cores so that they can respond to PLIC */
+	irq_enable(RISCV_IRQ_MEXT);
+#endif /* CONFIG_PLIC_IRQ_AFFINITY */
+#ifdef CONFIG_SOC_PER_CORE_INIT_HOOK
+	soc_per_core_init_hook();
+#endif /* CONFIG_SOC_PER_CORE_INIT_HOOK */
 	riscv_cpu_init[cpu_num].fn(riscv_cpu_init[cpu_num].arg);
 }
-
-#ifdef CONFIG_SMP
-
-#define MSIP(hartid) ((volatile uint32_t *)RISCV_MSIP_BASE)[hartid]
-
-static atomic_val_t cpu_pending_ipi[CONFIG_MP_MAX_NUM_CPUS];
-#define IPI_SCHED	BIT(0)
-#define IPI_FPU_FLUSH	BIT(1)
-
-void arch_sched_ipi(void)
-{
-	unsigned int key = arch_irq_lock();
-	unsigned int id = _current_cpu->id;
-	unsigned int num_cpus = arch_num_cpus();
-
-	for (unsigned int i = 0; i < num_cpus; i++) {
-		if (i != id && _kernel.cpus[i].arch.online) {
-			atomic_or(&cpu_pending_ipi[i], IPI_SCHED);
-			MSIP(_kernel.cpus[i].arch.hartid) = 1;
-		}
-	}
-
-	arch_irq_unlock(key);
-}
-
-#ifdef CONFIG_FPU_SHARING
-void z_riscv_flush_fpu_ipi(unsigned int cpu)
-{
-	atomic_or(&cpu_pending_ipi[cpu], IPI_FPU_FLUSH);
-	MSIP(_kernel.cpus[cpu].arch.hartid) = 1;
-}
-#endif
-
-static void ipi_handler(const void *unused)
-{
-	ARG_UNUSED(unused);
-
-	MSIP(csr_read(mhartid)) = 0;
-
-	atomic_val_t pending_ipi = atomic_clear(&cpu_pending_ipi[_current_cpu->id]);
-
-	if (pending_ipi & IPI_SCHED) {
-		z_sched_ipi();
-	}
-#ifdef CONFIG_FPU_SHARING
-	if (pending_ipi & IPI_FPU_FLUSH) {
-		/* disable IRQs */
-		csr_clear(mstatus, MSTATUS_IEN);
-		/* perform the flush */
-		z_riscv_flush_local_fpu();
-		/*
-		 * No need to re-enable IRQs here as long as
-		 * this remains the last case.
-		 */
-	}
-#endif
-}
-
-static int riscv_smp_init(const struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	IRQ_CONNECT(RISCV_MACHINE_SOFT_IRQ, 0, ipi_handler, NULL, 0);
-	irq_enable(RISCV_MACHINE_SOFT_IRQ);
-
-	return 0;
-}
-
-SYS_INIT(riscv_smp_init, PRE_KERNEL_2, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
-#endif /* CONFIG_SMP */

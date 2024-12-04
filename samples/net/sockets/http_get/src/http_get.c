@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if !defined(__ZEPHYR__) || defined(CONFIG_POSIX_API)
+#if !defined(__ZEPHYR__)
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -24,6 +24,8 @@
 #include <zephyr/net/tls_credentials.h>
 #include "ca_certificate.h"
 #endif
+
+#include "net_sample_common.h"
 
 #endif
 
@@ -55,11 +57,13 @@ void dump_addrinfo(const struct addrinfo *ai)
 	       ((struct sockaddr_in *)ai->ai_addr)->sin_port);
 }
 
-void main(void)
+int main(void)
 {
 	static struct addrinfo hints;
 	struct addrinfo *res;
 	int st, sock;
+
+	wait_for_network();
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 	tls_credential_add(CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE,
@@ -76,7 +80,7 @@ void main(void)
 
 	if (st != 0) {
 		printf("Unable to resolve address, quitting\n");
-		return;
+		return 0;
 	}
 
 #if 0
@@ -116,7 +120,7 @@ void main(void)
 
 		if (len < 0) {
 			printf("Error reading response\n");
-			return;
+			return 0;
 		}
 
 		if (len == 0) {
@@ -130,4 +134,5 @@ void main(void)
 	printf("\n");
 
 	(void)close(sock);
+	return 0;
 }

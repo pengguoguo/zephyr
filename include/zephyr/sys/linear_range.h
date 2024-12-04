@@ -18,6 +18,7 @@ extern "C" {
 
 /**
  * @defgroup linear_range Linear Range
+ * @ingroup utilities
  *
  * The linear range API maps values in a linear range to a range index. A linear
  * range can be fully defined by four parameters:
@@ -205,8 +206,8 @@ static inline int linear_range_get_index(const struct linear_range *r,
 	if (r->step == 0U) {
 		*idx = r->min_idx;
 	} else {
-		*idx = r->min_idx + ceiling_fraction((uint32_t)(val - r->min),
-						     r->step);
+		*idx = r->min_idx + DIV_ROUND_UP((uint32_t)(val - r->min),
+						 r->step);
 	}
 
 	return 0;
@@ -247,7 +248,7 @@ static inline int linear_range_group_get_index(const struct linear_range *r,
  * @brief Obtain index given a window of values.
  *
  * If the window of values does not intersect with the range, -EINVAL will be
- * returned. If intersection is partial (any of the window egdes does not
+ * returned. If intersection is partial (any of the window edges does not
  * intersect), the nearest index will be stored and -ERANGE returned.
  *
  * @param[in] r Linear range instance.
@@ -286,7 +287,7 @@ static inline int linear_range_get_win_index(const struct linear_range *r,
 		return 0;
 	}
 
-	*idx = r->min_idx + ceiling_fraction((uint32_t)(val_min - r->min), r->step);
+	*idx = r->min_idx + DIV_ROUND_UP((uint32_t)(val_min - r->min), r->step);
 	if ((r->min + r->step * (*idx - r->min_idx)) > val_max) {
 		return -EINVAL;
 	}

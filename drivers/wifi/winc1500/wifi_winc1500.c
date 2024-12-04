@@ -21,6 +21,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/net_context.h>
 #include <zephyr/net/net_offload.h>
 #include <zephyr/net/wifi_mgmt.h>
+#include <zephyr/net/conn_mgr/connectivity_wifi_mgmt.h>
 
 #include <zephyr/sys/printk.h>
 
@@ -158,11 +159,11 @@ struct winc1500_data {
 static struct winc1500_data w1500_data;
 
 #if LOG_LEVEL > LOG_LEVEL_OFF
-
 static void stack_stats(void)
 {
 	log_stack_usage(&winc1500_thread_data);
 }
+#endif /* LOG_LEVEL > LOG_LEVEL_OFF */
 
 static char *socket_error_string(int8_t err)
 {
@@ -285,8 +286,6 @@ static char *socket_message_to_string(uint8_t message)
 	}
 }
 
-#endif /* LOG_LEVEL > LOG_LEVEL_OFF */
-
 /**
  * This function is called when the socket is to be opened.
  */
@@ -330,7 +329,7 @@ static int winc1500_bind(struct net_context *context,
 			 const struct sockaddr *addr,
 			 socklen_t addrlen)
 {
-	SOCKET socket = (int)context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret;
 
 	/* FIXME atmel winc1500 don't support bind on null port */
@@ -338,8 +337,7 @@ static int winc1500_bind(struct net_context *context,
 		return 0;
 	}
 
-	ret = bind((int)context->offload_context, (struct sockaddr *)addr,
-		   addrlen);
+	ret = bind((intptr_t)context->offload_context, (struct sockaddr *)addr, addrlen);
 	if (ret) {
 		LOG_ERR("bind error %d %s!",
 			ret, socket_message_to_string(ret));
@@ -361,10 +359,10 @@ static int winc1500_bind(struct net_context *context,
  */
 static int winc1500_listen(struct net_context *context, int backlog)
 {
-	SOCKET socket = (int)context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret;
 
-	ret = listen((int)context->offload_context, backlog);
+	ret = listen((intptr_t)context->offload_context, backlog);
 	if (ret) {
 		LOG_ERR("listen error %d %s!",
 			ret, socket_error_string(ret));
@@ -390,7 +388,7 @@ static int winc1500_connect(struct net_context *context,
 			    int32_t timeout,
 			    void *user_data)
 {
-	SOCKET socket = (int)context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret;
 
 	w1500_data.socket_data[socket].connect_cb = cb;
@@ -421,7 +419,7 @@ static int winc1500_accept(struct net_context *context,
 			   int32_t timeout,
 			   void *user_data)
 {
-	SOCKET socket = (int)context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret;
 
 	w1500_data.socket_data[socket].accept_cb = cb;
@@ -453,7 +451,7 @@ static int winc1500_send(struct net_pkt *pkt,
 			 void *user_data)
 {
 	struct net_context *context = pkt->context;
-	SOCKET socket = (int)context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret = 0;
 	struct net_buf *buf;
 
@@ -493,7 +491,7 @@ static int winc1500_sendto(struct net_pkt *pkt,
 			   void *user_data)
 {
 	struct net_context *context = pkt->context;
-	SOCKET socket = (int)context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret = 0;
 	struct net_buf *buf;
 
@@ -557,7 +555,7 @@ static int winc1500_recv(struct net_context *context,
 			 int32_t timeout,
 			 void *user_data)
 {
-	SOCKET socket = (int) context->offload_context;
+	SOCKET socket = (intptr_t)context->offload_context;
 	int ret;
 
 	w1500_data.socket_data[socket].recv_cb = cb;
@@ -589,7 +587,7 @@ static int winc1500_recv(struct net_context *context,
  */
 static int winc1500_put(struct net_context *context)
 {
-	SOCKET sock = (int) context->offload_context;
+	SOCKET sock = (intptr_t)context->offload_context;
 	struct socket_data *sd = &w1500_data.socket_data[sock];
 	int ret;
 
@@ -641,6 +639,7 @@ static void handle_wifi_con_state_changed(void *pvMsg)
 		LOG_DBG("Connected (%u)", pstrWifiState->u8ErrCode);
 
 		w1500_data.connected = true;
+		w1500_data.connecting = false;
 		wifi_mgmt_raise_connect_result_event(w1500_data.iface, 0);
 
 		break;
@@ -773,8 +772,9 @@ static void winc1500_wifi_cb(uint8_t message_type, void *pvMsg)
 	default:
 		break;
 	}
-
+#if LOG_LEVEL > LOG_LEVEL_OFF
 	stack_stats();
+#endif /* LOG_LEVEL > LOG_LEVEL_OFF */
 }
 
 static void handle_socket_msg_connect(struct socket_data *sd, void *pvMsg)
@@ -898,10 +898,9 @@ static void handle_socket_msg_accept(struct socket_data *sd, void *pvMsg)
 		 * context as well. The new context gives us another socket
 		 * so we have to close that one first.
 		 */
-		winc1500_close((int)a_sd->context->offload_context);
+		winc1500_close((intptr_t)a_sd->context->offload_context);
 
-		a_sd->context->offload_context =
-				(void *)((int)accept_msg->sock);
+		a_sd->context->offload_context = (void *)((intptr_t)accept_msg->sock);
 		/** The iface is reset when getting a new context. */
 		a_sd->context->iface = sd->context->iface;
 
@@ -962,12 +961,17 @@ static void winc1500_socket_cb(SOCKET sock, uint8 message, void *pvMsg)
 
 		break;
 	}
-
+#if LOG_LEVEL > LOG_LEVEL_OFF
 	stack_stats();
+#endif /* LOG_LEVEL > LOG_LEVEL_OFF */
 }
 
-static void winc1500_thread(void)
+static void winc1500_thread(void *p1, void *p2, void *p3)
 {
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
 	while (1) {
 		while (m2m_wifi_handle_events(NULL) != 0) {
 		}
@@ -976,8 +980,12 @@ static void winc1500_thread(void)
 	}
 }
 
-static int winc1500_mgmt_scan(const struct device *dev, scan_result_cb_t cb)
+static int winc1500_mgmt_scan(const struct device *dev,
+			      struct wifi_scan_params *params,
+			      scan_result_cb_t cb)
 {
+	ARG_UNUSED(params);
+
 	if (w1500_data.scan_cb) {
 		return -EALREADY;
 	}
@@ -1099,13 +1107,22 @@ static void winc1500_iface_init(struct net_if *iface)
 	w1500_data.iface = iface;
 }
 
+static enum offloaded_net_if_types winc1500_get_wifi_type(void)
+{
+	return L2_OFFLOADED_NET_IF_TYPE_WIFI;
+}
+
+static const struct wifi_mgmt_ops winc1500_mgmt_ops = {
+	.scan		= winc1500_mgmt_scan,
+	.connect	= winc1500_mgmt_connect,
+	.disconnect	= winc1500_mgmt_disconnect,
+	.ap_enable	= winc1500_mgmt_ap_enable,
+	.ap_disable	= winc1500_mgmt_ap_disable,
+};
 static const struct net_wifi_mgmt_offload winc1500_api = {
 	.wifi_iface.iface_api.init = winc1500_iface_init,
-	.scan			   = winc1500_mgmt_scan,
-	.connect		   = winc1500_mgmt_connect,
-	.disconnect		   = winc1500_mgmt_disconnect,
-	.ap_enable		   = winc1500_mgmt_ap_enable,
-	.ap_disable		   = winc1500_mgmt_ap_disable,
+	.wifi_iface.get_type = winc1500_get_wifi_type,
+	.wifi_mgmt_api = &winc1500_mgmt_ops,
 };
 
 static int winc1500_init(const struct device *dev)
@@ -1155,7 +1172,7 @@ static int winc1500_init(const struct device *dev)
 	/* monitoring thread for winc wifi callbacks */
 	k_thread_create(&winc1500_thread_data, winc1500_stack,
 			CONFIG_WIFI_WINC1500_THREAD_STACK_SIZE,
-			(k_thread_entry_t)winc1500_thread, NULL, NULL, NULL,
+			winc1500_thread, NULL, NULL, NULL,
 			K_PRIO_COOP(CONFIG_WIFI_WINC1500_THREAD_PRIO),
 			0, K_NO_WAIT);
 	k_thread_name_set(&winc1500_thread_data, "WINC1500");
@@ -1169,3 +1186,5 @@ NET_DEVICE_OFFLOAD_INIT(winc1500, CONFIG_WIFI_WINC1500_NAME,
 			winc1500_init, NULL, &w1500_data, NULL,
 			CONFIG_WIFI_INIT_PRIORITY, &winc1500_api,
 			CONFIG_WIFI_WINC1500_MAX_PACKET_SIZE);
+
+CONNECTIVITY_WIFI_MGMT_BIND(winc1500);
